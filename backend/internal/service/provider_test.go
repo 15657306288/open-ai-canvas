@@ -276,7 +276,7 @@ func TestRunVideoTaskUsesNewAPIForAnyVideoModel(t *testing.T) {
 	}
 }
 
-func TestRunVideoTaskUsesNestedResultURLBeforeContentEndpoint(t *testing.T) {
+func TestRunVideoTaskUsesNestedURLBeforeResultURL(t *testing.T) {
 	t.Setenv("CANVAS_ALLOW_PRIVATE_UPSTREAMS", "true")
 	paths := make([]string, 0, 3)
 	var server *httptest.Server
@@ -288,7 +288,7 @@ func TestRunVideoTaskUsesNestedResultURLBeforeContentEndpoint(t *testing.T) {
 			_, _ = w.Write([]byte(`{"data":{"task_id":"video-1","status":"queued"}}`))
 		case "GET /v1/videos/video-1":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"code":"success","data":{"task_id":"video-1","status":"SUCCESS","result_url":"` + server.URL + `/v1/videos/video-1/content","data":{"status":"completed","video_url":"` + server.URL + `/files/video.mp4"}}}`))
+			_, _ = w.Write([]byte(`{"code":"success","data":{"task_id":"video-1","status":"SUCCESS","result_url":"` + server.URL + `/v1/videos/video-1/content","data":{"status":"completed","url":"` + server.URL + `/files/video.mp4"}}}`))
 		case "GET /files/video.mp4":
 			if authorization := r.Header.Get("Authorization"); authorization != "" {
 				t.Errorf("file Authorization = %q, want empty", authorization)

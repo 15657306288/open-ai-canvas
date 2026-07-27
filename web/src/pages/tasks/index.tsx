@@ -17,10 +17,10 @@ import { formatCredits } from "@/constant/credits";
 import { listProjects, type ProjectSummary } from "@/services/api/projects";
 
 const taskTableClassName = "app-data-table";
-type TaskStatusFilter = "failed" | "active" | "succeeded";
+type TaskStatusFilter = "all" | "failed" | "active" | "succeeded";
 
 function taskStatusFilter(value: string | null): TaskStatusFilter {
-    return value === "active" || value === "succeeded" ? value : "failed";
+    return value === "failed" || value === "active" || value === "succeeded" ? value : "all";
 }
 
 export default function TasksPage() {
@@ -61,6 +61,7 @@ export default function TasksPage() {
         return { label: projectName ? `${project.title || "未命名画布"} · ${projectName}` : project.title || "未命名画布", value: project.id };
     }), [domainProjectNameById, projects]);
     const filteredTasks = useMemo(() => tasks.filter((task) => {
+        if (statusFilter === "all") return true;
         if (statusFilter === "active") return task.status === "queued" || task.status === "running";
         if (statusFilter === "failed") return task.status === "failed" || task.status === "cancelled";
         if (statusFilter === "succeeded") return task.status === "succeeded";
@@ -178,6 +179,10 @@ export default function TasksPage() {
         try {
             const next = action === "retry" ? await retryGenerationTask(id) : await cancelGenerationTask(id);
             setTasks((items) => items.map((item) => (item.id === id ? next : item)));
+            if (action === "retry") {
+                setStatusFilter("active");
+                setPage(1);
+            }
             message.success(action === "retry" ? "任务已重新入队" : "任务已取消");
         } catch (error) {
             message.error(error instanceof Error ? error.message : "操作失败");
@@ -223,6 +228,8 @@ export default function TasksPage() {
                 });
                 setTasks((items) => [task, ...items]);
             }
+            setStatusFilter("active");
+            setPage(1);
             setCreateOpen(false);
             form.resetFields();
             message.success("任务已创建");
@@ -364,6 +371,7 @@ export default function TasksPage() {
                         value={statusFilter}
                         onChange={(value) => { setStatusFilter(value as typeof statusFilter); setPage(1); }}
                         options={[
+                            { label: `全部 ${tasks.length}`, value: "all" },
                             { label: `需要处理 ${tasks.filter((task) => task.status === "failed" || task.status === "cancelled").length}`, value: "failed" },
                             { label: `运行中 ${tasks.filter((task) => task.status === "queued" || task.status === "running").length}`, value: "active" },
                             { label: `已完成 ${tasks.filter((task) => task.status === "succeeded").length}`, value: "succeeded" },
@@ -536,6 +544,7 @@ function taskAttentionReason(task: GenerationTask) {
 }
 
 function taskEmptyState(status: TaskStatusFilter) {
+    if (status === "all") return { title: "还没有任务", description: "新提交的生成会在这里显示状态和实时进度。" };
     if (status === "active") return { title: "没有运行中的任务", description: "新提交的生成会在这里显示排队状态和实时进度。" };
     if (status === "succeeded") return { title: "还没有已完成任务", description: "生成成功后，结果预览和积分消耗会保留在这里。" };
     return { title: "目前没有需要处理的任务", description: "失败或取消的生成会出现在这里，并提供原因和可用操作。" };

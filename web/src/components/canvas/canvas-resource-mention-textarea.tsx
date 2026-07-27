@@ -5,7 +5,7 @@ import { FileText, Image as ImageIcon, Music2, Pencil, Sparkles, UserRound, Vide
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
-import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
+import { canvasResourceMentionToken, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { CanvasNodeType } from "@/types/canvas";
 
 type MentionState = {
@@ -142,7 +142,7 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
         if (!mention) return;
         const selection = useRichEditor ? getEditableSelection(editorRef.current) : null;
         const end = selection?.end ?? textareaRef.current?.selectionStart ?? value.length;
-        const insertText = `@${reference.label} `;
+        const insertText = `${canvasResourceMentionToken(reference)} `;
         const next = `${value.slice(0, mention.start)}${insertText}${value.slice(end)}`;
         closeMention();
         updateValue(next, mention.start + insertText.length);
@@ -371,9 +371,9 @@ function createInlineMentionChip(reference: CanvasResourceReference, token: stri
 }
 
 function createInlinePreview(reference: CanvasResourceReference) {
-    if ((reference.kind === "image" || reference.kind === "video") && reference.previewUrl) {
-        const media = document.createElement(reference.kind === "image" ? "img" : "video");
-        media.className = `size-[1.18em] shrink-0 rounded-[0.24em] ${reference.kind === "video" ? "bg-black " : ""}object-cover`;
+    if ((reference.kind === "image" || reference.kind === "video" || reference.kind === "character") && reference.previewUrl) {
+        const media = document.createElement(reference.kind === "video" ? "video" : "img");
+        media.className = `size-[1.18em] shrink-0 rounded-[0.24em] ${reference.kind === "video" ? "bg-black object-cover" : reference.kind === "character" ? "bg-black/5 object-contain" : "object-cover"}`;
         media.setAttribute("src", reference.previewUrl);
         media.setAttribute("alt", "");
         if (media instanceof HTMLVideoElement) {
@@ -384,7 +384,7 @@ function createInlinePreview(reference: CanvasResourceReference) {
     }
     const fallback = document.createElement("span");
     fallback.className = "grid size-[1.18em] shrink-0 place-items-center rounded-[0.24em] bg-current/10";
-    fallback.textContent = reference.sourceType === CanvasNodeType.Drawing ? "✎" : reference.kind === "character" ? "角" : reference.kind === "audio" ? "♪" : reference.kind === "video" ? "▶" : reference.kind === "image" ? "□" : reference.kind === "skill" ? "✦" : "T";
+    fallback.textContent = reference.sourceType === CanvasNodeType.Drawing ? "✎" : reference.kind === "audio" ? "♪" : reference.kind === "video" ? "▶" : reference.kind === "image" ? "□" : reference.kind === "skill" ? "✦" : "";
     return fallback;
 }
 
@@ -449,6 +449,7 @@ function MentionMenu({ anchor, references, activeIndex, theme, onSelect }: { anc
 function ReferencePreview({ reference }: { reference: CanvasResourceReference }) {
     if (reference.kind === "image" && reference.previewUrl) return <img src={reference.previewUrl} alt="" className="size-9 rounded-md object-cover" />;
     if (reference.kind === "video" && reference.previewUrl) return <video src={reference.previewUrl} className="size-9 rounded-md bg-black object-cover" muted preload="metadata" />;
+    if (reference.kind === "character" && reference.previewUrl) return <img src={reference.previewUrl} alt="" className="size-9 rounded-md bg-black/5 object-contain" />;
     if (reference.kind === "skill") {
         return (
             <span className="grid size-9 shrink-0 place-items-center rounded-md bg-cyan-500/12 text-cyan-600 dark:text-cyan-200">
@@ -466,7 +467,12 @@ function ReferencePreview({ reference }: { reference: CanvasResourceReference })
 
 function splitMentionText(value: string, references: CanvasResourceReference[]) {
     if (!references.length || !value) return value ? [{ type: "text", text: value } as MentionTextPart] : [];
-    const referenceByToken = new Map(references.map((reference) => [`@${reference.label}`, reference]));
+    const referenceByToken = new Map<string, { reference: CanvasResourceReference; serializedToken: string }>();
+    references.forEach((reference) => {
+        const serializedToken = canvasResourceMentionToken(reference);
+        referenceByToken.set(serializedToken, { reference, serializedToken });
+        referenceByToken.set(`@${reference.label}`, { reference, serializedToken });
+    });
     const tokens = [...referenceByToken.keys()].sort((a, b) => b.length - a.length);
     const parts: MentionTextPart[] = [];
     let index = 0;
@@ -479,7 +485,8 @@ function splitMentionText(value: string, references: CanvasResourceReference[]) 
             index = end;
             continue;
         }
-        parts.push({ type: "mention", token, reference: referenceByToken.get(token)! });
+        const matched = referenceByToken.get(token)!;
+        parts.push({ type: "mention", token: matched.serializedToken, reference: matched.reference });
         index += token.length;
     }
     return parts;

@@ -3,7 +3,7 @@ import { imageReferenceLabel } from "@/lib/image-reference-prompt";
 import { seedanceReferenceLabel } from "@/lib/seedance-video";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
-import { CanvasNodeType, type CanvasConnection, type CanvasNodeData } from "@/types/canvas";
+import { CanvasNodeType, type CanvasConnection, type CanvasGenerationMode, type CanvasNodeData } from "@/types/canvas";
 import { getGenerationResourceNodes } from "@/lib/canvas/canvas-resource-references";
 import { resolveCanvasDrawingReference } from "@/lib/canvas/canvas-drawing-reference";
 import { compileCharacterReferencePrompt } from "@/lib/canvas/canvas-character-reference";
@@ -20,6 +20,11 @@ export type ResolvedCharacterVoice = {
     versionId: string;
     characterName: string;
     voiceKey: string;
+    sampleResourceId?: string;
+    language?: string;
+    voiceAge?: string;
+    timbre?: string;
+    deliveryInstructions?: string;
     instructions: string;
 };
 
@@ -54,7 +59,8 @@ export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData
     const inputs = buildNodeGenerationInputs(nodeId, nodes, connections);
     const sourceNode = nodes.find((node) => node.id === nodeId);
     const storyboardInputs = getConnectedStoryboardRows(nodeId, nodes, connections);
-    if (sourceNode?.type === CanvasNodeType.Config && Boolean(sourceNode.metadata?.composerContent?.trim())) {
+    const hasExplicitNodeMention = /@\[node:[^\]]+\]/.test(normalizeLegacyNodeMentions(prompt, inputs));
+    if ((sourceNode?.type === CanvasNodeType.Config && Boolean(sourceNode.metadata?.composerContent?.trim())) || hasExplicitNodeMention) {
         return buildComposerGenerationContext(inputs, prompt);
     }
 
@@ -104,6 +110,7 @@ function removeTrailingInputBlocks(prompt: string, inputs: NodeGenerationInput[]
 }
 
 function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: string): NodeGenerationContext {
+    const normalizedPrompt = normalizeLegacyNodeMentions(prompt, inputs);
     const inputByNodeId = new Map(inputs.map((input) => [input.nodeId, input]));
     const selectedInputs: NodeGenerationInput[] = [];
     const labelByNodeId = new Map<string, string>();
@@ -113,10 +120,10 @@ function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: s
     let lastIndex = 0;
     let nextPrompt = "";
 
-    for (const match of prompt.matchAll(/@\[node:([^\]]+)\]/g)) {
+    for (const match of normalizedPrompt.matchAll(/@\[node:([^\]]+)\]/g)) {
         if (match.index === undefined) continue;
         hasToken = true;
-        nextPrompt += prompt.slice(lastIndex, match.index);
+        nextPrompt += normalizedPrompt.slice(lastIndex, match.index);
         const input = inputByNodeId.get(match[1]);
         if (input) {
             let label = labelByNodeId.get(input.nodeId);
@@ -132,7 +139,7 @@ function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: s
         lastIndex = match.index + match[0].length;
     }
 
-    nextPrompt += prompt.slice(lastIndex);
+    nextPrompt += normalizedPrompt.slice(lastIndex);
     if (textBlocks.length) nextPrompt = `${nextPrompt.trim()}\n\n${textBlocks.join("\n\n")}`;
     const referenceImages = selectedInputs.map((input) => input.image).filter((image): image is ReferenceImage => Boolean(image));
     const referenceVideos = selectedInputs.map((input) => input.video).filter((video): video is ReferenceVideo => Boolean(video));
@@ -168,6 +175,39 @@ function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: s
         videoCount: referenceVideos.length,
         audioCount: referenceAudios.length,
     };
+}
+
+// 旧画布保存的是 @角色1 等显示标签；生成时升级为稳定节点 Token，避免标题或排序变化后引用错位。
+function normalizeLegacyNodeMentions(prompt: string, inputs: NodeGenerationInput[]) {
+    const counts = { image: 0, drawing: 0, video: 0, audio: 0, text: 0, character: 0 };
+    const labels = inputs.map((input) => {
+        const kind = input.sourceKind === "drawing" ? "drawing" : input.type;
+        return { label: generationLabel(kind, counts[kind]++), nodeId: input.nodeId };
+    }).sort((a, b) => b.label.length - a.label.length);
+    let next = prompt;
+    labels.forEach(({ label, nodeId }) => {
+        const token = `@${label}`;
+        let cursor = 0;
+        let result = "";
+        while (cursor < next.length) {
+            const found = next.indexOf(token, cursor);
+            if (found < 0) {
+                result += next.slice(cursor);
+                break;
+            }
+            const end = found + token.length;
+            result += next.slice(cursor, found);
+            result += hasMentionBoundary(next, end) ? `@[node:${nodeId}]` : token;
+            cursor = end;
+        }
+        next = result;
+    });
+    return next;
+}
+
+function hasMentionBoundary(value: string, index: number) {
+    const char = value[index];
+    return !char || /\s|[,.!?;:，。！？；：、)\]}】）]/.test(char);
 }
 
 export function buildNodeGenerationInputs(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]): NodeGenerationInput[] {
@@ -238,7 +278,7 @@ export function buildNodeResponseMessages(context: NodeGenerationContext): AiTex
     ];
 }
 
-export async function hydrateNodeGenerationContext(context: NodeGenerationContext, projectId: string, domainProjectId?: string) {
+export async function hydrateNodeGenerationContext(context: NodeGenerationContext, projectId: string, domainProjectId?: string, mode?: CanvasGenerationMode, includeCharacterVoiceSamples = false) {
     const { imageToDataUrl } = await import("@/services/image-storage");
     let referenceImages = await Promise.all(
         context.referenceImages.map(async (image) => {
@@ -249,7 +289,7 @@ export async function hydrateNodeGenerationContext(context: NodeGenerationContex
     if (!context.characterReferences.length) return { ...context, referenceImages };
     if (!domainProjectId) throw new Error("角色引用未关联短剧项目，无法解析角色版本");
     const { getProjectCharacter } = await import("@/services/api/projects");
-    const { resourceStorageKey } = await import("@/services/api/resources");
+    const { resourceFileUrl, resourceIdFromStorageKey, resourceStorageKey } = await import("@/services/api/resources");
     const details = await Promise.all(context.characterReferences.map((reference) => getProjectCharacter(domainProjectId, reference.assetId)));
     const remainingBudget = 9 - referenceImages.length;
     const selected = details.flatMap((detail) => {
@@ -274,8 +314,56 @@ export async function hydrateNodeGenerationContext(context: NodeGenerationContex
     referenceImages = [...referenceImages, ...hydratedCharacterImages];
     const characterBlocks = details.map((detail) => compileCharacterReferencePrompt(detail.asset.title, detail.character.definition));
     const resolvedCharacterVersions = details.map((detail) => ({ assetId: detail.asset.id, versionId: detail.character.versionId }));
-    const resolvedCharacterVoices = details.flatMap((detail): ResolvedCharacterVoice[] => detail.character.voice ? [{ assetId: detail.asset.id, versionId: detail.character.versionId, characterName: detail.asset.title, voiceKey: detail.character.voice.profile.voiceKey, instructions: compileResolvedVoiceInstructions(detail.character.definition, detail.character.voice.instructions) }] : []);
-    return { ...context, prompt: [context.prompt.trim(), ...characterBlocks].filter(Boolean).join("\n\n"), referenceImages, resolvedCharacterVersions, resolvedCharacterVoices };
+    const resolvedCharacterVoices = details.flatMap((detail): ResolvedCharacterVoice[] => {
+        const voice = detail.character.voice;
+        if (!voice) return [];
+        const language = stringField(detail.character.definition.voiceLanguage) || stringField(voice.profile.language);
+        const voiceAge = stringField(detail.character.definition.voiceAge);
+        const timbre = stringField(detail.character.definition.voiceTimbre) || stringField(voice.profile.timbre);
+        const deliveryInstructions = stringField(voice.instructions);
+        const sampleResourceId = stringField(voice.profile.sampleResourceId);
+        return [{
+            assetId: detail.asset.id,
+            versionId: detail.character.versionId,
+            characterName: detail.asset.title,
+            voiceKey: stringField(voice.profile.voiceKey),
+            sampleResourceId: sampleResourceId || undefined,
+            language: language || undefined,
+            voiceAge: voiceAge || undefined,
+            timbre: timbre || undefined,
+            deliveryInstructions: deliveryInstructions || undefined,
+            instructions: [language && `语言与口音：${language}`, voiceAge && `声音年龄感：${voiceAge}`, timbre && `音色气质：${timbre}`, deliveryInstructions].filter(Boolean).join("；"),
+        }];
+    });
+    const usedAudioResourceIds = new Set(context.referenceAudios.map((audio) => resourceIdFromStorageKey(audio.storageKey)).filter(Boolean));
+    const voiceSamples: ResolvedCharacterVoice[] = [];
+    // 视频模型接收声音样本；独立配音任务仍通过 voiceKey 选音色，不能把两种协议混用。
+    if (mode === "video" && includeCharacterVoiceSamples) {
+        resolvedCharacterVoices.forEach((voice) => {
+            if (!voice.sampleResourceId || usedAudioResourceIds.has(voice.sampleResourceId)) return;
+            usedAudioResourceIds.add(voice.sampleResourceId);
+            voiceSamples.push(voice);
+        });
+    }
+    if (context.referenceAudios.length + voiceSamples.length > 3) throw new Error(`当前模型参考音频容量不足：已连接 ${context.referenceAudios.length} 个音频，角色声音样本还需要 ${voiceSamples.length} 个名额`);
+    const characterVoiceAudios = voiceSamples.map((voice) => ({
+        id: `character-voice-${voice.assetId}`,
+        name: `${voice.characterName}-声音样本.mp3`,
+        type: "audio/mpeg",
+        url: resourceFileUrl(voice.sampleResourceId!),
+        storageKey: resourceStorageKey(voice.sampleResourceId!),
+    } satisfies ReferenceAudio));
+    const referenceAudios = [...context.referenceAudios, ...characterVoiceAudios];
+    const voiceBlocks = mode === "video" ? resolvedCharacterVoices.map(compileResolvedVoicePrompt) : [];
+    return {
+        ...context,
+        prompt: [context.prompt.trim(), ...characterBlocks, ...voiceBlocks].filter(Boolean).join("\n\n"),
+        referenceImages,
+        referenceAudios,
+        resolvedCharacterVersions,
+        resolvedCharacterVoices,
+        audioCount: referenceAudios.length,
+    };
 }
 
 function readNodeTextInput(node: CanvasNodeData) {
@@ -293,16 +381,18 @@ function preferredCharacterRepresentation(representations: Array<{ id: string; r
     return ["turnaround_sheet", "primary", "front", "side", "back"].map((role) => representations.find((item) => item.role === role)).find(Boolean);
 }
 
-function compileResolvedVoiceInstructions(definition: Record<string, unknown>, bindingInstructions: string) {
-    const fields: Array<[string, unknown]> = [
-        ["语言与口音", definition.voiceLanguage],
-        ["声音年龄感", definition.voiceAge],
-        ["音色气质", definition.voiceTimbre],
-    ];
-    const characterInstructions = fields
-        .map(([label, value]) => typeof value === "string" && value.trim() ? `${label}：${value.trim()}` : "")
-        .filter(Boolean);
-    return [...characterInstructions, bindingInstructions.trim()].filter(Boolean).join("；");
+function compileResolvedVoicePrompt(voice: ResolvedCharacterVoice) {
+    return [
+        `【角色声音：${voice.characterName}】`,
+        voice.language && `语言与口音：${voice.language}`,
+        voice.voiceAge && `声音年龄感：${voice.voiceAge}`,
+        voice.timbre && `音色气质：${voice.timbre}`,
+        voice.deliveryInstructions && `表演与朗读要求：${voice.deliveryInstructions}`,
+    ].filter(Boolean).join("\n");
+}
+
+function stringField(value: unknown) {
+    return typeof value === "string" ? value.trim() : "";
 }
 
 function readSkillInput(node: CanvasNodeData) {

@@ -19,6 +19,7 @@ import {
     resolveStoredReferenceImages,
     runBackendCanvasGenerationTask,
     sourceNodeReferenceImages,
+    supportsVideoReferenceAudio,
 } from "@/lib/canvas/canvas-project-generation";
 import { expandSkillMentions } from "@/lib/canvas/canvas-skill-mentions";
 import { generationFailureMetadata, unchangedModeratedPrompt } from "@/lib/generation-error";
@@ -57,11 +58,15 @@ export function useCanvasGenerationRetry({ projectId, domainProjectId, activated
 
     return useCallback(
         async (node: CanvasNodeData) => {
+            const retryMode = retryModeForNode(node.type);
+            if (!retryMode) {
+                message.warning("当前节点不能使用通用生成重试");
+                return;
+            }
             const sourceNode = findRetrySourceNode(node.id, nodesRef.current, connectionsRef.current) || node;
             const batchRoot = node.metadata?.batchRootId ? nodesRef.current.find((item) => item.id === node.metadata?.batchRootId) : null;
             const savedImageMetadata = node.type === CanvasNodeType.Image ? { ...batchRoot?.metadata, ...node.metadata } : undefined;
             const hasSavedImageMetadata = Boolean(savedImageMetadata?.generationType);
-            const retryMode: CanvasNodeGenerationMode = node.type === CanvasNodeType.Text ? "text" : node.type === CanvasNodeType.Video ? "video" : node.type === CanvasNodeType.Audio ? "audio" : "image";
             let generationConfig =
                 hasSavedImageMetadata && savedImageMetadata
                     ? { ...effectiveConfig, model: savedImageMetadata.model || effectiveConfig.imageModel || effectiveConfig.model, quality: savedImageMetadata.quality || effectiveConfig.quality, size: savedImageMetadata.size || effectiveConfig.size, transparentBackground: (savedImageMetadata.transparentBackground || effectiveConfig.transparentBackground) === "true" ? "true" : "false", count: "1" }
@@ -79,7 +84,7 @@ export function useCanvasGenerationRetry({ projectId, domainProjectId, activated
             let rawContext: Awaited<ReturnType<typeof hydrateNodeGenerationContext>> | null;
             try {
                 const baseContext = buildNodeGenerationContext(sourceNode.id, nodesRef.current, connectionsRef.current, retryPromptSource);
-                rawContext = hasSavedImageMetadata && !baseContext.characterReferences.length ? null : await hydrateNodeGenerationContext(baseContext, projectId, domainProjectId);
+                rawContext = hasSavedImageMetadata && !baseContext.characterReferences.length ? null : await hydrateNodeGenerationContext(baseContext, projectId, domainProjectId, retryMode, retryMode === "video" && supportsVideoReferenceAudio(generationConfig));
             } catch (error) {
                 const failure = generationFailureMetadata(error, retryPromptSource);
                 message.error(failure.errorDetails);
@@ -141,7 +146,7 @@ export function useCanvasGenerationRetry({ projectId, domainProjectId, activated
                 }
                 if (node.type === CanvasNodeType.Video) {
                     const videoGenerationMetadata = buildVideoGenerationMetadata(node, videoContext);
-                    const result = await runBackendCanvasGenerationTask({ projectId, nodeId: node.id, mode: "video", prompt, config: generationConfig, referenceImages: videoContext?.referenceImages || [], referenceVideos: videoContext?.referenceVideos || [], referenceAudios: videoContext?.referenceAudios || [], signal: controller.signal, metadata: { retry: true, sourceNodeId: sourceNode.id, resolvedCharacterVersions: context?.resolvedCharacterVersions || [], ...videoGenerationMetadata }, onTaskCreated: (task) => bindGenerationTask(node.id, task) });
+                    const result = await runBackendCanvasGenerationTask({ projectId, nodeId: node.id, mode: "video", prompt, config: generationConfig, referenceImages: videoContext?.referenceImages || [], referenceVideos: videoContext?.referenceVideos || [], referenceAudios: videoContext?.referenceAudios || [], signal: controller.signal, metadata: { retry: true, sourceNodeId: sourceNode.id, resolvedCharacterVersions: context?.resolvedCharacterVersions || [], resolvedCharacterVoices: context?.resolvedCharacterVoices || [], ...videoGenerationMetadata }, onTaskCreated: (task) => bindGenerationTask(node.id, task) });
                     if (!result.video?.dataUrl) throw new Error("后端任务没有返回视频");
                     const video = await storeGeneratedVideo({ url: result.video.dataUrl, mimeType: result.video.mimeType || "video/mp4" });
                     const videoSize = fitNodeSize(video.width || node.width, video.height || node.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
@@ -202,6 +207,15 @@ export function useCanvasGenerationRetry({ projectId, domainProjectId, activated
         },
         [activatedSkills, bindGenerationTask, connectionsRef, domainProjectId, effectiveConfig, finishGenerationRequest, isAiConfigReady, message, nodesRef, projectId, setNodes, setRunningNodeId, startGenerationRequest],
     );
+}
+
+// 生成类型必须由明确的节点契约决定，未知节点不能降级成图片任务。
+function retryModeForNode(type: CanvasNodeType): CanvasNodeGenerationMode | null {
+    if (type === CanvasNodeType.Text) return "text";
+    if (type === CanvasNodeType.Image) return "image";
+    if (type === CanvasNodeType.Video) return "video";
+    if (type === CanvasNodeType.Audio) return "audio";
+    return null;
 }
 
 function markMissingReferences(nodeId: string, setNodes: Dispatch<SetStateAction<CanvasNodeData[]>>) {

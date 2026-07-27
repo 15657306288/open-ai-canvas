@@ -103,11 +103,15 @@ export function useCanvasConnectionController({
         setContextMenu(null);
     }, [connectionsRef, message, nodesRef, setConnections, setContextMenu, setNodes]);
 
-    const createConnectedNode = useCallback(async (type: CanvasNodeType.Image | CanvasNodeType.Text | CanvasNodeType.Config | CanvasNodeType.Video | CanvasNodeType.Audio | CanvasNodeType.Drawing, pending: PendingConnectionCreate) => {
+    const createConnectedNode = useCallback(async (type: CanvasNodeType.Image | CanvasNodeType.Text | CanvasNodeType.Script | CanvasNodeType.Config | CanvasNodeType.Video | CanvasNodeType.Audio | CanvasNodeType.Drawing, pending: PendingConnectionCreate) => {
         const storyboardRow = type === CanvasNodeType.Video ? storyboardRowFromHandle(nodesRef.current, pending.connection.nodeId, pending.connection.handleId) : undefined;
         const videoPrompt = storyboardRow ? (storyboardRow.videoMotionPrompt || storyboardRow.plotDescription).trim() : "";
+        const sourceNode = pending.connection.handleType === "source" ? nodesRef.current.find((node) => node.id === pending.connection.nodeId) : undefined;
+        const scriptPrompt = type === CanvasNodeType.Script && sourceNode?.type === CanvasNodeType.Text ? (sourceNode.metadata?.content || sourceNode.metadata?.prompt || "").trim() : "";
         const metadata = type === CanvasNodeType.Config
             ? { model: effectiveConfig.imageModel || effectiveConfig.model, size: effectiveConfig.size, count: getGenerationCount(effectiveConfig.canvasImageCount || effectiveConfig.count) }
+            : type === CanvasNodeType.Script && scriptPrompt
+              ? { prompt: scriptPrompt, composerContent: scriptPrompt }
             : type === CanvasNodeType.Video && storyboardRow
               ? { prompt: videoPrompt, composerContent: videoPrompt, generationMode: "video" as const, videoEditOperation: "text_to_video" as const, workflowKind: "shot" as const, workflowTitle: `镜头 ${storyboardRow.shotNumber} 视频`, shotIndex: storyboardRow.shotNumber, seconds: String(storyboardRow.durationSeconds), status: NODE_STATUS_IDLE }
               : undefined;
@@ -119,9 +123,9 @@ export function useCanvasConnectionController({
             return;
         }
         if (type === CanvasNodeType.Drawing) {
-            const sourceNode = nodesRef.current.find((node) => node.id === pending.connection.nodeId);
-            const sourceUrl = sourceNode?.type === CanvasNodeType.Image ? sourceNode.metadata?.content : "";
-            if (pending.connection.handleType !== "source" || !sourceNode || !sourceUrl || !newNode.metadata?.drawingId) {
+            const drawingSourceNode = nodesRef.current.find((node) => node.id === pending.connection.nodeId);
+            const sourceUrl = drawingSourceNode?.type === CanvasNodeType.Image ? drawingSourceNode.metadata?.content : "";
+            if (pending.connection.handleType !== "source" || !drawingSourceNode || !sourceUrl || !newNode.metadata?.drawingId) {
                 message.error("只有已有图片内容的输出连线可以创建绘图");
                 return;
             }
@@ -130,11 +134,11 @@ export function useCanvasConnectionController({
             try {
                 const saved = await createCanvasDrawingFromImage(projectId, newNode.metadata.drawingId, {
                     url: sourceUrl,
-                    storageKey: sourceNode.metadata?.storageKey,
-                    name: sourceNode.title || "来源图片",
-                    mimeType: sourceNode.metadata?.mimeType,
+                    storageKey: drawingSourceNode.metadata?.storageKey,
+                    name: drawingSourceNode.title || "来源图片",
+                    mimeType: drawingSourceNode.metadata?.mimeType,
                 });
-                newNode.title = `${sourceNode.title || "图片"} · 绘图`;
+                newNode.title = `${drawingSourceNode.title || "图片"} · 绘图`;
                 newNode.metadata = {
                     ...newNode.metadata,
                     drawingRevision: saved.revision,
@@ -155,7 +159,7 @@ export function useCanvasConnectionController({
         setSelectedNodeIds(new Set([newNode.id]));
         setSelectedConnectionId(null);
         if (type === CanvasNodeType.Drawing) setDrawingNodeId(newNode.id);
-        else if (type !== CanvasNodeType.Text && type !== CanvasNodeType.Audio) setDialogNodeId(newNode.id);
+        else if (type !== CanvasNodeType.Text && type !== CanvasNodeType.Script && type !== CanvasNodeType.Audio) setDialogNodeId(newNode.id);
         closeConnectionCreateMenu();
         setConnecting(null);
     }, [closeConnectionCreateMenu, effectiveConfig.canvasImageCount, effectiveConfig.count, effectiveConfig.imageModel, effectiveConfig.model, effectiveConfig.size, message, nodesRef, projectId, setConnecting, setConnections, setDialogNodeId, setDrawingNodeId, setNodes, setSelectedConnectionId, setSelectedNodeIds]);
