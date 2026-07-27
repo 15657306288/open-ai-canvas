@@ -35,6 +35,21 @@ func (r *Repository) AssetRepresentations(assetVersionID string) ([]model.AssetR
 	return representations, err
 }
 
+func (r *Repository) AssetRepresentationsForTask(taskID string) ([]model.AssetRepresentation, error) {
+	var representations []model.AssetRepresentation
+	err := r.db.Where("task_id = ?", taskID).Order("role asc, created_at asc").Find(&representations).Error
+	return representations, err
+}
+
+func (r *Repository) UnboundCharacterTurnaroundTasks(userID string, projectID string) ([]model.Task, error) {
+	var tasks []model.Task
+	err := r.db.Where("user_id = ? AND project_id = ? AND status = ? AND type = ?", userID, projectID, model.TaskStatusSucceeded, "canvas_image").
+		Where("input_json LIKE ?", "%character_turnaround%").
+		Where("NOT EXISTS (SELECT 1 FROM asset_representations WHERE asset_representations.task_id = tasks.id)").
+		Order("created_at asc").Limit(100).Find(&tasks).Error
+	return tasks, err
+}
+
 func (r *Repository) CharacterVoiceBinding(assetVersionID string) (*model.CharacterVoiceBinding, error) {
 	var binding model.CharacterVoiceBinding
 	if err := r.db.First(&binding, "asset_version_id = ?", assetVersionID).Error; err != nil {

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useMutationState, useQuery } from "@tanstack/react-query";
 import { App, Button, Dropdown, Form, Input, Modal, Popconfirm, Select, Tabs, type FormInstance } from "antd";
 import { Box, Check, ChevronDown, FileText, Image as ImageIcon, Link2, Music2, Plus, RefreshCw, Sparkles, Trash2, UserRound, Video, VolumeX } from "lucide-react";
 
@@ -11,6 +11,7 @@ import {
     confirmProjectAssetCandidate,
     createProjectAssetVersion,
     createProjectCharacter,
+    getProjectCharacter,
     linkProjectAsset,
     listVoiceProfiles,
     replaceProjectCharacterRepresentations,
@@ -66,6 +67,11 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
     const visibleAssets = useMemo(() => category === "all" ? detail.assets : detail.assets.filter((asset) => asset.category === category), [category, detail.assets]);
     const categoryCounts = categories.map((value) => ({ value, count: value === "all" ? detail.assets.length : detail.assets.filter((asset) => asset.category === value).length }));
     const voices = useQuery({ queryKey: ["voice-profiles"], queryFn: listVoiceProfiles, enabled: Boolean(voiceAsset) });
+    const generatingAssets = useMutationState({
+        filters: { mutationKey: ["project-character-turnaround", detail.project.id], status: "pending" },
+        select: (mutation) => mutation.state.variables as ProjectAsset | undefined,
+    });
+    const generatingAssetIds = new Set(generatingAssets.map((asset) => asset?.id).filter((id): id is string => Boolean(id)));
 
     const done = (content: string) => { refreshProject(); message.success(content); };
     const failed = (fallback: string) => (error: unknown) => message.error(error instanceof Error ? error.message : fallback);
@@ -87,13 +93,14 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
         onError: failed("角色保存失败"),
     });
     const generateMutation = useMutation({
+        mutationKey: ["project-character-turnaround", detail.project.id],
         mutationFn: async (asset: ProjectAsset) => {
             if (!asset.character) throw new Error("角色版本信息不完整");
             const model = effectiveConfig.imageModel || effectiveConfig.model;
             const config = { ...effectiveConfig, model };
             if (!isAiConfigReady(config, model)) throw new Error("请先在设置中配置可用的图片模型");
-            const representations = await generateCharacterTurnaround({ projectId: detail.project.id, assetId: asset.id, versionId: asset.character.versionId, name: asset.title, definition: asset.character.definition, config });
-            return replaceProjectCharacterRepresentations(detail.project.id, asset.id, representations);
+            await generateCharacterTurnaround({ projectId: detail.project.id, assetId: asset.id, versionId: asset.character.versionId, name: asset.title, definition: asset.character.definition, config });
+            return getProjectCharacter(detail.project.id, asset.id);
         },
         onSuccess: (result) => { syncPersonalCharacterProjection(result.asset); done("三视图已生成并绑定到新角色版本"); },
         onError: failed("三视图生成失败"),
@@ -149,7 +156,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                 <div className="min-w-0">
                     {(category === "all" || category === "character") && pendingCandidates.length ? <section className="mb-4"><div className="mb-2 flex items-center gap-1.5 text-xs font-medium"><Sparkles className="size-3.5 text-[var(--workspace-accent)]" />剧情识别出的角色</div><div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">{pendingCandidates.map((candidate) => <article key={candidate.id} className="flex min-h-28 items-center gap-3 rounded-lg border border-dashed border-border p-3"><span className="grid size-12 shrink-0 place-items-center rounded-md bg-foreground/[.045] text-foreground/25"><UserRound className="size-5" /></span><div className="min-w-0 flex-1"><div className="truncate text-xs font-semibold">{candidate.name}</div><div className="mt-1 text-[10px] text-foreground/42">待确认角色卡 · 来自章节分析</div><div className="mt-2 flex min-w-0 items-center gap-1"><Button type="text" size="small" icon={<Check className="size-3.5" />} loading={confirmMutation.isPending} onClick={() => confirmMutation.mutate({ candidateId: candidate.id })}>确认新角色</Button>{characterAssets.length ? <Dropdown trigger={["click"]} menu={{ items: characterAssets.map((asset) => ({ key: asset.id, label: asset.title })), onClick: ({ key }) => confirmMutation.mutate({ candidateId: candidate.id, targetAssetId: key }) }}><Button type="text" size="small" disabled={confirmMutation.isPending}>归并到角色<ChevronDown className="size-3" /></Button></Dropdown> : null}</div></div></article>)}</div></section> : null}
                     <div className="mb-2 flex items-center justify-between text-xs text-foreground/45"><span>{category === "all" ? "全部资产" : categoryLabel(category)}</span><span>{visibleAssets.length} 项</span></div>
-                    {visibleAssets.length ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">{visibleAssets.map((asset) => asset.category === "character" ? <ProjectCharacterCard key={asset.id} asset={asset} generating={generateMutation.isPending && generateMutation.variables?.id === asset.id} removing={unlinkMutation.isPending && unlinkMutation.variables === asset.id} onEdit={() => openCharacterEditor(asset)} onGenerate={() => generateMutation.mutate(asset)} onBindImages={() => openImages(asset)} onBindVoice={() => openVoice(asset)} onRemove={() => unlinkMutation.mutate(asset.id)} /> : <MediaAssetCard key={asset.id} asset={asset} personalAsset={personalAssets.find((item) => item.id === asset.id)} onCategoryChange={(next) => categoryMutation.mutate({ id: asset.id, next })} onVersion={() => versionMutation.mutate(asset.id)} onRemove={() => unlinkMutation.mutate(asset.id)} loading={(categoryMutation.isPending && categoryMutation.variables?.id === asset.id) || (versionMutation.isPending && versionMutation.variables === asset.id) || (unlinkMutation.isPending && unlinkMutation.variables === asset.id)} />)}</div> : <WorkspaceState icon="assets" compact title="这个分类还没有资产" description={category === "character" ? "新建角色，或先从剧情章节提取角色信息。" : "可从个人素材库引用，或切换到其他分类查看。"} />}
+                    {visibleAssets.length ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">{visibleAssets.map((asset) => asset.category === "character" ? <ProjectCharacterCard key={asset.id} asset={asset} generating={generatingAssetIds.has(asset.id)} removing={unlinkMutation.isPending && unlinkMutation.variables === asset.id} onEdit={() => openCharacterEditor(asset)} onGenerate={() => generateMutation.mutate(asset)} onBindImages={() => openImages(asset)} onBindVoice={() => openVoice(asset)} onRemove={() => unlinkMutation.mutate(asset.id)} /> : <MediaAssetCard key={asset.id} asset={asset} personalAsset={personalAssets.find((item) => item.id === asset.id)} onCategoryChange={(next) => categoryMutation.mutate({ id: asset.id, next })} onVersion={() => versionMutation.mutate(asset.id)} onRemove={() => unlinkMutation.mutate(asset.id)} loading={(categoryMutation.isPending && categoryMutation.variables?.id === asset.id) || (versionMutation.isPending && versionMutation.variables === asset.id) || (unlinkMutation.isPending && unlinkMutation.variables === asset.id)} />)}</div> : <WorkspaceState icon="assets" compact title="这个分类还没有资产" description={category === "character" ? "新建角色，或先从剧情章节提取角色信息。" : "可从个人素材库引用，或切换到其他分类查看。"} />}
                 </div>
             </div>
 
