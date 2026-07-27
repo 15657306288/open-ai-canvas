@@ -48,6 +48,9 @@ func main() {
 	if err := svc.EnsureDefaultStoryboardPromptTemplate(); err != nil {
 		log.Fatal(err)
 	}
+	if err := svc.EnsureBuiltinProjectWorkflowTemplate(); err != nil {
+		log.Fatal(err)
+	}
 	if summary, err := svc.MigrateLegacyStorage(); err != nil {
 		log.Printf("storage migration skipped after error: %v", err)
 	} else if summary.Backup != "" {
@@ -79,10 +82,11 @@ func main() {
 	handler.RegisterSessionRoutes(api, svc)
 	handler.RegisterSkillRoutes(api, svc)
 	handler.RegisterUserDataRoutes(api, svc)
+	handler.RegisterProjectRoutes(api, svc)
 	handler.RegisterCanvasShareRoutes(api, svc)
 
 	addr := env("CANVAS_BACKEND_ADDR", ":8080")
-	log.Printf("Infinite Canvas backend listening on %s", addr)
+	log.Printf("影策 backend listening on %s", addr)
 	if err := r.Run(addr); err != nil {
 		log.Fatal(err)
 	}

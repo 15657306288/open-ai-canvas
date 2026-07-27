@@ -1,6 +1,10 @@
 package model
 
-import "time"
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
 
 type TaskStatus string
 type SessionStatus string
@@ -15,6 +19,13 @@ type CreditLedgerType string
 type RedeemCodeStatus string
 type AnnouncementStatus string
 type AnnouncementLevel string
+type ProjectStatus string
+type ProjectUnitKind string
+type ProjectUnitStatus string
+type AssetCategory string
+type AssetVersionStatus string
+type WorkflowStatus string
+type WorkflowStepStatus string
 
 // AdminAuditEvent 只允许追加，用于还原管理员写操作，禁止作为可编辑业务状态使用。
 type AdminAuditEvent struct {
@@ -90,6 +101,41 @@ const (
 	AnnouncementLevelSuccess  AnnouncementLevel = "success"
 	AnnouncementLevelWarning  AnnouncementLevel = "warning"
 	AnnouncementLevelCritical AnnouncementLevel = "critical"
+
+	ProjectStatusActive   ProjectStatus = "active"
+	ProjectStatusArchived ProjectStatus = "archived"
+
+	ProjectUnitKindChapter ProjectUnitKind = "chapter"
+	ProjectUnitKindEpisode ProjectUnitKind = "episode"
+
+	ProjectUnitStatusDraft     ProjectUnitStatus = "draft"
+	ProjectUnitStatusReady     ProjectUnitStatus = "ready"
+	ProjectUnitStatusCompleted ProjectUnitStatus = "completed"
+
+	AssetCategoryCharacter   AssetCategory = "character"
+	AssetCategoryEnvironment AssetCategory = "environment"
+	AssetCategoryWardrobe    AssetCategory = "wardrobe"
+	AssetCategoryProp        AssetCategory = "prop"
+	AssetCategoryWeapon      AssetCategory = "weapon"
+	AssetCategoryStyle       AssetCategory = "style"
+	AssetCategoryOther       AssetCategory = "other"
+
+	AssetVersionStatusDraft     AssetVersionStatus = "draft"
+	AssetVersionStatusReview    AssetVersionStatus = "review"
+	AssetVersionStatusConfirmed AssetVersionStatus = "confirmed"
+	AssetVersionStatusArchived  AssetVersionStatus = "archived"
+
+	WorkflowStatusActive    WorkflowStatus = "active"
+	WorkflowStatusCompleted WorkflowStatus = "completed"
+	WorkflowStatusFailed    WorkflowStatus = "failed"
+
+	WorkflowStepStatusPending   WorkflowStepStatus = "pending"
+	WorkflowStepStatusReady     WorkflowStepStatus = "ready"
+	WorkflowStepStatusRunning   WorkflowStepStatus = "running"
+	WorkflowStepStatusReview    WorkflowStepStatus = "review"
+	WorkflowStepStatusCompleted WorkflowStepStatus = "completed"
+	WorkflowStepStatusFailed    WorkflowStepStatus = "failed"
+	WorkflowStepStatusSkipped   WorkflowStepStatus = "skipped"
 )
 
 type User struct {
@@ -160,21 +206,23 @@ type ModelChannel struct {
 	ModelsJSON       string               `json:"modelsJson" gorm:"type:text"`
 	CreatedAt        time.Time            `json:"createdAt"`
 	UpdatedAt        time.Time            `json:"updatedAt"`
+	DeletedAt        gorm.DeletedAt       `json:"-" gorm:"index"`
 }
 
 type ChannelModel struct {
-	ID                    string    `json:"id" gorm:"primaryKey;size:36"`
-	ChannelID             string    `json:"channelId" gorm:"size:36;index;uniqueIndex:idx_channel_model_key,priority:1"`
-	ModelKey              string    `json:"modelKey" gorm:"size:120;uniqueIndex:idx_channel_model_key,priority:2"`
-	DisplayName           string    `json:"displayName" gorm:"size:160"`
-	Capability            string    `json:"capability" gorm:"size:32;index"`
-	BillingMode           string    `json:"billingMode" gorm:"size:32"`
-	UnitPriceMicrocredits int64     `json:"unitPriceMicrocredits"`
-	PriceConfigured       bool      `json:"priceConfigured" gorm:"index"`
-	Enabled               bool      `json:"enabled" gorm:"index"`
-	PriceVersion          int64     `json:"priceVersion"`
-	CreatedAt             time.Time `json:"createdAt"`
-	UpdatedAt             time.Time `json:"updatedAt"`
+	ID                    string         `json:"id" gorm:"primaryKey;size:36"`
+	ChannelID             string         `json:"channelId" gorm:"size:36;index;uniqueIndex:idx_channel_model_key_active,priority:1,where:deleted_at IS NULL"`
+	ModelKey              string         `json:"modelKey" gorm:"size:120;uniqueIndex:idx_channel_model_key_active,priority:2,where:deleted_at IS NULL"`
+	DisplayName           string         `json:"displayName" gorm:"size:160"`
+	Capability            string         `json:"capability" gorm:"size:32;index"`
+	BillingMode           string         `json:"billingMode" gorm:"size:32"`
+	UnitPriceMicrocredits int64          `json:"unitPriceMicrocredits"`
+	PriceConfigured       bool           `json:"priceConfigured" gorm:"index"`
+	Enabled               bool           `json:"enabled" gorm:"index"`
+	PriceVersion          int64          `json:"priceVersion"`
+	CreatedAt             time.Time      `json:"createdAt"`
+	UpdatedAt             time.Time      `json:"updatedAt"`
+	DeletedAt             gorm.DeletedAt `json:"-" gorm:"index"`
 }
 
 type ApiCallLog struct {
@@ -392,18 +440,196 @@ type Resource struct {
 }
 
 type Asset struct {
+	ID               string             `json:"id" gorm:"primaryKey;size:36"`
+	UserID           string             `json:"userId" gorm:"index;size:36;index:idx_assets_user_updated,priority:1"`
+	Kind             string             `json:"kind" gorm:"index;size:24"`
+	Category         AssetCategory      `json:"category" gorm:"index;size:32"`
+	Status           AssetVersionStatus `json:"status" gorm:"index;size:24"`
+	PrimaryVersionID string             `json:"primaryVersionId,omitempty" gorm:"index;size:36"`
+	Title            string             `json:"title" gorm:"size:240"`
+	PayloadJSON      string             `json:"payloadJson" gorm:"type:text"`
+	CreatedAt        time.Time          `json:"createdAt"`
+	UpdatedAt        time.Time          `json:"updatedAt" gorm:"index:idx_assets_user_updated,priority:2"`
+}
+
+type ProjectAssetLink struct {
+	ID        string    `json:"id" gorm:"primaryKey;size:36"`
+	ProjectID string    `json:"projectId" gorm:"index;size:36;uniqueIndex:idx_project_asset_links_unique,priority:1"`
+	AssetID   string    `json:"assetId" gorm:"index;size:36;uniqueIndex:idx_project_asset_links_unique,priority:2"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+type ProjectAssetCandidate struct {
+	ID              string        `json:"id" gorm:"primaryKey;size:36"`
+	ProjectID       string        `json:"projectId" gorm:"index;size:36"`
+	UnitID          string        `json:"unitId,omitempty" gorm:"index;size:36"`
+	ShotID          string        `json:"shotId,omitempty" gorm:"index;size:36"`
+	Name            string        `json:"name" gorm:"size:240"`
+	Category        AssetCategory `json:"category" gorm:"index;size:32"`
+	Status          string        `json:"status" gorm:"index;size:32"`
+	DetailsJSON     string        `json:"detailsJson" gorm:"type:text"`
+	ResolvedAssetID string        `json:"resolvedAssetId,omitempty" gorm:"index;size:36"`
+	CreatedAt       time.Time     `json:"createdAt"`
+	UpdatedAt       time.Time     `json:"updatedAt"`
+}
+
+type AssetVersion struct {
+	ID             string             `json:"id" gorm:"primaryKey;size:36"`
+	AssetID        string             `json:"assetId" gorm:"index;size:36;uniqueIndex:idx_asset_versions_number,priority:1"`
+	Version        int                `json:"version" gorm:"uniqueIndex:idx_asset_versions_number,priority:2"`
+	Status         AssetVersionStatus `json:"status" gorm:"index;size:24"`
+	DefinitionJSON string             `json:"definitionJson" gorm:"type:text"`
+	Prompt         string             `json:"prompt" gorm:"type:text"`
+	Note           string             `json:"note" gorm:"size:500"`
+	CreatedAt      time.Time          `json:"createdAt"`
+	UpdatedAt      time.Time          `json:"updatedAt"`
+}
+
+type AssetRepresentation struct {
+	ID             string    `json:"id" gorm:"primaryKey;size:36"`
+	TaskID         string    `json:"taskId,omitempty" gorm:"index;size:36;uniqueIndex:idx_asset_representations_task_role,priority:1"`
+	AssetVersionID string    `json:"assetVersionId" gorm:"index;size:36;uniqueIndex:idx_asset_representations_version_role,priority:1"`
+	ResourceID     string    `json:"resourceId,omitempty" gorm:"index;size:36"`
+	MediaType      string    `json:"mediaType" gorm:"index;size:24"`
+	Role           string    `json:"role" gorm:"index;size:32;uniqueIndex:idx_asset_representations_task_role,priority:2;uniqueIndex:idx_asset_representations_version_role,priority:2"`
+	MetadataJSON   string    `json:"metadataJson" gorm:"type:text"`
+	CreatedAt      time.Time `json:"createdAt"`
+}
+
+// VoiceProfile 是可复用的声音身份；试听音频只是表现资源，不等同于声音本身。
+type VoiceProfile struct {
+	ID                   string    `json:"id" gorm:"primaryKey;size:36"`
+	UserID               string    `json:"userId" gorm:"index;size:36;uniqueIndex:idx_voice_profiles_user_provider_key,priority:1"`
+	Name                 string    `json:"name" gorm:"size:160"`
+	Provider             string    `json:"provider" gorm:"size:48;uniqueIndex:idx_voice_profiles_user_provider_key,priority:2"`
+	VoiceKey             string    `json:"voiceKey" gorm:"size:160;uniqueIndex:idx_voice_profiles_user_provider_key,priority:3"`
+	Language             string    `json:"language" gorm:"size:80"`
+	Timbre               string    `json:"timbre" gorm:"size:240"`
+	SampleResourceID     string    `json:"sampleResourceId,omitempty" gorm:"index;size:36"`
+	CompatibleModelsJSON string    `json:"compatibleModelsJson" gorm:"type:text"`
+	Status               string    `json:"status" gorm:"index;size:24"`
+	CreatedAt            time.Time `json:"createdAt"`
+	UpdatedAt            time.Time `json:"updatedAt"`
+}
+
+type CharacterVoiceBinding struct {
+	ID               string    `json:"id" gorm:"primaryKey;size:36"`
+	AssetVersionID   string    `json:"assetVersionId" gorm:"uniqueIndex;size:36"`
+	VoiceProfileID   string    `json:"voiceProfileId" gorm:"index;size:36"`
+	Instructions     string    `json:"instructions" gorm:"type:text"`
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
+}
+
+// Project 是短剧领域聚合根；CanvasProject 仍代表可独立创作的画布文档。
+type Project struct {
+	ID              string        `json:"id" gorm:"primaryKey;size:36"`
+	UserID          string        `json:"userId" gorm:"index;size:36;uniqueIndex:idx_projects_user_name,priority:1"`
+	Name            string        `json:"name" gorm:"size:240;uniqueIndex:idx_projects_user_name,priority:2"`
+	Type            string        `json:"type" gorm:"size:32;index"`
+	AspectRatio     string        `json:"aspectRatio" gorm:"size:16"`
+	SourceType      string        `json:"sourceType" gorm:"size:32"`
+	Description     string        `json:"description" gorm:"type:text"`
+	StylePresetID   string        `json:"stylePresetId" gorm:"size:64"`
+	ActiveTaskLimit int           `json:"activeTaskLimit" gorm:"default:3"`
+	Status          ProjectStatus `json:"status" gorm:"index;size:24"`
+	Revision        int64         `json:"revision"`
+	CreatedAt       time.Time     `json:"createdAt"`
+	UpdatedAt       time.Time     `json:"updatedAt" gorm:"index"`
+}
+
+type ProjectUnit struct {
+	ID         string            `json:"id" gorm:"primaryKey;size:36"`
+	ProjectID  string            `json:"projectId" gorm:"index;size:36"`
+	ParentID   string            `json:"parentId,omitempty" gorm:"index;size:36"`
+	Kind       ProjectUnitKind   `json:"kind" gorm:"index;size:24"`
+	Title      string            `json:"title" gorm:"size:240"`
+	SourceText string            `json:"sourceText" gorm:"type:text"`
+	Status     ProjectUnitStatus `json:"status" gorm:"index;size:24"`
+	Position   int               `json:"position"`
+	CreatedAt  time.Time         `json:"createdAt"`
+	UpdatedAt  time.Time         `json:"updatedAt"`
+}
+
+type CanvasUnitLink struct {
+	ID        string    `json:"id" gorm:"primaryKey;size:36"`
+	ProjectID string    `json:"projectId" gorm:"index;size:36;uniqueIndex:idx_canvas_unit_links_unique,priority:1"`
+	CanvasID  string    `json:"canvasId" gorm:"index;size:80;uniqueIndex:idx_canvas_unit_links_unique,priority:2"`
+	UnitID    string    `json:"unitId" gorm:"index;size:36;uniqueIndex:idx_canvas_unit_links_unique,priority:3"`
+	Role      string    `json:"role" gorm:"size:32"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+type Shot struct {
 	ID          string    `json:"id" gorm:"primaryKey;size:36"`
-	UserID      string    `json:"userId" gorm:"index;size:36;index:idx_assets_user_updated,priority:1"`
-	Kind        string    `json:"kind" gorm:"index;size:24"`
+	ProjectID   string    `json:"projectId" gorm:"index;size:36"`
+	UnitID      string    `json:"unitId" gorm:"index;size:36"`
 	Title       string    `json:"title" gorm:"size:240"`
-	PayloadJSON string    `json:"payloadJson" gorm:"type:text"`
+	Description string    `json:"description" gorm:"type:text"`
+	Position    int       `json:"position"`
+	DurationMs  int64     `json:"durationMs"`
+	Status      string    `json:"status" gorm:"index;size:24"`
 	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt" gorm:"index:idx_assets_user_updated,priority:2"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+type ShotAssetReference struct {
+	ID             string    `json:"id" gorm:"primaryKey;size:36"`
+	ShotID         string    `json:"shotId" gorm:"index;size:36;uniqueIndex:idx_shot_asset_reference_unique,priority:1"`
+	AssetVersionID string    `json:"assetVersionId" gorm:"index;size:36;uniqueIndex:idx_shot_asset_reference_unique,priority:2"`
+	Role           string    `json:"role" gorm:"index;size:32;uniqueIndex:idx_shot_asset_reference_unique,priority:3"`
+	Status         string    `json:"status" gorm:"index;size:24"`
+	CreatedAt      time.Time `json:"createdAt"`
+}
+
+type WorkflowTemplateVersion struct {
+	ID             string    `json:"id" gorm:"primaryKey;size:36"`
+	TemplateKey    string    `json:"templateKey" gorm:"size:80;uniqueIndex:idx_workflow_template_version,priority:1"`
+	Name           string    `json:"name" gorm:"size:160"`
+	Version        int       `json:"version" gorm:"uniqueIndex:idx_workflow_template_version,priority:2"`
+	DefinitionJSON string    `json:"definitionJson" gorm:"type:text"`
+	CreatedAt      time.Time `json:"createdAt"`
+}
+
+type WorkflowInstance struct {
+	ID                string         `json:"id" gorm:"primaryKey;size:36"`
+	ProjectID         string         `json:"projectId" gorm:"index;size:36;uniqueIndex:idx_workflow_instance_scope,priority:1"`
+	UnitID            string         `json:"unitId,omitempty" gorm:"index;size:36;uniqueIndex:idx_workflow_instance_scope,priority:2"`
+	TemplateVersionID string         `json:"templateVersionId" gorm:"index;size:36;uniqueIndex:idx_workflow_instance_scope,priority:3"`
+	Scope             string         `json:"scope" gorm:"index;size:24"`
+	Status            WorkflowStatus `json:"status" gorm:"index;size:24"`
+	Revision          int64          `json:"revision"`
+	CreatedAt         time.Time      `json:"createdAt"`
+	UpdatedAt         time.Time      `json:"updatedAt"`
+}
+
+type WorkflowStepInstance struct {
+	ID                 string             `json:"id" gorm:"primaryKey;size:36"`
+	WorkflowInstanceID string             `json:"workflowInstanceId" gorm:"index;size:36;uniqueIndex:idx_workflow_steps_instance_key,priority:1"`
+	StepKey            string             `json:"stepKey" gorm:"size:80;uniqueIndex:idx_workflow_steps_instance_key,priority:2"`
+	Name               string             `json:"name" gorm:"size:160"`
+	Position           int                `json:"position"`
+	Status             WorkflowStepStatus `json:"status" gorm:"index;size:24"`
+	InputJSON          string             `json:"inputJson" gorm:"type:text"`
+	OutputJSON         string             `json:"outputJson" gorm:"type:text"`
+	Error              string             `json:"error" gorm:"type:text"`
+	StartedAt          *time.Time         `json:"startedAt"`
+	CompletedAt        *time.Time         `json:"completedAt"`
+	CreatedAt          time.Time          `json:"createdAt"`
+	UpdatedAt          time.Time          `json:"updatedAt"`
+}
+
+type WorkflowStepTask struct {
+	ID             string    `json:"id" gorm:"primaryKey;size:36"`
+	WorkflowStepID string    `json:"workflowStepId" gorm:"index;size:36;uniqueIndex:idx_workflow_step_tasks_unique,priority:1"`
+	TaskID         string    `json:"taskId" gorm:"index;size:36;uniqueIndex:idx_workflow_step_tasks_unique,priority:2"`
+	CreatedAt      time.Time `json:"createdAt"`
 }
 
 type CanvasProject struct {
 	ID          string    `json:"id" gorm:"primaryKey;size:80"`
 	UserID      string    `json:"userId" gorm:"index;size:36;index:idx_canvas_projects_user_updated,priority:1"`
+	ProjectID   string    `json:"projectId,omitempty" gorm:"index;size:36"`
 	Title       string    `json:"title" gorm:"size:240"`
 	PayloadJSON string    `json:"payloadJson" gorm:"type:text"`
 	CreatedAt   time.Time `json:"createdAt"`

@@ -82,8 +82,8 @@ export function scheduleRemoteUserDataSync() {
     }, 1200);
 }
 
-export async function createCanvasProjectWithRemoteSync(title: string) {
-    const id = useCanvasStore.getState().createProject(title);
+export async function createCanvasProjectWithRemoteSync(title: string, projectId?: string) {
+    const id = useCanvasStore.getState().createProject(title, projectId);
     if (!activeRemoteUserId) return { id, syncError: new Error("尚未建立云端同步会话") };
     try {
         await saveRemoteUserDataNow();
@@ -92,6 +92,14 @@ export async function createCanvasProjectWithRemoteSync(title: string) {
         scheduleRemoteUserDataSync();
         return { id, syncError };
     }
+}
+
+export async function deleteAssetWithRemoteSync(id: string) {
+    if (activeRemoteUserId) {
+        await deleteRemoteAsset(id);
+        remoteAssetVersions.delete(id);
+    }
+    useAssetStore.getState().removeAsset(id);
 }
 
 export async function saveRemoteUserDataNow() {
@@ -160,7 +168,7 @@ async function hydrateAssets(assets: Asset[]) {
                 const dataUrl = await resolveImageUrl(asset.data.storageKey, asset.data.dataUrl);
                 return { ...asset, coverUrl: shouldReplaceEphemeralUrl(asset.coverUrl) ? dataUrl : asset.coverUrl, data: { ...asset.data, dataUrl } };
             }
-            if (asset.kind === "video" && asset.data.storageKey) {
+            if ((asset.kind === "video" || asset.kind === "audio") && asset.data.storageKey) {
                 const url = await resolveResourceOrMediaUrl(asset.data.storageKey, asset.data.url);
                 return { ...asset, coverUrl: shouldReplaceEphemeralUrl(asset.coverUrl) ? url : asset.coverUrl, data: { ...asset.data, url } };
             }
