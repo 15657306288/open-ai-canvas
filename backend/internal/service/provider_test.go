@@ -160,9 +160,10 @@ func TestSeedanceVideosBodyUsesVideosEndpointFields(t *testing.T) {
 	body, err := seedanceVideosBody(canvasGenerationInput{
 		Prompt: "make it move",
 		Config: providerConfig{
-			Model:        "seedance-2.0-mini-480p",
-			Size:         "9:16",
-			VideoSeconds: "8",
+			Model:              "seedance-2.0-mini-480p",
+			Size:               "9:16",
+			VideoSeconds:       "8",
+			VideoGenerateAudio: "true",
 		},
 		ReferenceImages: []providerMedia{
 			{ID: "image-1", DataURL: testReferenceImageDataURL},
@@ -179,6 +180,9 @@ func TestSeedanceVideosBodyUsesVideosEndpointFields(t *testing.T) {
 	}
 	if body["aspect_ratio"] != "9:16" || body["duration"] != 8 {
 		t.Fatalf("size fields = %#v %#v", body["aspect_ratio"], body["duration"])
+	}
+	if body["generate_audio"] != true {
+		t.Fatalf("generate_audio = %#v, want true", body["generate_audio"])
 	}
 	if body["image_url"] != testReferenceImageDataURL {
 		t.Fatalf("image_url = %#v", body["image_url"])
@@ -197,6 +201,34 @@ func TestSeedanceVideosBodyUsesVideosEndpointFields(t *testing.T) {
 	}
 	if body["content"] != nil || body["ratio"] != nil {
 		t.Fatalf("unexpected agent-plan fields in body: %#v", body)
+	}
+}
+
+func TestSeedanceVideosBodyHonorsGenerateAudio(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		value string
+		want  bool
+	}{
+		{name: "default enabled", want: true},
+		{name: "explicit enabled", value: "true", want: true},
+		{name: "explicit disabled", value: "false", want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body, err := seedanceVideosBody(canvasGenerationInput{
+				Prompt: "make it move",
+				Config: providerConfig{
+					Model:              "seedance-2.0-mini-480p",
+					VideoGenerateAudio: test.value,
+				},
+			})
+			if err != nil {
+				t.Fatalf("seedanceVideosBody() error = %v", err)
+			}
+			if body["generate_audio"] != test.want {
+				t.Fatalf("generate_audio = %#v, want %v", body["generate_audio"], test.want)
+			}
+		})
 	}
 }
 

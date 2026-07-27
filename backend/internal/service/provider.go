@@ -1655,10 +1655,11 @@ func seedanceVideosBody(input canvasGenerationInput) (map[string]interface{}, er
 		return nil, errors.New("Seedance 参考视频或参考音频需要同时连接至少 1 张主参考图")
 	}
 	body := map[string]interface{}{
-		"model":        input.Config.Model,
-		"prompt":       seedanceVideosPromptText(input),
-		"aspect_ratio": normalizeSeedanceVideosRatio(input.Config.Size),
-		"duration":     normalizeSeedanceVideosDuration(input.Config.VideoSeconds),
+		"model":          input.Config.Model,
+		"prompt":         seedanceVideosPromptText(input),
+		"aspect_ratio":   normalizeSeedanceVideosRatio(input.Config.Size),
+		"duration":       normalizeSeedanceVideosDuration(input.Config.VideoSeconds),
+		"generate_audio": parseBool(input.Config.VideoGenerateAudio, true),
 	}
 	imageURLs := make([]string, 0, len(input.ReferenceImages))
 	for _, image := range input.ReferenceImages {
