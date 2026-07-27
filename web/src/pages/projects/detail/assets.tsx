@@ -5,6 +5,7 @@ import { Box, Check, ChevronDown, FileText, Image as ImageIcon, Link2, Music2, P
 
 import { WorkspaceState } from "@/components/layout/workspace-state";
 import { WorkspaceSignalIcon } from "@/components/ui/aceternity/workspace-signal-icon";
+import { canvasStylePresets } from "@/components/canvas/canvas-style-picker-modal";
 import { resourceFileUrl, resourceIdFromStorageKey } from "@/services/api/resources";
 import {
     bindProjectCharacterVoice,
@@ -99,7 +100,8 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
             const model = effectiveConfig.imageModel || effectiveConfig.model;
             const config = { ...effectiveConfig, model };
             if (!isAiConfigReady(config, model)) throw new Error("请先在设置中配置可用的图片模型");
-            await generateCharacterTurnaround({ projectId: detail.project.id, assetId: asset.id, versionId: asset.character.versionId, name: asset.title, definition: asset.character.definition, config });
+            const projectStyle = canvasStylePresets.find((preset) => preset.id === detail.project.stylePresetId);
+            await generateCharacterTurnaround({ projectId: detail.project.id, assetId: asset.id, versionId: asset.character.versionId, name: asset.title, definition: asset.character.definition, projectStyle, config });
             return getProjectCharacter(detail.project.id, asset.id);
         },
         onSuccess: (result) => { syncPersonalCharacterProjection(result.asset); done("三视图已生成并绑定到新角色版本"); },
