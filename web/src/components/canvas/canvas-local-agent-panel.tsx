@@ -9,7 +9,8 @@ import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
 import { useCanvasAgentStore, type AgentAttachment, type AgentChatItem, type AgentEventLog, type AgentPanelTab, type AgentPendingToolCall, type AgentThreadSummary } from "@/stores/canvas/use-canvas-agent-store";
-import { summarizeCanvasAgentOps, type CanvasAgentOp, type CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
+import { previewCanvasAgentOps, summarizeCanvasAgentOps, type CanvasAgentOp, type CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
+import { isProjectAgentReadTool, isProjectAgentToolName, runProjectAgentTool } from "@/services/api/project-agent-tools";
 import { AgentChatComposer, AgentChatMessage, AgentPanelTabs, AgentPendingToolCard, AgentWorkingMessage, type CanvasAgentChatAttachment } from "./canvas-agent-chat-ui";
 
 const PANEL_MOTION_SECONDS = 0.5;
@@ -39,7 +40,7 @@ type AgentThreadsResponse = { ok?: boolean; workspace?: AgentWorkspace; data?: A
 type AgentThreadResponse = { ok?: boolean; workspace?: AgentWorkspace; thread?: AgentThreadSummary; messages?: AgentChatItem[] };
 type AgentConfigResponse = { ok?: boolean; url?: string; token?: string; hasToken?: boolean };
 
-export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({ snapshot, canUndoOps, collapsed, embedded, headless, autoConnect, onApplyOps, onUndoOps }: { snapshot: CanvasAgentSnapshot; canUndoOps: boolean; collapsed?: boolean; embedded?: boolean; headless?: boolean; autoConnect?: boolean; onApplyOps: (ops: CanvasAgentOp[]) => unknown; onUndoOps: () => CanvasAgentSnapshot | null }) {
+export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({ snapshot, canUndoOps, undoOpsCount = 0, collapsed, embedded, headless, autoConnect, onApplyOps, onUndoOps }: { snapshot: CanvasAgentSnapshot; canUndoOps: boolean; undoOpsCount?: number; collapsed?: boolean; embedded?: boolean; headless?: boolean; autoConnect?: boolean; onApplyOps: (ops: CanvasAgentOp[]) => unknown; onUndoOps: () => CanvasAgentSnapshot | null }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const user = useUserStore((state) => state.user);
     const { message, modal } = App.useApp();
@@ -236,7 +237,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({ snaps
     };
 
     const handleToolCall = async (endpoint: string, token: string, payload: AgentPendingToolCall) => {
-        if (confirmToolsRef.current && payload.name === "canvas_apply_ops") {
+        if (confirmToolsRef.current && (payload.name === "canvas_apply_ops" || (isProjectAgentToolName(payload.name) && !isProjectAgentReadTool(payload.name)))) {
             if (pendingToolRef.current) {
                 await postToolResult(endpoint, token, clientIdRef.current, { requestId: payload.requestId, error: "仍有待确认的画布工具调用" });
                 return;
@@ -249,17 +250,18 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({ snaps
         await runToolCall(endpoint, token, payload);
     };
 
-    const runToolCall = async (endpoint: string, token: string, payload: AgentPendingToolCall) => {
-        try {
-            const input: { ops?: CanvasAgentOp[] } = payload.input || {};
-            setAgentState({ activity: payload.name === "canvas_apply_ops" ? "执行画布操作" : "读取画布", waiting: true });
-            addEventLog(toolName(payload.name), payload, payload);
-            const result = payload.name === "canvas_apply_ops" ? onApplyOpsRef.current(input.ops || []) : snapshotRef.current;
+	const runToolCall = async (endpoint: string, token: string, payload: AgentPendingToolCall) => {
+		try {
+			const input = (payload.input || {}) as Record<string, unknown>;
+			const projectToolName = isProjectAgentToolName(payload.name) ? payload.name : null;
+			setAgentState({ activity: payload.name === "canvas_apply_ops" ? "执行画布操作" : projectToolName ? "执行项目工具" : "读取画布", waiting: true });
+			addEventLog(toolName(payload.name), payload, payload);
+			const result = payload.name === "canvas_apply_ops" ? onApplyOpsRef.current((input.ops || []) as CanvasAgentOp[]) : projectToolName ? await runProjectAgentTool(projectToolName, input, snapshotRef.current.domainProjectId) : snapshotRef.current;
             await postToolResult(endpoint, token, clientIdRef.current, { requestId: payload.requestId, result });
             if (payload.name === "canvas_apply_ops") void postState(endpoint, token, clientIdRef.current, result as CanvasAgentSnapshot);
             setAgentState({ activity: "工具完成", waiting: true });
             addEventLog(`${toolName(payload.name)}完成`, result, result);
-            addMessage({ role: "tool", title: `${toolName(payload.name)}完成`, text: payload.name === "canvas_apply_ops" ? summarizeCanvasAgentOps(input.ops || []) || "画布操作" : "已完成", detail: { requestId: payload.requestId, name: payload.name, input, result } });
+            addMessage({ role: "tool", title: `${toolName(payload.name)}完成`, text: payload.name === "canvas_apply_ops" ? summarizeCanvasAgentOps((input.ops || []) as CanvasAgentOp[]) || "画布操作" : "已完成", detail: { requestId: payload.requestId, name: payload.name, input, result } });
         } catch (error) {
             const message = error instanceof Error ? error.message : "画布操作失败";
             setAgentState({ activity: "工具失败", waiting: false });
@@ -289,7 +291,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({ snaps
         const restored = onUndoOps();
         if (!restored) return;
         setAgentState({ activity: "已撤销" });
-        addMessage({ role: "tool", title: "已撤销", text: "上一次工具操作", detail: restored });
+        addMessage({ role: "tool", title: "已撤销 Agent 批次", text: "已恢复到本次写回前的画布状态", detail: restored });
         if (connected) void postState(endpoint, token, clientIdRef.current, restored);
     };
 
@@ -496,7 +498,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({ snaps
                 right={
                     <>
                         <Button size="small" type="text" disabled={!canUndoOps} icon={<RotateCcw className="size-3.5" />} onClick={undoLastTool}>
-                            撤销
+                            撤销{undoOpsCount ? ` ${undoOpsCount}` : ""}
                         </Button>
                     </>
                 }
@@ -543,7 +545,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({ snaps
                         {messages.map((item) => (
                             <AgentChatMessage key={item.id} item={agentMessageToChatMessage(item)} theme={theme} user={user} />
                         ))}
-                        {pendingTool ? <AgentPendingToolCard summary={summarizeCanvasAgentOps(pendingTool.input?.ops || []) || toolName(pendingTool.name)} detail={{ requestId: pendingTool.requestId, name: pendingTool.name, input: pendingTool.input }} theme={theme} onReject={rejectPendingTool} onApprove={approvePendingTool} /> : null}
+                        {pendingTool ? <AgentPendingToolCard summary={summarizeCanvasAgentOps(pendingTool.input?.ops || []) || toolName(pendingTool.name)} detail={{ requestId: pendingTool.requestId, name: pendingTool.name, input: pendingTool.input, impact: previewCanvasAgentOps(pendingTool.input?.ops || [], snapshot) }} theme={theme} onReject={rejectPendingTool} onApprove={approvePendingTool} /> : null}
                         {waiting && !pendingTool ? <AgentWorkingMessage theme={theme} /> : null}
                     </div>
                     <AgentChatComposer
@@ -796,7 +798,7 @@ function parseEventData<T>(event: Event) {
 
 function formatLogText(logs: AgentEventLog[], context: AgentLogContext) {
     const head = [
-        "Infinite Canvas Agent 诊断日志",
+        "影策 Canvas Agent 诊断日志",
         `Canvas Agent: ${context.endpoint}`,
         `连接: ${context.connected ? "在线" : context.enabled ? "连接中" : "未启用"}`,
         `状态: ${context.activity}`,
@@ -889,11 +891,21 @@ function toolName(name: string) {
     if (name === "canvas_select_nodes") return "选择节点";
     if (name === "canvas_set_viewport") return "调整视口";
     if (name === "canvas_run_generation") return "触发生成";
+    if (name === "project_get_context") return "读取项目上下文";
+    if (name === "project_list_units") return "读取项目章节";
+    if (name === "project_extract_asset_candidates") return "登记资产候选";
+    if (name === "project_confirm_asset_candidate") return "确认资产候选";
+    if (name === "project_create_or_update_shots") return "保存项目镜头";
+    if (name === "project_link_shot_asset") return "关联镜头素材";
+    if (name === "project_start_workflow_step") return "启动流程步骤";
+    if (name === "project_link_asset") return "引用项目资产";
+    if (name === "project_upsert_asset_version") return "创建资产版本";
+    if (name === "project_register_task_output") return "登记任务产物";
     return name;
 }
 
 function isReadTool(name: string) {
-    return name === "canvas_get_state" || name === "canvas_get_selection" || name === "canvas_export_snapshot";
+    return name === "canvas_get_state" || name === "canvas_get_selection" || name === "canvas_export_snapshot" || isProjectAgentReadTool(name);
 }
 
 function isMcpToolItem(item?: AgentEventItem) {
