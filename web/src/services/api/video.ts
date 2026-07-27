@@ -225,6 +225,7 @@ async function buildSeedanceVideosPayload(config: AiConfig, model: string, promp
         prompt: buildSeedanceVideosPromptText(prompt, imageUrls.length, videoUrls.length, audioUrls.length),
         aspect_ratio: ratio === "adaptive" ? "16:9" : ratio,
         duration: duration < 4 ? 5 : duration,
+        generate_audio: boolConfig(config.videoGenerateAudio, true),
         ...(imageUrls[0] ? { image_url: imageUrls[0] } : {}),
         ...(imageUrls.length > 1 ? { reference_image_urls: imageUrls.slice(1) } : {}),
         ...(videoUrls.length ? { reference_videos: videoUrls } : {}),
