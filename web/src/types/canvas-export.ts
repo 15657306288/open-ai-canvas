@@ -14,6 +14,7 @@ export type CanvasProjectExportItem = {
 };
 
 export type CanvasDrawingExport = {
+    version: 1;
     drawingId: string;
     previewPath?: string;
     snapshot: unknown;

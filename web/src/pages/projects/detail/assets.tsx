@@ -179,7 +179,7 @@ function MediaAssetCard({ asset, personalAsset, onCategoryChange, onVersion, onR
 }
 
 function characterDefinition(values: CharacterForm) {
-    const definition = Object.fromEntries(characterFields.map(([key]) => [key, values[key]?.trim() || (key === "aliases" ? [] : "")]));
+    const definition: Record<string, unknown> = Object.fromEntries(characterFields.map(([key]) => [key, values[key]?.trim() || (key === "aliases" ? [] : "")]));
     definition.aliases = values.aliases?.split(/[，,]/).map((item) => item.trim()).filter(Boolean) || [];
     return definition;
 }

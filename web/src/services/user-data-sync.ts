@@ -161,14 +161,18 @@ async function saveRemoteUserDataBatch() {
     }
 }
 
-async function hydrateAssets(assets: Asset[]) {
+async function hydrateAssets(assets: Asset[]): Promise<Asset[]> {
     return Promise.all(
         assets.map(async (asset) => {
             if (asset.kind === "image" && asset.data.storageKey) {
                 const dataUrl = await resolveImageUrl(asset.data.storageKey, asset.data.dataUrl);
                 return { ...asset, coverUrl: shouldReplaceEphemeralUrl(asset.coverUrl) ? dataUrl : asset.coverUrl, data: { ...asset.data, dataUrl } };
             }
-            if ((asset.kind === "video" || asset.kind === "audio") && asset.data.storageKey) {
+            if (asset.kind === "video" && asset.data.storageKey) {
+                const url = await resolveResourceOrMediaUrl(asset.data.storageKey, asset.data.url);
+                return { ...asset, coverUrl: shouldReplaceEphemeralUrl(asset.coverUrl) ? url : asset.coverUrl, data: { ...asset.data, url } };
+            }
+            if (asset.kind === "audio" && asset.data.storageKey) {
                 const url = await resolveResourceOrMediaUrl(asset.data.storageKey, asset.data.url);
                 return { ...asset, coverUrl: shouldReplaceEphemeralUrl(asset.coverUrl) ? url : asset.coverUrl, data: { ...asset.data, url } };
             }

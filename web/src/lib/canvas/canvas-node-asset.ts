@@ -106,7 +106,8 @@ function sameAssetResource(asset: Asset, node: CanvasNodeData) {
 }
 
 function assetStorageKey(asset: Asset) {
-    return asset.kind === "text" ? undefined : asset.data.storageKey;
+    if (asset.kind === "text" || asset.kind === "entity") return undefined;
+    return asset.data.storageKey;
 }
 
 export function declaredCanvasNodeAssetCategory(node: CanvasNodeData): AssetCategory | undefined {

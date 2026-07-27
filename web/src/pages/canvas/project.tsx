@@ -423,7 +423,6 @@ function InfiniteCanvasPage() {
         setSelectedConnectionId,
         setContextMenu,
         setDialogNodeId,
-        setDrawingNodeId,
         setToolbarNodeId,
     });
 
