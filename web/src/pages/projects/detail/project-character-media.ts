@@ -1,11 +1,9 @@
 import { runBackendCanvasGenerationTask } from "@/lib/canvas/canvas-project-generation";
-import { uploadImage } from "@/services/image-storage";
-import { resourceIdFromStorageKey } from "@/services/api/resources";
 import type { AiConfig } from "@/stores/use-config-store";
 
 export async function generateCharacterTurnaround(input: { projectId: string; assetId: string; versionId: string; name: string; definition: Record<string, unknown>; config: AiConfig }) {
     const prompt = characterTurnaroundPrompt(input.name, input.definition);
-    const result = await runBackendCanvasGenerationTask({
+    await runBackendCanvasGenerationTask({
         projectId: input.projectId,
         nodeId: `character-turnaround:${input.assetId}`,
         mode: "image",
@@ -13,17 +11,6 @@ export async function generateCharacterTurnaround(input: { projectId: string; as
         config: { ...input.config, model: input.config.imageModel || input.config.model, count: "1" },
         metadata: { operation: "character_turnaround", characterAssetId: input.assetId, resolvedCharacterVersions: [{ assetId: input.assetId, versionId: input.versionId }] },
     });
-    const image = result.images?.[0];
-    if (!image?.dataUrl) throw new Error("三视图任务没有返回图片");
-    const sheet = image.storageKey
-        ? { url: image.dataUrl, storageKey: image.storageKey }
-        : await uploadImage(image.dataUrl);
-    const sheetResourceId = resourceIdFromStorageKey(sheet.storageKey);
-    if (!sheetResourceId) throw new Error("三视图原图尚未保存到后端资源库");
-    return [
-        { role: "turnaround_sheet", resourceId: sheetResourceId, metadata: { prompt } },
-        { role: "primary", resourceId: sheetResourceId, metadata: { source: "turnaround_sheet" } },
-    ];
 }
 
 export function characterTurnaroundPrompt(name: string, definition: Record<string, unknown>) {

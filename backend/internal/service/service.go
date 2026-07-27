@@ -21,18 +21,19 @@ import (
 )
 
 type Service struct {
-	repo           *repository.Repository
-	dataDir        string
-	cancelMu       sync.Mutex
-	registrationMu sync.Mutex
-	emailCodeMu    sync.Mutex
-	redeemBatchMu  sync.Mutex
-	storageMu      sync.Mutex
-	activeCancels  map[string]context.CancelFunc
-	pendingStorage map[string]int64
-	coordinator    *runtimeCoordinator
-	runtimeErr     error
-	workerID       string
+	repo            *repository.Repository
+	dataDir         string
+	cancelMu        sync.Mutex
+	registrationMu  sync.Mutex
+	emailCodeMu     sync.Mutex
+	redeemBatchMu   sync.Mutex
+	storageMu       sync.Mutex
+	characterTaskMu sync.Mutex
+	activeCancels   map[string]context.CancelFunc
+	pendingStorage  map[string]int64
+	coordinator     *runtimeCoordinator
+	runtimeErr      error
+	workerID        string
 }
 
 const taskWorkerConcurrency = 3
@@ -780,6 +781,9 @@ func (s *Service) processClaimedTask(task *model.Task) error {
 	providerSucceeded := err == nil
 	if err == nil {
 		result, err = s.persistGeneratedMediaResult(task.UserID, result)
+	}
+	if err == nil {
+		_, err = s.finalizeCharacterTurnaroundTask(*task, result)
 	}
 	if err != nil {
 		channelSlotFailedBeforeRequest := false

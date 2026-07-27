@@ -3,6 +3,8 @@ package service
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -58,6 +60,19 @@ type VoiceProfileSummary struct {
 type CharacterVoiceSummary struct {
 	Profile      VoiceProfileSummary `json:"profile"`
 	Instructions string              `json:"instructions"`
+}
+
+type characterTurnaroundTaskInput struct {
+	Metadata struct {
+		Operation        string `json:"operation"`
+		CharacterAssetID string `json:"characterAssetId"`
+	} `json:"metadata"`
+}
+
+type characterTurnaroundTaskResult struct {
+	Images []struct {
+		ResourceID string `json:"resourceId"`
+	} `json:"images"`
 }
 
 type CharacterCardSummary struct {
@@ -190,6 +205,113 @@ func (s *Service) ReplaceProjectCharacterRepresentations(userID string, projectI
 		return ProjectCharacterDetail{}, err
 	}
 	return s.ProjectCharacter(userID, projectID, asset.ID)
+}
+
+// 三视图生成是强校验写路径：任务只有在资源已绑定到新角色版本后才能对外显示成功。
+func (s *Service) finalizeCharacterTurnaroundTask(task model.Task, result map[string]interface{}) (bool, error) {
+	if !strings.Contains(task.InputJSON, "character_turnaround") {
+		return false, nil
+	}
+	decrypted, err := s.decryptTaskInputJSON(task.InputJSON)
+	if err != nil {
+		return false, err
+	}
+	var input characterTurnaroundTaskInput
+	if err := json.Unmarshal([]byte(decrypted), &input); err != nil {
+		return false, err
+	}
+	if input.Metadata.Operation != "character_turnaround" {
+		return false, nil
+	}
+	projectID := strings.TrimSpace(task.ProjectID)
+	assetID := strings.TrimSpace(input.Metadata.CharacterAssetID)
+	if projectID == "" || assetID == "" {
+		return false, errors.New("三视图任务缺少项目或角色标识")
+	}
+	encodedResult, err := json.Marshal(result)
+	if err != nil {
+		return false, err
+	}
+	var output characterTurnaroundTaskResult
+	if err := json.Unmarshal(encodedResult, &output); err != nil {
+		return false, err
+	}
+	if len(output.Images) == 0 || strings.TrimSpace(output.Images[0].ResourceID) == "" {
+		return false, errors.New("三视图任务没有返回已持久化的图片资源")
+	}
+
+	s.characterTaskMu.Lock()
+	defer s.characterTaskMu.Unlock()
+	bound, err := s.characterTurnaroundTaskBound(task.ID)
+	if err != nil || bound {
+		return false, err
+	}
+	asset, err := s.repo.ProjectCharacterAsset(task.UserID, projectID, assetID)
+	if err != nil {
+		return false, err
+	}
+	resourceID := strings.TrimSpace(output.Images[0].ResourceID)
+	resource, err := s.repo.ResourceForUser(task.UserID, resourceID)
+	if err != nil || resource.Kind != "image" || resource.Status != model.ResourceStatusReady {
+		return false, BadAuthRequest("三视图任务生成的图片资源不可用")
+	}
+	sheetMetadata, _ := json.Marshal(map[string]any{"prompt": task.Prompt, "source": "character_turnaround"})
+	primaryMetadata, _ := json.Marshal(map[string]any{"source": "turnaround_sheet"})
+	now := time.Now()
+	representations := []model.AssetRepresentation{
+		{ID: newID(), TaskID: task.ID, ResourceID: resourceID, MediaType: "image", Role: "turnaround_sheet", MetadataJSON: string(sheetMetadata), CreatedAt: now},
+		{ID: newID(), TaskID: task.ID, ResourceID: resourceID, MediaType: "image", Role: "primary", MetadataJSON: string(primaryMetadata), CreatedAt: now},
+	}
+	if _, err := s.createNextCharacterVersion(projectID, asset, asset.Title, "", representations, nil, false); err != nil {
+		// 多实例同时收尾时，唯一任务视角约束只允许一个事务成功；其余实例按已绑定处理。
+		if bound, checkErr := s.characterTurnaroundTaskBound(task.ID); checkErr == nil && bound {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *Service) characterTurnaroundTaskBound(taskID string) (bool, error) {
+	representations, err := s.repo.AssetRepresentationsForTask(taskID)
+	if err != nil {
+		return false, err
+	}
+	roles := make(map[string]bool, len(representations))
+	for _, representation := range representations {
+		roles[representation.Role] = true
+	}
+	if len(representations) > 0 && (!roles["turnaround_sheet"] || !roles["primary"]) {
+		return false, fmt.Errorf("三视图任务 %s 的角色表现绑定不完整", taskID)
+	}
+	return roles["turnaround_sheet"] && roles["primary"], nil
+}
+
+// 项目页读取时只修复旧版前端刷新造成的断点；单个异常任务记录告警，不阻断项目展示。
+func (s *Service) reconcileCharacterTurnaroundTasks(userID string, projectID string) bool {
+	tasks, err := s.repo.UnboundCharacterTurnaroundTasks(userID, projectID)
+	if err != nil {
+		log.Printf("reconcile character turnaround tasks failed: user=%s project=%s error=%v", userID, projectID, err)
+		return false
+	}
+	recovered := false
+	for _, task := range tasks {
+		var result map[string]interface{}
+		if err := json.Unmarshal([]byte(task.ResultJSON), &result); err != nil {
+			log.Printf("restore character turnaround result failed: user=%s project=%s task=%s error=%v", userID, projectID, task.ID, err)
+			continue
+		}
+		applied, err := s.finalizeCharacterTurnaroundTask(task, result)
+		if err != nil {
+			log.Printf("restore character turnaround task failed: user=%s project=%s task=%s error=%v", userID, projectID, task.ID, err)
+			continue
+		}
+		if applied {
+			recovered = true
+			_ = s.log(userID, task.ID, "info", "已将历史三视图任务恢复到角色卡", "")
+		}
+	}
+	return recovered
 }
 
 func (s *Service) BindProjectCharacterVoice(userID string, projectID string, assetID string, req BindCharacterVoiceRequest) (ProjectCharacterDetail, error) {

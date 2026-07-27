@@ -112,6 +112,13 @@ func (s *Service) ProjectDetail(userID string, id string) (ProjectDetail, error)
 	if err != nil {
 		return ProjectDetail{}, err
 	}
+	// 项目读取允许降级修复：旧任务可能已成功持久化图片，但浏览器刷新中断了角色版本绑定。
+	if s.reconcileCharacterTurnaroundTasks(userID, project.ID) {
+		project, err = s.repo.ProjectForUser(userID, id)
+		if err != nil {
+			return ProjectDetail{}, err
+		}
+	}
 	// 项目工作台只返回章节摘要，长篇小说正文由单章接口按需读取。
 	units, err := s.repo.ProjectUnitSummaries(project.ID)
 	if err != nil {

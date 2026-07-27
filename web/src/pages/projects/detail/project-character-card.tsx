@@ -21,14 +21,14 @@ export function ProjectCharacterCard({ asset, generating, removing, onEdit, onGe
     const appearance = textValue(character?.definition.appearance) || textValue(character?.definition.consistencyPrompt) || "角色设定待完善";
     const imageStatus = character?.visualStatus === "ready" ? "图片已绑定" : character?.visualStatus === "partial" ? "图片待补全" : "图片未绑定";
     const voiceStatus = character?.voiceStatus === "ready" ? `声音已绑定 · ${character.voice?.profile.name}` : character?.voiceStatus === "unavailable" ? "声音需处理" : "声音未绑定";
-    const ready = character?.visualStatus === "ready" && character.voiceStatus === "ready";
+    const readinessLabel = character?.visualStatus === "ready" ? character.voiceStatus === "ready" ? "可直接用于生成" : "形象已就绪" : "设定进行中";
     return (
         <article className="group overflow-hidden rounded-lg border border-border/80 bg-background shadow-[0_10px_30px_rgba(0,0,0,.04)]">
             <div className="relative aspect-[3/2] overflow-hidden bg-foreground/[.045]">
                 {cover ? <img src={resourceFileUrl(cover.resourceId)} alt={asset.title} loading="lazy" decoding="async" className="h-full w-full object-contain p-1" /> : <div className="grid h-full place-items-center"><span className="grid size-14 place-items-center rounded-lg border border-border/70 bg-background/75 text-foreground/24"><UserRound className="size-7" /></span></div>}
                 <div className="absolute inset-x-2 top-2 flex items-center justify-between gap-2">
                     <span className="rounded bg-black/60 px-1.5 py-0.5 text-[9px] font-medium text-white">角色卡 · v{character?.version || 1}</span>
-                    <span className="rounded bg-black/60 px-1.5 py-0.5 text-[9px] text-white">{ready ? "可直接用于生成" : "设定进行中"}</span>
+                    <span className="rounded bg-black/60 px-1.5 py-0.5 text-[9px] text-white">{readinessLabel}</span>
                 </div>
             </div>
             <div className="p-3">
