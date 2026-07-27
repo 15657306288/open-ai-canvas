@@ -768,7 +768,7 @@ func (r *Repository) CreateProject(project *model.Project) error {
 func (r *Repository) UpdateProject(project *model.Project) error {
 	return r.db.Model(&model.Project{}).Where("id = ? AND user_id = ?", project.ID, project.UserID).Updates(map[string]any{
 		"name": project.Name, "type": project.Type, "aspect_ratio": project.AspectRatio, "source_type": project.SourceType,
-		"description": project.Description, "style_preset_id": project.StylePresetID, "active_task_limit": project.ActiveTaskLimit,
+		"description": project.Description, "style_preset_id": project.StylePresetID,
 		"status": project.Status, "revision": project.Revision, "updated_at": project.UpdatedAt,
 	}).Error
 }

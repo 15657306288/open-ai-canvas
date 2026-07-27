@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { App, Button, Input, InputNumber, Modal, Select, Tooltip } from "antd";
+import { App, Button, Input, Modal, Select, Tooltip } from "antd";
 import { Archive, Check, Save, ShieldAlert } from "lucide-react";
 
 import { canvasStylePresets } from "@/components/canvas/canvas-style-picker-modal";
@@ -16,16 +16,15 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
     const [aspectRatio, setAspectRatio] = useState(project.aspectRatio);
     const [sourceType, setSourceType] = useState(project.sourceType);
     const [stylePresetId, setStylePresetId] = useState(project.stylePresetId || "");
-    const [activeTaskLimit, setActiveTaskLimit] = useState(project.activeTaskLimit || 3);
     const [archiveOpen, setArchiveOpen] = useState(false);
-    useEffect(() => { setName(project.name); setDescription(project.description || ""); setAspectRatio(project.aspectRatio); setSourceType(project.sourceType); setStylePresetId(project.stylePresetId || ""); setActiveTaskLimit(project.activeTaskLimit || 3); }, [project]);
-    const dirty = useMemo(() => name.trim() !== project.name || description !== (project.description || "") || aspectRatio !== project.aspectRatio || sourceType !== project.sourceType || stylePresetId !== (project.stylePresetId || "") || activeTaskLimit !== (project.activeTaskLimit || 3), [activeTaskLimit, aspectRatio, description, name, project, sourceType, stylePresetId]);
-    const saveMutation = useMutation({ mutationFn: () => updateProject(project.id, { name: name.trim(), description, aspectRatio, sourceType, stylePresetId, activeTaskLimit }), onSuccess: () => { refreshProject(); message.success("项目设置已保存"); }, onError: (error) => message.error(error instanceof Error ? error.message : "项目设置保存失败") });
+    useEffect(() => { setName(project.name); setDescription(project.description || ""); setAspectRatio(project.aspectRatio); setSourceType(project.sourceType); setStylePresetId(project.stylePresetId || ""); }, [project]);
+    const dirty = useMemo(() => name.trim() !== project.name || description !== (project.description || "") || aspectRatio !== project.aspectRatio || sourceType !== project.sourceType || stylePresetId !== (project.stylePresetId || ""), [aspectRatio, description, name, project, sourceType, stylePresetId]);
+    const saveMutation = useMutation({ mutationFn: () => updateProject(project.id, { name: name.trim(), description, aspectRatio, sourceType, stylePresetId }), onSuccess: () => { refreshProject(); message.success("项目设置已保存"); }, onError: (error) => message.error(error instanceof Error ? error.message : "项目设置保存失败") });
     const archiveMutation = useMutation({ mutationFn: () => updateProject(project.id, { status: project.status === "archived" ? "active" : "archived" }), onSuccess: () => { setArchiveOpen(false); refreshProject(); message.success(project.status === "archived" ? "项目已恢复" : "项目已归档"); }, onError: (error) => message.error(error instanceof Error ? error.message : "项目状态更新失败") });
 
     return (
         <div>
-            <header className="flex items-end justify-between gap-3 border-b border-border/70 pb-3"><div><h2 className="text-lg font-semibold">项目设置</h2><p className="mt-1 text-xs text-foreground/48">基础信息、项目画风与运行限额</p></div><Button type={dirty ? "primary" : "default"} icon={dirty ? <Save className="size-3.5" /> : <Check className="size-3.5" />} disabled={!dirty || !name.trim()} loading={saveMutation.isPending} onClick={() => saveMutation.mutate()}>{dirty ? "保存设置" : "已保存"}</Button></header>
+            <header className="flex items-end justify-between gap-3 border-b border-border/70 pb-3"><div><h2 className="text-lg font-semibold">项目设置</h2><p className="mt-1 text-xs text-foreground/48">基础信息、项目画风与归档管理</p></div><Button type={dirty ? "primary" : "default"} icon={dirty ? <Save className="size-3.5" /> : <Check className="size-3.5" />} disabled={!dirty || !name.trim()} loading={saveMutation.isPending} onClick={() => saveMutation.mutate()}>{dirty ? "保存设置" : "已保存"}</Button></header>
 
             <section className="border-b border-border/70 py-4">
                 <h3 className="mb-3 text-sm font-semibold">基础设置</h3>
@@ -33,8 +32,7 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
                     <Field label="项目名称" className="xl:col-span-2"><Input value={name} onChange={(event) => setName(event.target.value)} /></Field>
                     <Field label="默认画幅"><Select className="w-full" value={aspectRatio} options={[{ label: "9:16 · 竖屏短剧", value: "9:16" }, { label: "16:9 · 横屏", value: "16:9" }, { label: "1:1 · 方形", value: "1:1" }]} onChange={setAspectRatio} /></Field>
                     <Field label="内容来源"><Select className="w-full" value={sourceType} options={[{ label: "空白开始", value: "blank" }, { label: "导入小说", value: "novel" }, { label: "粘贴文本", value: "text" }]} onChange={setSourceType} /></Field>
-                    <Field label="项目简介" className="md:col-span-2 xl:col-span-3"><Input value={description} onChange={(event) => setDescription(event.target.value)} placeholder="一句话说明项目目标" /></Field>
-                    <Field label="活跃任务上限（个）"><InputNumber className="!w-full" min={1} max={20} value={activeTaskLimit} onChange={(value) => setActiveTaskLimit(value || 1)} /></Field>
+                    <Field label="项目简介" className="md:col-span-2 xl:col-span-4"><Input value={description} onChange={(event) => setDescription(event.target.value)} placeholder="一句话说明项目目标" /></Field>
                 </div>
             </section>
 

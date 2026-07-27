@@ -13,7 +13,6 @@ export type Project = {
     sourceType: string;
     description: string;
     stylePresetId: string;
-    activeTaskLimit: number;
     status: "active" | "archived" | string;
     revision: number;
     createdAt: string;
@@ -187,11 +186,11 @@ export function getProject(id: string) {
     return request<ProjectDetail>(api.get(`/projects/${encodeURIComponent(id)}`));
 }
 
-export function createProject(input: { name: string; type: string; aspectRatio: string; sourceType: string; description?: string; stylePresetId?: string; activeTaskLimit?: number }) {
+export function createProject(input: { name: string; type: string; aspectRatio: string; sourceType: string; description?: string; stylePresetId?: string }) {
     return request<{ project: Project }>(api.post("/projects", input));
 }
 
-export function updateProject(projectId: string, input: Partial<Pick<Project, "name" | "type" | "aspectRatio" | "sourceType" | "description" | "stylePresetId" | "activeTaskLimit" | "status">>) {
+export function updateProject(projectId: string, input: Partial<Pick<Project, "name" | "type" | "aspectRatio" | "sourceType" | "description" | "stylePresetId" | "status">>) {
     return request<{ project: Project }>(api.patch(`/projects/${encodeURIComponent(projectId)}`, input));
 }
 

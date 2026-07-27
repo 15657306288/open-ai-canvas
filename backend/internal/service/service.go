@@ -292,8 +292,7 @@ func (s *Service) CreateTask(userID string, req CreateTaskRequest) (*model.Task,
 		taskType = "video_image_to_video"
 	}
 	task := model.Task{ID: newID(), UserID: userID, SessionID: req.SessionID, ProjectID: req.ProjectID, Type: taskType, Status: model.TaskStatusQueued, Stage: "等待队列调度", Progress: 5, Prompt: prompt, Operation: req.Operation, Provider: req.Provider, Model: req.Model}
-	domainProjectID, projectTaskLimit, err := s.projectTaskLimit(userID, req.ProjectID)
-	if err != nil {
+	if err := s.ensureTaskProjectActive(userID, req.ProjectID); err != nil {
 		return nil, err
 	}
 	billingOrder, err := s.taskBillingOrder(userID, &task, normalizedInput)
@@ -308,12 +307,9 @@ func (s *Service) CreateTask(userID string, req CreateTaskRequest) (*model.Task,
 	if billingOrder != nil {
 		task.BillingOrderID = billingOrder.ID
 	}
-	err = s.createTaskWithinStorageQuota(&task, billingOrder, policy, domainProjectID, projectTaskLimit)
+	err = s.createTaskWithinStorageQuota(&task, billingOrder, policy)
 	if errors.Is(err, repository.ErrActiveTaskLimit) {
 		return nil, BadAuthRequest(fmt.Sprintf("同时排队或运行的任务最多 %d 个，请等待已有任务完成", policy.Task.ActiveTaskLimit))
-	}
-	if errors.Is(err, repository.ErrProjectTaskLimit) {
-		return nil, BadAuthRequest(fmt.Sprintf("当前项目同时排队或运行的任务最多 %d 个", projectTaskLimit))
 	}
 	if errors.Is(err, repository.ErrInsufficientCredits) {
 		return nil, BadAuthRequest("积分不足，请先使用兑换码充值")
@@ -419,19 +415,15 @@ func (s *Service) RetryTask(userID string, id string) (*model.Task, error) {
 	if err != nil {
 		return nil, err
 	}
-	domainProjectID, projectTaskLimit, err := s.projectTaskLimit(userID, task.ProjectID)
-	if err != nil {
+	if err := s.ensureTaskProjectActive(userID, task.ProjectID); err != nil {
 		return nil, err
 	}
-	task, err = s.repo.RetryTaskWithBilling(userID, task.ID, billingOrder, policy.Task.ActiveTaskLimit, domainProjectID, projectTaskLimit)
+	task, err = s.repo.RetryTaskWithBilling(userID, task.ID, billingOrder, policy.Task.ActiveTaskLimit)
 	if errors.Is(err, repository.ErrInsufficientCredits) {
 		return nil, BadAuthRequest("积分不足，请先使用兑换码充值")
 	}
 	if errors.Is(err, repository.ErrActiveTaskLimit) {
 		return nil, BadAuthRequest(fmt.Sprintf("同时排队或运行的任务最多 %d 个，请等待已有任务完成", policy.Task.ActiveTaskLimit))
-	}
-	if errors.Is(err, repository.ErrProjectTaskLimit) {
-		return nil, BadAuthRequest(fmt.Sprintf("当前项目同时排队或运行的任务最多 %d 个", projectTaskLimit))
 	}
 	if errors.Is(err, repository.ErrTaskNotRetryable) {
 		return nil, BadAuthRequest("任务已被其他请求重新入队，请勿重复重试")

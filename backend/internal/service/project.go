@@ -12,24 +12,22 @@ import (
 )
 
 type CreateProjectRequest struct {
-	Name            string `json:"name"`
-	Type            string `json:"type"`
-	AspectRatio     string `json:"aspectRatio"`
-	SourceType      string `json:"sourceType"`
-	Description     string `json:"description"`
-	StylePresetID   string `json:"stylePresetId"`
-	ActiveTaskLimit int    `json:"activeTaskLimit"`
+	Name          string `json:"name"`
+	Type          string `json:"type"`
+	AspectRatio   string `json:"aspectRatio"`
+	SourceType    string `json:"sourceType"`
+	Description   string `json:"description"`
+	StylePresetID string `json:"stylePresetId"`
 }
 
 type UpdateProjectRequest struct {
-	Name            string  `json:"name"`
-	Type            string  `json:"type"`
-	AspectRatio     string  `json:"aspectRatio"`
-	SourceType      string  `json:"sourceType"`
-	Description     *string `json:"description"`
-	StylePresetID   *string `json:"stylePresetId"`
-	ActiveTaskLimit *int    `json:"activeTaskLimit"`
-	Status          string  `json:"status"`
+	Name          string  `json:"name"`
+	Type          string  `json:"type"`
+	AspectRatio   string  `json:"aspectRatio"`
+	SourceType    string  `json:"sourceType"`
+	Description   *string `json:"description"`
+	StylePresetID *string `json:"stylePresetId"`
+	Status        string  `json:"status"`
 }
 
 type CreateProjectUnitRequest struct {
@@ -147,9 +145,6 @@ func (s *Service) ProjectDetail(userID string, id string) (ProjectDetail, error)
 	if err != nil {
 		return ProjectDetail{}, err
 	}
-	if project.ActiveTaskLimit <= 0 {
-		project.ActiveTaskLimit = 3
-	}
 	return ProjectDetail{Project: *project, Units: units, Canvases: canvases, CanvasUnitLinks: canvasUnitLinks, Assets: assets, Workflows: workflows, Shots: shots, ShotReferences: shotReferences, AssetCandidates: candidates}, nil
 }
 
@@ -174,14 +169,7 @@ func (s *Service) CreateProject(userID string, req CreateProjectRequest) (model.
 		sourceType = "blank"
 	}
 	now := time.Now()
-	activeTaskLimit := req.ActiveTaskLimit
-	if activeTaskLimit == 0 {
-		activeTaskLimit = 3
-	}
-	if activeTaskLimit < 1 || activeTaskLimit > 20 {
-		return model.Project{}, BadAuthRequest("项目活跃任务上限必须在 1 到 20 之间")
-	}
-	project := model.Project{ID: newID(), UserID: userID, Name: name, Type: projectType, AspectRatio: aspectRatio, SourceType: sourceType, Description: strings.TrimSpace(req.Description), StylePresetID: strings.TrimSpace(req.StylePresetID), ActiveTaskLimit: activeTaskLimit, Status: model.ProjectStatusActive, Revision: 1, CreatedAt: now, UpdatedAt: now}
+	project := model.Project{ID: newID(), UserID: userID, Name: name, Type: projectType, AspectRatio: aspectRatio, SourceType: sourceType, Description: strings.TrimSpace(req.Description), StylePresetID: strings.TrimSpace(req.StylePresetID), Status: model.ProjectStatusActive, Revision: 1, CreatedAt: now, UpdatedAt: now}
 	if err := s.repo.CreateProject(&project); err != nil {
 		return model.Project{}, err
 	}
@@ -216,12 +204,6 @@ func (s *Service) UpdateProject(userID string, id string, req UpdateProjectReque
 	}
 	if req.StylePresetID != nil {
 		project.StylePresetID = strings.TrimSpace(*req.StylePresetID)
-	}
-	if req.ActiveTaskLimit != nil {
-		if *req.ActiveTaskLimit < 1 || *req.ActiveTaskLimit > 20 {
-			return model.Project{}, BadAuthRequest("项目活跃任务上限必须在 1 到 20 之间")
-		}
-		project.ActiveTaskLimit = *req.ActiveTaskLimit
 	}
 	if status := model.ProjectStatus(strings.TrimSpace(req.Status)); status != "" {
 		if status != model.ProjectStatusActive && status != model.ProjectStatusArchived {
@@ -474,43 +456,36 @@ func IsProjectNotFound(err error) bool {
 	return errors.Is(err, gorm.ErrRecordNotFound)
 }
 
-// 任务仍以画布 ID 作为 projectId；这里统一解析到业务项目，避免项目限额和画布主键语义混淆。
-func (s *Service) projectTaskLimit(userID string, canvasOrProjectID string) (string, int, error) {
+// 任务仍以画布 ID 作为 projectId；写入前必须解析到业务项目并阻止归档项目继续生成。
+func (s *Service) ensureTaskProjectActive(userID string, canvasOrProjectID string) error {
 	id := strings.TrimSpace(canvasOrProjectID)
 	if id == "" {
-		return "", 0, nil
+		return nil
 	}
 	if canvas, err := s.repo.CanvasProjectForUser(userID, id); err == nil {
 		if canvas.ProjectID == "" {
-			return "", 0, nil
+			return nil
 		}
 		project, projectErr := s.repo.ProjectForUser(userID, canvas.ProjectID)
 		if projectErr != nil {
-			return "", 0, projectErr
+			return projectErr
 		}
 		if project.Status == model.ProjectStatusArchived {
-			return "", 0, BadAuthRequest("项目已归档，无法创建生成任务")
+			return BadAuthRequest("项目已归档，无法创建生成任务")
 		}
-		return project.ID, normalizedProjectTaskLimit(project.ActiveTaskLimit), nil
+		return nil
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return "", 0, err
+		return err
 	}
 	project, err := s.repo.ProjectForUser(userID, id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return "", 0, nil
+			return nil
 		}
-		return "", 0, err
+		return err
 	}
 	if project.Status == model.ProjectStatusArchived {
-		return "", 0, BadAuthRequest("项目已归档，无法创建生成任务")
+		return BadAuthRequest("项目已归档，无法创建生成任务")
 	}
-	return project.ID, normalizedProjectTaskLimit(project.ActiveTaskLimit), nil
-}
-
-func normalizedProjectTaskLimit(limit int) int {
-	if limit <= 0 {
-		return 3
-	}
-	return limit
+	return nil
 }
