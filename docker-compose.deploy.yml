@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-open_ai_canvas}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请先运行一键部署脚本生成数据库密码}
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - ${CANVAS_POSTGRES_DATA_PATH:-postgres-data}:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
@@ -18,7 +18,7 @@ services:
     image: redis:7.4-alpine
     command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
     volumes:
-      - redis-data:/data
+      - ${CANVAS_REDIS_DATA_PATH:-redis-data}:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -42,7 +42,7 @@ services:
       CANVAS_CORS_ORIGINS: ${CANVAS_CORS_ORIGINS:-}
       GIN_MODE: release
     volumes:
-      - backend-data:/data
+      - ${CANVAS_DATA_PATH:-backend-data}:/data
     depends_on:
       postgres:
         condition: service_healthy
