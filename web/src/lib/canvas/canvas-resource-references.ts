@@ -19,6 +19,11 @@ export type CanvasResourceReference = {
     skill?: UpdreamSkill;
 };
 
+export function canvasResourceMentionToken(reference: CanvasResourceReference) {
+    if (reference.kind === "skill" && reference.skill?.dir) return `@[skill:${reference.skill.dir}]`;
+    return `@[node:${reference.nodeId}]`;
+}
+
 export function buildCanvasResourceReferences(nodes: CanvasNodeData[], connections: CanvasConnection[], contextNodeId?: string | null) {
     const contextNodes = contextNodeId ? getMentionResourceNodes(contextNodeId, nodes, connections) : [];
     const globalReferences = labelResourceNodes(nodes.filter(isResourceNode), false);

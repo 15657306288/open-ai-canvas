@@ -1291,7 +1291,18 @@ function InfiniteCanvasPage() {
         setHoveredNodeId((current) => (current === nodeId ? null : current));
         hideNodeToolbar();
     }, [hideNodeToolbar]);
-    const retryCanvasNode = useCallback((node: CanvasNodeData) => { void handleRetryNode(node); }, [handleRetryNode]);
+    const retryCanvasNode = useCallback((node: CanvasNodeData) => {
+        if (node.type === CanvasNodeType.Script) {
+            const prompt = (node.metadata?.composerContent || node.metadata?.prompt || "").trim();
+            if (!prompt) {
+                message.warning("分镜脚本缺少剧情内容，无法重试");
+                return;
+            }
+            void generateScriptRows(node.id, prompt);
+            return;
+        }
+        void handleRetryNode(node);
+    }, [generateScriptRows, handleRetryNode, message]);
     const openCanvasNodeTaskDetails = useCallback((node: CanvasNodeData) => { void openNodeTaskDetails(node); }, [openNodeTaskDetails]);
     const openCanvasNodeVersions = useCallback((node: CanvasNodeData) => setVersionCompareRootId(node.metadata?.versionOfNodeId || node.id), []);
     const viewCanvasNodeImage = useCallback((node: CanvasNodeData) => setPreviewNodeId(node.id), []);
