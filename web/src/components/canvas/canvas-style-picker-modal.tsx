@@ -1,6 +1,6 @@
-import type { CSSProperties } from "react";
-import { Check, Clapperboard, Palette, Sparkles } from "lucide-react";
-import { Modal } from "antd";
+import { useState, type CSSProperties } from "react";
+import { Check, Clapperboard, Eye, Palette, Sparkles } from "lucide-react";
+import { Button, Modal } from "antd";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -153,6 +153,196 @@ export const canvasStylePresets: CanvasStylePreset[] = [
         imageUrl: "/short-drama-styles/fantasy-3d.jpg",
     },
     {
+        id: "future-tech",
+        title: "未来科技",
+        category: "科幻实拍",
+        description: "洁净白灰空间、精密工业结构与克制冷光构成可信近未来；科技来自功能与材质，不依赖满屏霓虹和悬浮界面。",
+        tags: ["科技", "近未来", "硬科幻"],
+        prompt: [
+            "【项目定位】近未来中国科技题材的写实硬科幻短剧体系，以可推演的技术、清晰功能结构和克制先进感为核心；世界比当下领先约十至三十年，所有设备、服装和空间都必须能解释用途，不使用空泛的科幻装饰。",
+            "【项目色彩系统】全项目色板使用权重约为 65% 冷白、浅灰、钛金属和透明材质，25% 石墨黑、深海蓝和低饱和工业色，10% 青绿或电蓝状态指示色。高亮色只用于设备状态、权限和风险提示，不扩散为环境染色。",
+            "【角色设计系统】角色保持真实东亚骨相、自然年龄与职业可信度，通过精确剪裁、功能装备和身份识别细节区分科研、工程、医疗、安保与管理角色；义体或可穿戴设备必须符合人体结构并具有明确功能。",
+            "【服饰与材质系统】建立模块化工作服、防护服、通勤装和轻型外骨骼体系，统一使用哑光技术织物、钛合金、陶瓷、透明聚合物和精密玻璃；接缝、扣具、传感器与磨损位置必须符合使用逻辑。",
+            "【建筑世界观】统一使用可信的中国近未来实验室、数据中心、交通枢纽、智能住宅、先进制造与城市公共设施；空间强调结构、维护通道、导视和设备尺度，科技升级建立在现有城市之上而非凭空替换。",
+            "【影像与动态基线】全片保持清晰冷静、低噪点和高材质可读性，光源来自顶灯、工作灯、屏幕与自然天光；动态强调精密操作、机械反馈和空间秩序，具体机位与节奏由分镜决定。",
+            "【资产一致性】建立设备型号、接口协议、状态灯职责、角色权限色、服装模块和空间导视手册；同类设备共享结构语言，升级与损坏必须形成可追踪版本。",
+            "【全局禁用】禁止无功能全息屏、满屏蓝色 HUD、随机发光线、霓虹城市套壳、塑料太空服、错误机械结构、设备尺寸漂移、英文乱码和把未来科技等同于赛博朋克。",
+            PROJECT_STYLE_SCOPE,
+        ].join("\n"),
+        imageUrl: "/short-drama-styles/future-tech.jpg",
+    },
+    {
+        id: "cyberpunk-neon",
+        title: "赛博霓虹",
+        category: "科幻实拍",
+        description: "高密度亚洲夜城、潮湿旧材质与受控霓虹形成技术失衡的近未来；人物身份由义体、阶层服装和企业色区分。",
+        tags: ["赛博朋克", "霓虹", "都市夜景"],
+        prompt: [
+            "【项目定位】亚洲高密度都市中的赛博朋克短剧体系，视觉核心是先进技术与老旧城市并存、企业秩序与街头生活碰撞；霓虹只作为商业、交通与身份系统的一部分，世界必须保留真实生活痕迹。",
+            "【项目色彩系统】全项目色板使用权重约为 55% 沥青黑、旧水泥、潮湿金属和烟灰，30% 冷青、脏黄与屏幕白，15% 洋红、警戒红或企业识别色。每种高亮色绑定阵营或功能，避免无差别彩虹霓虹。",
+            "【角色设计系统】角色采用真实东亚骨相和明确阶层差异，义眼、接口、义肢与皮下设备遵循统一技术代际；街头角色、企业雇员和执法人员通过剪影、改装程度、磨损与身份标记区分。",
+            "【服饰与材质系统】建立机能夹克、防水层、企业制服、旧式工装和改装配件库，统一使用磨损尼龙、橡胶、旧皮革、氧化金属、透明塑料和低亮度电子元件；服装必须可活动、可收纳并符合天气。",
+            "【建筑世界观】统一使用高密度亚洲街区、旧楼加建、地下交通、企业塔楼、维修铺、夜市与狭窄居住单元，中文标识与在地设施可信；新技术以加装、覆盖和侵入旧城市的方式出现。",
+            "【影像与动态基线】全片保持夜景可读、潮湿反射受控、实景光源有出处，动态兼具街头拥挤感与企业空间秩序；雨、烟和故障只在剧情需要时出现，不能遮盖人物表演与关键信息。",
+            "【资产一致性】建立企业标识、街区导视、义体代际、设备接口、角色改装和服装磨损版本；同一地点的招牌、线路与空间关系跨集保持稳定。",
+            "【全局禁用】禁止纯装饰霓虹、所有角色都装义体、无来源彩色轮廓光、日文城市替代中国语境、英文乱码、全屏雨雾、过曝招牌、随机机械纹身和未来设备无功能逻辑。",
+            PROJECT_STYLE_SCOPE,
+        ].join("\n"),
+        imageUrl: "/short-drama-styles/cyberpunk-neon.jpg",
+    },
+    {
+        id: "retro-hong-kong",
+        title: "复古港风",
+        category: "年代实拍",
+        description: "八九十年代华语都市的胶片色、密集街区与生活化服饰；用钨丝暖光、青绿阴影和真实时代器物建立怀旧感。",
+        tags: ["港风", "胶片", "年代都市"],
+        prompt: [
+            "【项目定位】八十至九十年代华语都市题材的复古港风短剧体系，以真实时代生活、紧凑街区和胶片摄影质感为核心；怀旧来自服化道、空间和人物状态，不靠泛黄滤镜或明星仿妆。",
+            "【项目色彩系统】全项目色板使用权重约为 50% 奶油白、旧墙灰、墨绿和木褐，35% 钨丝暖黄、青绿色阴影、牛仔蓝与暗红，15% 招牌红、出租车色或角色识别色。色彩保持胶片宽容度和自然肤色。",
+            "【角色设计系统】统一采用真实东亚骨相与明确时代发型、妆容和体态，按职业与阶层建立差异；角色通过眉形、卷发、短发、眼镜、手表与稳定服装剪影识别，不照搬具体明星面孔。",
+            "【服饰与材质系统】建立宽肩西装、衬衫、针织、牛仔、风衣、连衣裙和工装衣橱，使用真实棉、羊毛、皮革、涤纶和金属配件；版型、花纹、纽扣、鞋履与随身物件锁定明确年代。",
+            "【建筑世界观】统一使用骑楼、旧式住宅、茶餐厅、录像厅、办公室、街市、码头、巴士与密集招牌街道，保留窗机、瓷砖、铁闸、电话和时代交通工具；不得混入智能手机与当代城市家具。",
+            "【影像与动态基线】全片使用适度胶片颗粒、柔和高光、钨丝灯与窗外冷光的自然混合，动态保持手持观察和经典剧情片的稳健节奏；具体景别、变焦与运动由分镜决定。",
+            "【资产一致性】建立年代器物清单、角色衣橱、招牌字形、交通工具、室内材质和胶片色彩基线；时间推进通过服装、发型与城市更新版本体现。",
+            "【全局禁用】禁止一键泛黄滤镜、现代手机与车辆、错误年代品牌、过量霓虹、日系昭和混用、具体明星换脸、影楼旗袍写真、干净到失真的街景和随机繁体乱码。",
+            PROJECT_STYLE_SCOPE,
+        ].join("\n"),
+        imageUrl: "/short-drama-styles/retro-hong-kong.jpg",
+    },
+    {
+        id: "clay-stop-motion",
+        title: "黏土定格",
+        category: "定格动画",
+        description: "保留手塑痕迹的黏土角色、微缩布景与逐帧动作；统一模型比例、材料颗粒和灯光尺度，形成温暖可触的手工世界。",
+        tags: ["黏土", "定格", "手工质感"],
+        prompt: [
+            "【项目定位】以手工黏土角色和微缩布景制作的定格动画短剧体系，视觉核心是可触摸的材料、真实模型尺度与逐帧表演；全项目保留适度手塑痕迹，不伪装成光滑三维动画。",
+            "【项目色彩系统】全项目色板使用权重约为 55% 陶土、米白、旧木和纸张原色，30% 角色主色与场景功能色，15% 珊瑚红、芥末黄、湖蓝或项目点睛色。颜色带有实体颜料的轻微不均匀感。",
+            "【角色设计系统】角色采用统一头身、眼球、嘴型替换与骨架关节规则，通过鼻形、发型、体型和服装剪影区分；指纹、接缝与替换口型可适度保留，但正侧背结构必须一致且可制作。",
+            "【服饰与材质系统】衣物使用薄黏土、布料、毛线、纸张与细金属件组合，木、石、玻璃和食物以微缩材料模拟；每种材质保持可辨的颗粒、厚度与手工边缘，避免统一塑料表面。",
+            "【建筑世界观】统一使用可搭建的微缩住宅、街道、店铺、自然景观与室内布景，结构受真实模型尺寸、灯具和摄影空间约束；背景与道具遵循同一缩尺和手工制作语言。",
+            "【影像与动态基线】全片保持棚内微缩摄影的真实景深、柔和体积光与轻微逐帧节奏，动作强调清晰关键姿势、重量和停顿；不得用运动模糊掩盖定格特征，具体表演由分镜决定。",
+            "【资产一致性】建立角色骨架、替换脸、手型、标准色泥、缩尺、布景模块与道具制作表；损坏、换装和表情组件必须按资产版本维护。",
+            "【全局禁用】禁止光滑 CGI、塑料玩具反光、真实人类皮肤、模型比例漂移、关节凭空变形、材质尺度错误、过度景深虚化、随机指纹污渍和布景看似无限真实空间。",
+            PROJECT_STYLE_SCOPE,
+        ].join("\n"),
+        imageUrl: "/short-drama-styles/clay-stop-motion.jpg",
+    },
+    {
+        id: "black-white-noir",
+        title: "黑白默片",
+        category: "风格化实拍",
+        description: "以黑白灰阶、硬朗光影和克制表演建立无对白也可读的戏剧性；时代质感来自构图、材质与表演，不靠复古滤镜。",
+        tags: ["黑白", "默片", "电影感"],
+        prompt: [
+            "【项目定位】以黑白电影和默片叙事为核心的风格化实拍短剧体系，强调轮廓、构图、肢体表演和视觉隐喻；可有少量时代道具，但不把项目固定为某一历史年代。",
+            "【项目色彩系统】全项目使用黑、白和五级中性灰作为主色，允许极少量单色强调作为叙事线索；明暗关系优先服务人物层次与信息可读性，禁止把画面压成一团黑或过度漂白。",
+            "【角色设计系统】角色保持真实东亚骨相与明确剪影，妆发和年龄感自然稳定；人物通过帽檐、领型、姿态、手势和光影落点区分，正侧背设定必须在灰阶中仍然清楚。",
+            "【服饰与材质系统】服装按角色身份建立黑白灰明度差、纹理密度和轮廓结构，使用羊毛、棉、皮革、金属与玻璃的真实反差；图案不依赖颜色，必须通过材质和明度可辨。",
+            "【建筑世界观】统一使用几何清晰、层次明确的城市街道、室内、车站、剧院和工业空间；墙面、玻璃、砖石、金属和雾气都以灰阶材质库控制，不添加无叙事的奇观背景。",
+            "【影像与动态基线】使用硬光、侧光、背光和局部高光塑造戏剧性，允许少量胶片颗粒与光晕；表演通过停顿、视线、走位和夸张但可信的肢体传达，具体节奏由分镜决定。",
+            "【资产一致性】建立灰阶色卡、角色轮廓、帽饰与道具明度表、光影基线和场景构图规则；同一角色的服装纹理和标志道具在不同曝光下仍需稳定。",
+            "【全局禁用】禁止随意套用棕色复古滤镜、画面全黑、现代彩色屏幕抢戏、过度烟雾、夸张舞台妆、无意义鱼眼变形、角色剪影混淆和字幕水印。",
+            PROJECT_STYLE_SCOPE,
+        ].join("\n"),
+        imageUrl: "/short-drama-styles/black-white-noir.jpg",
+    },
+    {
+        id: "space-opera",
+        title: "太空歌剧",
+        category: "科幻动画",
+        description: "宏大星际尺度与鲜明阵营服饰结合可信航天结构；用色彩、徽记和材质建立政治与冒险叙事，而不是堆砌宇宙奇观。",
+        tags: ["星际", "阵营", "史诗"],
+        prompt: [
+            "【项目定位】东方叙事语境下的太空歌剧项目，融合星际航行、阵营政治、家族关系与冒险成长；世界观允许宏大奇观，但人物动机、技术限制和空间尺度必须清楚可追踪。",
+            "【项目色彩系统】全项目色板使用权重约为 45% 深空黑、冷灰、银白和舱体白，35% 阵营主色与舰队识别色，20% 星云紫、能源蓝或警戒橙作为叙事强调；每个阵营只拥有稳定主色和辅助色。",
+            "【角色设计系统】角色采用真实东方骨相或统一动画化比例，通过军衔、阵营徽记、发型、体型和功能装备区分；太空服、驾驶服和礼服必须适配人体活动，角色脸部与身体比例跨视角稳定。",
+            "【服饰与材质系统】建立舱内工作服、战术航天服、舰队制服、外交礼服和维修装模块，统一使用复合纤维、陶瓷、金属、透明面罩和软质密封件；接口、扣件、徽记与生命保障装置具有功能逻辑。",
+            "【建筑世界观】统一使用环形空间站、舰桥、推进舱、殖民地、轨道电梯和低重力生活区，结构遵循压力舱、维护通道、重力与照明逻辑；奇观服务于文明尺度，不随机拼贴异星建筑。",
+            "【影像与动态基线】保持深空黑与舱内工作光的层次，使用克制体积光和可信屏幕反射；动作体现惯性、失重、穿戴装备和空间限制，具体战斗与运镜由分镜决定。",
+            "【资产一致性】建立舰船型号、阵营徽记、舱体材质、接口标准、武器尺寸、角色制服和能源颜色版本表；任何舰船升级、损坏与换装都要有剧情原因。",
+            "【全局禁用】禁止现实宇航服直接套用、星球大小失真、所有阵营同一颜色、无功能 HUD、魔法与科技规则混杂、舰船结构穿透、角色装备随机变化和版权品牌标识。",
+            PROJECT_STYLE_SCOPE,
+        ].join("\n"),
+        imageUrl: "/short-drama-styles/space-opera.jpg",
+    },
+    {
+        id: "comic-pop",
+        title: "漫画分镜",
+        category: "风格化动画",
+        description: "高对比块面、网点纹理与漫画格律构成可读的动作喜剧视觉；夸张来自构图、拟声和姿态，角色资产仍保持连续性。",
+        tags: ["漫画", "动作", "高对比"],
+        prompt: [
+            "【项目定位】面向动作、喜剧与都市冒险的漫画分镜风格，统一使用清晰外轮廓、平涂块面、网点纹理和有节奏的画格感；画面可以夸张，但角色关系、动作方向与空间连续性必须可靠。",
+            "【项目色彩系统】全项目以米白、墨黑和中性灰为结构底色，30% 使用高饱和红、黄、蓝或项目主色，10% 使用单一冲击色承担危险、速度或情绪重点；颜色必须形成角色和阵营识别。",
+            "【角色设计系统】统一采用稳定头身比例、强轮廓、清晰发型和可重复的表情符号；角色通过剪影、服装块面、姿态和道具区分，夸张表情不得改变基本脸型与身份。",
+            "【服饰与材质系统】服饰细节简化成大色块、粗线纹样和少量高光，棉、皮革、金属、牛仔和玻璃通过线条密度与高光形状区分；战斗或动作服装必须兼顾可动性。",
+            "【建筑世界观】使用可快速识别的街区、商店、学校、办公室、车站和屋顶等都市空间，背景以几何块面、透视线和有限网点表达；场景不抢角色轮廓，也不使用现实品牌标识。",
+            "【影像与动态基线】动作使用速度线、冲击形状、停格姿势和清晰重心，切换节奏由分镜控制；镜头可以模拟画格切分，但不得牺牲表情、手势和动作方向的可读性。",
+            "【资产一致性】建立角色标准角度、表情表、线宽、网点密度、拟声字形和动作特效模板；不同镜头共享同一线条、色块与纹理规则。",
+            "【全局禁用】禁止写实照片与漫画角色混用、线条粗细随机、所有画面满屏速度线、复杂背景压住人物、拟声文字乱码、角色换脸、四肢结构错误和过度血腥猎奇。",
+            PROJECT_STYLE_SCOPE,
+        ].join("\n"),
+        imageUrl: "/short-drama-styles/comic-pop.jpg",
+    },
+    {
+        id: "storybook-fantasy",
+        title: "绘本童话",
+        category: "插画动画",
+        description: "纸张颗粒、柔和色块和手绘边缘构成温暖童话世界；角色表情与轮廓清楚，避免把绘本感做成泛化的柔焦滤镜。",
+        tags: ["绘本", "童话", "温暖"],
+        prompt: [
+            "【项目定位】面向成长、亲子与寓言叙事的绘本童话动画体系，统一使用手绘边缘、纸张颗粒、有限色块和可读角色表情；故事世界可以奇幻，但情绪和人物关系保持温暖、具体且可理解。",
+            "【项目色彩系统】全项目色板使用权重约为 55% 纸张暖白、雾蓝、鼠尾草绿和浅木色，30% 角色与场景主色，15% 蜜糖黄、珊瑚红或星光金作为叙事点色；避免所有画面都成为粉彩渐变。",
+            "【角色设计系统】角色采用统一绘本头身、圆润但有差异的轮廓和清晰眼鼻嘴比例，通过帽子、发型、耳朵、体型与服装区分；正侧背视图必须保留同一手绘造型特征。",
+            "【服饰与材质系统】衣服使用布料、针织、皮革、木扣、纸张和毛线等可触摸材质，纹样简化为少量重复元素；角色标志物件和衣领、袖口、鞋履保持稳定。",
+            "【建筑世界观】统一使用村庄、森林、阁楼、车站、河岸、市场与小型城堡等可读场景，建筑结构偏手工搭建和绘本透视；奇幻元素从生活物件变形而来，不做无逻辑异域拼贴。",
+            "【影像与动态基线】保持柔和但有方向的光影、纸张纹理和有限动画节奏，动作强调呼吸、重心、眼神与衣摆跟随；具体动作与镜头调度交由分镜决定。",
+            "【资产一致性】建立标准色卡、纸张纹理、笔刷边缘、角色比例、表情表、场景模块和魔法点色规则；新资产必须匹配已有线条和颗粒尺度。",
+            "【全局禁用】禁止塑料 3D、泛滥柔焦、角色同脸、过度糖果色、阴影方向漂移、复杂文字水印、细节密度失控、随机改发型和把儿童角色做成恐怖谷。",
+            PROJECT_STYLE_SCOPE,
+        ].join("\n"),
+        imageUrl: "/short-drama-styles/storybook-fantasy.jpg",
+    },
+    {
+        id: "surreal-dream",
+        title: "超现实梦境",
+        category: "风格化实拍",
+        description: "现实材质与不可能空间并置，以镜像、尺度错位和雾化光线表达梦境；所有超现实变化服务角色心理和叙事线索。",
+        tags: ["梦境", "超现实", "心理"],
+        prompt: [
+            "【项目定位】以现实人物进入不可能空间为核心的超现实梦境短剧体系，梦境不是随机奇观，而是由人物记忆、欲望、恐惧和选择构成的可追踪视觉系统；现实段落与梦境段落必须有明确差异和回返规则。",
+            "【项目色彩系统】现实段落使用自然中性灰与低饱和环境色，梦境段落使用 35% 雾白、浅金、冷青和暗紫，15% 固定象征色承载角色心理线索；同一象征色不能在不同角色间随意换义。",
+            "【角色设计系统】角色保持真实东亚骨相、年龄与身体比例，梦境只允许在发型、服装、尺度、影子或局部材质上做有规则的变形；正侧背结构必须仍能确认是同一角色。",
+            "【服饰与材质系统】现实服装遵循生活逻辑，梦境服装可以通过重复、倒置、透明、过大或过小表达心理，但面料、纽扣、鞋履和标志物件需要保持可追踪变体。",
+            "【建筑世界观】统一使用镜像房间、无尽楼梯、漂浮街道、倒置建筑、空旷大厅和雾中自然等空间语法；每种不可能空间绑定一个叙事规则，不把随机生成的城堡和星空堆在一起。",
+            "【影像与动态基线】现实使用可信光源和稳定镜头，梦境使用慢速漂浮、镜面反射、尺度变化与非连续转场；特效保持节制，具体梦境动作和节拍由分镜决定。",
+            "【资产一致性】建立象征色、梦境规则、角色标志物件、空间变形前后对照、镜面材质和转场语法表；每次变形都能对应剧情节点并可恢复。",
+            "【全局禁用】禁止无因由的随机变形、全屏烟雾、过度镜面、所有空间都漂浮、梦境与现实没有区别、角色五官融化、符号含义漂移和用噪点掩盖生成错误。",
+            PROJECT_STYLE_SCOPE,
+        ].join("\n"),
+        imageUrl: "/short-drama-styles/surreal-dream.jpg",
+    },
+    {
+        id: "nature-healing",
+        title: "自然疗愈",
+        category: "真人实拍",
+        description: "真实自然光、植物与手作生活构成松弛的在地质感；以季节、声音和微小行动表达疗愈，不做广告式空镜。",
+        tags: ["疗愈", "自然", "慢生活"],
+        prompt: [
+            "【项目定位】面向家庭关系、返乡、成长与情绪修复的自然疗愈真人短剧体系，核心是人物在具体自然环境中的生活行动和关系变化；自然不是装饰背景，而是参与叙事的真实空间。",
+            "【项目色彩系统】全项目色板使用权重约为 55% 叶绿、苔藓绿、土色和米白，30% 木材、石头、天空与季节环境色，15% 赭红、芥末黄或人物识别色；保持自然白平衡和季节连续性。",
+            "【角色设计系统】角色采用真实东亚面孔、自然年龄与生活状态，保留晒痕、发丝、体态和劳动痕迹；通过衣着层次、动作习惯、发型与随身物件建立差异，不使用商业广告式精致人物。",
+            "【服饰与材质系统】建立棉麻、针织、旧牛仔、雨具、工作服、帆布鞋与草帽衣橱，材质保留褶皱、泥土、汗水和使用痕迹；固定角色的外套、包和手作物件形成识别资产。",
+            "【建筑世界观】统一使用山村住宅、林间小屋、农场、茶室、河岸、菜园、集市和小城边缘空间，保留木、石、土、旧墙、工具与本地生活设施；建筑应有地域和季节证据。",
+            "【影像与动态基线】采用真实日光、阴天漫射、篝火与室内暖灯，允许风、雨、昆虫和环境声进入画面；动态观察人物的微小行动与关系停顿，避免只拍漂亮自然空镜。",
+            "【资产一致性】建立季节色卡、植物与农具库、住宅布局、角色衣橱、手作物件和天气连续性记录；季节变化应带来可见但渐进的资产版本。",
+            "【全局禁用】禁止商业民宿广告感、过度航拍、饱和滤镜、欧美乡村替代中国在地生活、干净无人的自然空间、人物永远精致、随机换季和把疗愈做成空洞慢镜头。",
+            PROJECT_STYLE_SCOPE,
+        ].join("\n"),
+        imageUrl: "/short-drama-styles/nature-healing.jpg",
+    },
+    {
         id: "real-life-documentary",
         title: "现实生活纪实",
         category: "真人实拍",
@@ -175,37 +365,77 @@ export const canvasStylePresets: CanvasStylePreset[] = [
 
 export function CanvasStylePickerModal({ open, value, onClose, onSelect }: { open: boolean; value?: string; onClose: () => void; onSelect: (preset: CanvasStylePreset) => void }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
+    const [detailPreset, setDetailPreset] = useState<CanvasStylePreset | null>(null);
     return (
-        <Modal open={open} title={null} footer={null} centered width="min(1040px, calc(100vw - 24px))" onCancel={onClose} styles={{ body: { padding: 0 } }}>
-            <div className="overflow-hidden rounded-lg" style={{ color: theme.node.text, background: theme.node.panel }}>
-                <header className="flex items-center gap-3 border-b px-4 py-4 sm:px-5" style={{ borderColor: theme.node.stroke }}>
-                    <span className="grid size-9 shrink-0 place-items-center rounded-md" style={{ background: theme.toolbar.itemHover, color: theme.node.activeStroke }}><Palette className="size-4" /></span>
-                    <div className="min-w-0">
-                        <div className="flex items-center gap-2 text-sm font-semibold"><span>选择项目画风</span><span className="rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: theme.toolbar.itemHover, color: theme.node.muted }}>短剧视觉预设</span></div>
-                        <div className="mt-0.5 truncate text-[11px]" style={{ color: theme.node.muted }}>选中的画风会作为普通风格板节点加入当前画布，后续角色、分镜和视频提示词会复用。</div>
+        <>
+            <Modal open={open} title={null} footer={null} centered width="min(1040px, calc(100vw - 24px))" onCancel={onClose} styles={{ body: { padding: 0 } }}>
+                <div className="overflow-hidden rounded-lg" style={{ color: theme.node.text, background: theme.node.panel }}>
+                    <header className="flex items-center gap-3 border-b px-4 py-4 sm:px-5" style={{ borderColor: theme.node.stroke }}>
+                        <span className="grid size-9 shrink-0 place-items-center rounded-md" style={{ background: theme.toolbar.itemHover, color: theme.node.activeStroke }}><Palette className="size-4" /></span>
+                        <div className="min-w-0">
+                            <div className="flex items-center gap-2 text-sm font-semibold"><span>选择项目画风</span><span className="rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: theme.toolbar.itemHover, color: theme.node.muted }}>{canvasStylePresets.length} 套视觉预设</span></div>
+                            <div className="mt-0.5 truncate text-[11px]" style={{ color: theme.node.muted }}>画风会统一角色三视图、项目资产、分镜和视频提示词。</div>
+                        </div>
+                        <span className="ml-auto hidden items-center gap-1 text-[11px] sm:flex" style={{ color: theme.node.faint }}><Sparkles className="size-3.5" />先看规范，再做选择</span>
+                    </header>
+                    <div className="thin-scrollbar grid max-h-[76vh] grid-cols-1 gap-3 overflow-y-auto p-3 sm:grid-cols-2 sm:p-4 lg:grid-cols-3">
+                        {canvasStylePresets.map((preset) => {
+                            const active = preset.id === value;
+                            return (
+                                <article key={preset.id} className="group relative">
+                                    <button type="button" className="h-full w-full overflow-hidden rounded-lg border text-left transition hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2" style={{ background: theme.node.panel, borderColor: active ? theme.node.activeStroke : theme.node.stroke, boxShadow: active ? `0 0 0 1px ${theme.node.activeStroke}` : undefined, "--tw-ring-color": theme.node.activeStroke } as CSSProperties} onClick={() => onSelect(preset)}>
+                                        <span className="relative block aspect-[16/9] overflow-hidden" style={{ background: theme.canvas.background }}>
+                                            <img src={preset.imageUrl} width="960" height="540" alt={`${preset.title}画风示意`} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" style={preset.id === "black-white-noir" ? { filter: "grayscale(1) contrast(1.08)" } : undefined} loading="lazy" />
+                                            <span className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 px-3 py-2 text-white" style={{ background: "linear-gradient(180deg, transparent, rgba(0,0,0,.72))" }}><span className="text-[10px] font-medium tracking-wide">{preset.category}</span>{active ? <span className="grid size-5 place-items-center rounded-full bg-white text-black"><Check className="size-3.5" /></span> : null}</span>
+                                        </span>
+                                        <span className="block p-3">
+                                            <span className="flex items-center gap-2"><span className="text-sm font-semibold">{preset.title}</span>{active ? <span className="text-[10px]" style={{ color: theme.node.activeStroke }}>已选择</span> : null}</span>
+                                            <span className="mt-1 block text-xs leading-5" style={{ color: theme.node.muted }}>{preset.description}</span>
+                                            <span className="mt-2 flex flex-wrap gap-1">{preset.tags.map((tag) => <span key={tag} className="rounded px-1.5 py-0.5 text-[10px]" style={{ background: theme.toolbar.itemHover, color: theme.node.muted }}>{tag}</span>)}</span>
+                                        </span>
+                                    </button>
+                                    <button type="button" className="absolute right-2 top-2 grid size-8 place-items-center rounded-md bg-black/60 text-white shadow-sm backdrop-blur transition-colors hover:bg-black/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white" onClick={() => setDetailPreset(preset)} aria-label={`查看${preset.title}详情`} title="查看画风详情"><Eye className="size-4" /></button>
+                                </article>
+                            );
+                        })}
                     </div>
-                    <span className="ml-auto hidden items-center gap-1 text-[11px] sm:flex" style={{ color: theme.node.faint }}><Sparkles className="size-3.5" />先选媒介，再做细节</span>
-                </header>
-                <div className="thin-scrollbar grid max-h-[76vh] grid-cols-1 gap-3 overflow-y-auto p-3 sm:grid-cols-2 sm:p-4 lg:grid-cols-3">
-                    {canvasStylePresets.map((preset) => {
-                        const active = preset.id === value;
-                        return (
-                            <button key={preset.id} type="button" className="group overflow-hidden rounded-lg border text-left transition hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2" style={{ background: theme.node.panel, borderColor: active ? theme.node.activeStroke : theme.node.stroke, boxShadow: active ? `0 0 0 1px ${theme.node.activeStroke}` : undefined, "--tw-ring-color": theme.node.activeStroke } as CSSProperties} onClick={() => onSelect(preset)}>
-                                <span className="relative block aspect-[16/9] overflow-hidden" style={{ background: theme.canvas.background }}>
-                                    <img src={preset.imageUrl} alt={`${preset.title}画风示意`} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" loading="lazy" />
-                                    <span className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 px-3 py-2 text-white" style={{ background: "linear-gradient(180deg, transparent, rgba(0,0,0,.72))" }}><span className="text-[10px] font-medium tracking-wide">{preset.category}</span>{active ? <span className="grid size-5 place-items-center rounded-full bg-white text-black"><Check className="size-3.5" /></span> : null}</span>
-                                </span>
-                                <span className="block p-3">
-                                    <span className="flex items-center gap-2"><span className="text-sm font-semibold">{preset.title}</span>{active ? <span className="text-[10px]" style={{ color: theme.node.activeStroke }}>已选择</span> : null}</span>
-                                    <span className="mt-1 block text-xs leading-5" style={{ color: theme.node.muted }}>{preset.description}</span>
-                                    <span className="mt-2 flex flex-wrap gap-1">{preset.tags.map((tag) => <span key={tag} className="rounded px-1.5 py-0.5 text-[10px]" style={{ background: theme.toolbar.itemHover, color: theme.node.muted }}>{tag}</span>)}</span>
-                                </span>
-                            </button>
-                        );
-                    })}
+                    <footer className="flex items-center gap-2 border-t px-4 py-3 text-[11px]" style={{ borderColor: theme.node.stroke, color: theme.node.faint }}><Clapperboard className="size-3.5" />图片是风格示意，实际效果取决于模型、角色参考图与分镜提示词。</footer>
                 </div>
-                <footer className="flex items-center gap-2 border-t px-4 py-3 text-[11px]" style={{ borderColor: theme.node.stroke, color: theme.node.faint }}><Clapperboard className="size-3.5" />图片是风格示意，实际效果取决于模型、角色参考图与分镜提示词。</footer>
-            </div>
+            </Modal>
+            <CanvasStyleDetailModal open={Boolean(detailPreset)} preset={detailPreset} selected={detailPreset?.id === value} onClose={() => setDetailPreset(null)} onSelect={(preset) => { setDetailPreset(null); onSelect(preset); }} />
+        </>
+    );
+}
+
+export function CanvasStyleDetailModal({ open, preset, selected = false, onClose, onSelect }: { open: boolean; preset: CanvasStylePreset | null; selected?: boolean; onClose: () => void; onSelect?: (preset: CanvasStylePreset) => void }) {
+    const theme = canvasThemes[useThemeStore((state) => state.theme)];
+    const sections = preset ? parseStyleSections(preset.prompt) : [];
+    return (
+        <Modal open={open} title={null} footer={null} centered destroyOnHidden width="min(920px, calc(100vw - 24px))" onCancel={onClose} styles={{ body: { padding: 0 } }}>
+            {preset ? <div className="flex max-h-[82vh] flex-col overflow-hidden rounded-lg md:grid md:grid-cols-[300px_minmax(0,1fr)]" style={{ color: theme.node.text, background: theme.node.panel }}>
+                <aside className="shrink-0 border-b md:border-b-0 md:border-r" style={{ borderColor: theme.node.stroke, background: theme.canvas.background }}>
+                    <div className="aspect-[16/7] overflow-hidden md:aspect-auto md:h-full md:min-h-[540px]"><img src={preset.imageUrl} width="960" height="640" alt={`${preset.title}画风示意`} className="h-full w-full object-cover" style={preset.id === "black-white-noir" ? { filter: "grayscale(1) contrast(1.08)" } : undefined} /></div>
+                </aside>
+                <section className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                    <header className="border-b px-5 py-4" style={{ borderColor: theme.node.stroke }}>
+                        <div className="text-[10px] font-medium" style={{ color: theme.node.activeStroke }}>{preset.category}</div>
+                        <h2 className="mt-1 text-xl font-semibold">{preset.title}</h2>
+                        <p className="mt-2 text-xs leading-5" style={{ color: theme.node.muted }}>{preset.description}</p>
+                        <div className="mt-3 flex flex-wrap gap-1.5">{preset.tags.map((tag) => <span key={tag} className="rounded px-2 py-1 text-[10px]" style={{ background: theme.toolbar.itemHover, color: theme.node.muted }}>{tag}</span>)}</div>
+                    </header>
+                    <div className="thin-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-2">
+                        {sections.map((section) => <div key={section.title} className="border-b py-3 last:border-b-0" style={{ borderColor: theme.node.stroke }}><h3 className="text-xs font-semibold">{section.title}</h3><p className="mt-1.5 text-xs leading-5" style={{ color: theme.node.muted }}>{section.content}</p></div>)}
+                    </div>
+                    <footer className="flex flex-col gap-2 border-t px-5 py-3 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: theme.node.stroke }}><span className="text-[10px]" style={{ color: theme.node.faint }}>角色三视图会自动提取其中的色彩、造型和材质规范</span><div className="flex shrink-0 justify-end gap-2"><Button onClick={onClose}>关闭</Button>{onSelect ? <Button type="primary" disabled={selected} icon={selected ? <Check className="size-3.5" /> : <Palette className="size-3.5" />} onClick={() => onSelect(preset)}>{selected ? "当前画风" : "选择该画风"}</Button> : null}</div></footer>
+                </section>
+            </div> : null}
         </Modal>
     );
+}
+
+function parseStyleSections(prompt: string) {
+    return prompt.split("\n").map((line) => {
+        const match = line.match(/^【([^】]+)】(.*)$/);
+        return match ? { title: match[1], content: match[2] } : { title: "补充规范", content: line };
+    }).filter((section) => section.content);
 }

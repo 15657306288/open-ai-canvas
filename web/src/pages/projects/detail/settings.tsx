@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { App, Button, Input, Modal, Select, Tooltip } from "antd";
-import { Archive, Check, Save, ShieldAlert } from "lucide-react";
+import { App, Button, Input, Modal, Select } from "antd";
+import { Archive, Check, Eye, Save, ShieldAlert } from "lucide-react";
 
-import { canvasStylePresets } from "@/components/canvas/canvas-style-picker-modal";
+import { CanvasStyleDetailModal, canvasStylePresets, type CanvasStylePreset } from "@/components/canvas/canvas-style-picker-modal";
 import { updateProject } from "@/services/api/projects";
 
 import type { ProjectDetailViewProps } from "./shared";
@@ -16,6 +16,7 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
     const [aspectRatio, setAspectRatio] = useState(project.aspectRatio);
     const [sourceType, setSourceType] = useState(project.sourceType);
     const [stylePresetId, setStylePresetId] = useState(project.stylePresetId || "");
+    const [styleDetail, setStyleDetail] = useState<CanvasStylePreset | null>(null);
     const [archiveOpen, setArchiveOpen] = useState(false);
     useEffect(() => { setName(project.name); setDescription(project.description || ""); setAspectRatio(project.aspectRatio); setSourceType(project.sourceType); setStylePresetId(project.stylePresetId || ""); }, [project]);
     const dirty = useMemo(() => name.trim() !== project.name || description !== (project.description || "") || aspectRatio !== project.aspectRatio || sourceType !== project.sourceType || stylePresetId !== (project.stylePresetId || ""), [aspectRatio, description, name, project, sourceType, stylePresetId]);
@@ -41,7 +42,7 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
                 <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                     {canvasStylePresets.map((preset) => {
                         const active = preset.id === stylePresetId;
-                        return <Tooltip key={preset.id} title={preset.description}><button type="button" onClick={() => setStylePresetId(preset.id)} className={`group grid min-w-0 grid-cols-[72px_minmax(0,1fr)_24px] items-center gap-2 overflow-hidden rounded-lg border p-1.5 text-left transition-colors ${active ? "border-[var(--workspace-accent)] bg-[var(--workspace-accent-soft)]" : "border-border/80 hover:border-foreground/25"}`}><img src={preset.imageUrl} alt="" loading="lazy" className="h-11 w-[72px] rounded object-cover" /><span className="min-w-0"><span className="block truncate text-xs font-medium">{preset.title}</span><span className="mt-0.5 block truncate text-[10px] text-foreground/42">{preset.description}</span></span><span className={`grid size-5 place-items-center rounded-full ${active ? "bg-[var(--workspace-accent)] text-white" : "border border-border text-transparent"}`}><Check className="size-3" /></span></button></Tooltip>;
+                        return <div key={preset.id} className={`group flex min-w-0 items-center overflow-hidden rounded-lg border transition-colors ${active ? "border-[var(--workspace-accent)] bg-[var(--workspace-accent-soft)]" : "border-border/80 hover:border-foreground/25"}`}><button type="button" onClick={() => setStylePresetId(preset.id)} className="grid min-w-0 flex-1 grid-cols-[72px_minmax(0,1fr)_24px] items-center gap-2 p-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"><img src={preset.imageUrl} width="72" height="44" alt={`${preset.title}画风示意`} loading="lazy" className="h-11 w-[72px] rounded object-cover" /><span className="min-w-0"><span className="block truncate text-xs font-medium">{preset.title}</span><span className="mt-0.5 block truncate text-[10px] text-foreground/42">{preset.description}</span></span><span className={`grid size-5 place-items-center rounded-full ${active ? "bg-[var(--workspace-accent)] text-white" : "border border-border text-transparent"}`}><Check className="size-3" /></span></button><button type="button" className="mr-1 grid size-8 shrink-0 place-items-center rounded-md text-foreground/42 hover:bg-foreground/[.06] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => setStyleDetail(preset)} aria-label={`查看${preset.title}详情`} title="查看画风详情"><Eye className="size-3.5" /></button></div>;
                     })}
                 </div>
             </section>
@@ -54,6 +55,7 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
             </section>
 
             <Modal title={project.status === "archived" ? "恢复项目" : "归档项目"} open={archiveOpen} okText={project.status === "archived" ? "确认恢复" : "确认归档"} cancelText="取消" okButtonProps={{ danger: project.status !== "archived", loading: archiveMutation.isPending }} onCancel={() => setArchiveOpen(false)} onOk={() => archiveMutation.mutate()} width={440} styles={{ body: { paddingTop: 12 } }}><p className="m-0 text-sm leading-6 text-foreground/65">{project.status === "archived" ? "恢复后项目会重新进入可编辑状态。" : "归档不会删除章节、画布或资产，画布文档仍可在创作画布中打开。"}</p></Modal>
+            <CanvasStyleDetailModal open={Boolean(styleDetail)} preset={styleDetail} selected={styleDetail?.id === stylePresetId} onClose={() => setStyleDetail(null)} onSelect={(preset) => { setStylePresetId(preset.id); setStyleDetail(null); }} />
         </div>
     );
 }
