@@ -8,7 +8,7 @@ import Highlight from "@tiptap/extension-highlight";
 import Placeholder from "@tiptap/extension-placeholder";
 import TextAlign from "@tiptap/extension-text-align";
 import { TextStyle } from "@tiptap/extension-text-style";
-import { EditorContent, useEditor } from "@tiptap/react";
+import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import {
     AlignCenter,
@@ -425,7 +425,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     );
 }
 
-function EditorToolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
+function EditorToolbar({ editor }: { editor: Editor | null }) {
     const setLink = () => {
         if (!editor) return;
         const current = String(editor.getAttributes("link").href || "");
@@ -472,7 +472,7 @@ function EditorToolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
     );
 }
 
-function EditorTool({ editor, label, icon, active = false, onClick }: { editor: ReturnType<typeof useEditor>; label: string; icon: ReactNode; active?: boolean; onClick: () => void }) {
+function EditorTool({ editor, label, icon, active = false, onClick }: { editor: Editor | null; label: string; icon: ReactNode; active?: boolean; onClick: () => void }) {
     return <Tooltip title={label}><button type="button" aria-label={label} className={`grid size-7 shrink-0 place-items-center rounded ${active ? "bg-foreground/[.08] text-[var(--workspace-accent)]" : "text-foreground/55 hover:bg-foreground/[.06] hover:text-foreground"}`} disabled={!editor} onClick={onClick}>{icon}</button></Tooltip>;
 }
 

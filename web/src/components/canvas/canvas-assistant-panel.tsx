@@ -908,25 +908,25 @@ function AgentTextModelPicker({ config, value, onChange }: { config: AiConfig; v
     const options = useMemo(() => Array.from(new Set([value, ...selectableModelsByCapability(config, "text")].filter(Boolean))), [config, value]);
     const current = value || "";
     return (
-        <Select<string>
-            size="small"
-            variant="borderless"
-            value={current || undefined}
-            className="agent-text-model-select min-w-0 max-w-[240px]"
-            popupMatchSelectWidth={288}
-            options={options.map((model) => ({ value: model, label: `${modelDisplayName(config, model)} ${modelOptionName(model)} ${resolveModelChannel(config, model).name}` }))}
-            notFoundContent={<span className="block py-2 text-center text-xs text-foreground/48">暂无文本模型</span>}
-            optionRender={(option) => {
-                const model = String(option.value);
-                return <span className="flex min-w-0 items-center gap-2"><AgentModelIcon model={model} /><span className="min-w-0 flex-1"><span className="block truncate">{modelDisplayName(config, model)}</span><span className="block truncate text-[10px] opacity-45">{modelOptionName(model)}</span></span><span className="shrink-0 text-xs opacity-55">{resolveModelChannel(config, model).name}</span></span>;
-            }}
-            labelRender={() => <span className="flex min-w-0 items-center gap-1.5"><AgentModelIcon model={current} /><span className="min-w-0 truncate">{current ? modelDisplayName(config, current) : "选择文本模型"}</span>{current ? <span className="shrink-0 opacity-55">{resolveModelChannel(config, current).name}</span> : null}</span>}
-            onChange={onChange}
-            onMouseDown={(event) => event.stopPropagation()}
-            onPointerDown={(event) => event.stopPropagation()}
-            aria-label="选择 Agent 文本模型"
-            title={current ? `${modelDisplayName(config, current)} · ${modelOptionName(current)} · ${resolveModelChannel(config, current).name}` : "选择文本模型"}
-        />
+        <div className="min-w-0 max-w-[240px]" onMouseDown={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
+            <Select<string>
+                size="small"
+                variant="borderless"
+                value={current || undefined}
+                className="agent-text-model-select w-full"
+                popupMatchSelectWidth={288}
+                options={options.map((model) => ({ value: model, label: `${modelDisplayName(config, model)} ${modelOptionName(model)} ${resolveModelChannel(config, model).name}` }))}
+                notFoundContent={<span className="block py-2 text-center text-xs text-foreground/48">暂无文本模型</span>}
+                optionRender={(option) => {
+                    const model = String(option.value);
+                    return <span className="flex min-w-0 items-center gap-2"><AgentModelIcon model={model} /><span className="min-w-0 flex-1"><span className="block truncate">{modelDisplayName(config, model)}</span><span className="block truncate text-[10px] opacity-45">{modelOptionName(model)}</span></span><span className="shrink-0 text-xs opacity-55">{resolveModelChannel(config, model).name}</span></span>;
+                }}
+                labelRender={() => <span className="flex min-w-0 items-center gap-1.5"><AgentModelIcon model={current} /><span className="min-w-0 truncate">{current ? modelDisplayName(config, current) : "选择文本模型"}</span>{current ? <span className="shrink-0 opacity-55">{resolveModelChannel(config, current).name}</span> : null}</span>}
+                onChange={onChange}
+                aria-label="选择 Agent 文本模型"
+                title={current ? `${modelDisplayName(config, current)} · ${modelOptionName(current)} · ${resolveModelChannel(config, current).name}` : "选择文本模型"}
+            />
+        </div>
     );
 }
 

@@ -6,6 +6,8 @@ import { WorkspaceState } from "@/components/layout/workspace-state";
 import { cn } from "@/lib/utils";
 import { useAssetStore, type Asset } from "@/stores/use-asset-store";
 
+type InsertableAsset = Extract<Asset, { kind: "text" | "image" | "video" | "audio" }>;
+
 export type InsertAssetPayload =
     | { kind: "text"; content: string; title: string; assetId?: string }
     | { kind: "image"; dataUrl: string; title: string; storageKey?: string; assetId?: string }
@@ -70,7 +72,7 @@ function MyAssetsTab({ onInsert }: { onInsert: (payload: InsertAssetPayload) => 
     const filtered = useMemo(() => {
         const query = keyword.trim().toLowerCase();
         return assets
-            .filter((a) => a.kind === "text" || a.kind === "image" || a.kind === "video" || a.kind === "audio")
+            .filter((asset): asset is InsertableAsset => asset.kind === "text" || asset.kind === "image" || asset.kind === "video" || asset.kind === "audio")
             .filter((a) => kindFilter === "all" || a.kind === kindFilter)
             .filter((a) => !query || [a.title, ...(a.tags || [])].join(" ").toLowerCase().includes(query));
     }, [assets, keyword, kindFilter]);
@@ -82,15 +84,14 @@ function MyAssetsTab({ onInsert }: { onInsert: (payload: InsertAssetPayload) => 
         setPage((v) => Math.min(v, maxPage));
     }, [filtered.length]);
 
-    const handleInsert = (asset: Asset) => {
-        if (asset.kind === "model") return;
+    const handleInsert = (asset: InsertableAsset) => {
         if (asset.kind === "text") {
             onInsert({ kind: "text", content: asset.data.content, title: asset.title, assetId: asset.id });
         } else if (asset.kind === "audio") {
             onInsert({ kind: "audio", url: asset.data.url, storageKey: asset.data.storageKey, title: asset.title, durationMs: asset.data.durationMs, bytes: asset.data.bytes, mimeType: asset.data.mimeType, assetId: asset.id });
         } else if (asset.kind === "video") {
             onInsert({ kind: "video", url: asset.data.url, storageKey: asset.data.storageKey, title: asset.title, width: asset.data.width, height: asset.data.height, durationMs: asset.data.durationMs, bytes: asset.data.bytes, mimeType: asset.data.mimeType, assetId: asset.id });
-        } else {
+        } else if (asset.kind === "image") {
             onInsert({ kind: "image", dataUrl: asset.data.dataUrl, storageKey: asset.data.storageKey, title: asset.title, assetId: asset.id });
         }
     };

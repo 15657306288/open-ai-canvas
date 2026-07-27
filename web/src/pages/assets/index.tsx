@@ -15,6 +15,8 @@ import { useAssetStore, type Asset, type AssetCategory, type AssetKind, type Ima
 import { exportAssets, readAssetPackage } from "./asset-transfer";
 import { deleteAssetWithRemoteSync } from "@/services/user-data-sync";
 
+type LibraryAsset = Exclude<Asset, { kind: "entity" }>;
+
 type AssetFormValues = {
     kind: AssetKind;
     category: AssetCategory;
@@ -64,10 +66,10 @@ export default function AssetsPage() {
     const [categoryFilter, setCategoryFilter] = useState<AssetCategory | "all">("all");
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(20);
-    const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
+    const [editingAsset, setEditingAsset] = useState<LibraryAsset | null>(null);
     const [isAssetOpen, setIsAssetOpen] = useState(false);
-    const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
-    const [deletingAsset, setDeletingAsset] = useState<Asset | null>(null);
+    const [previewAsset, setPreviewAsset] = useState<LibraryAsset | null>(null);
+    const [deletingAsset, setDeletingAsset] = useState<LibraryAsset | null>(null);
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
     const [formKind, setFormKind] = useState<AssetKind>("text");
@@ -76,7 +78,7 @@ export default function AssetsPage() {
     const title = Form.useWatch("title", form) || "";
     const tags = Form.useWatch("tags", form) || [];
     const content = Form.useWatch("content", form) || "";
-    const validAssets = useMemo(() => assets.filter((asset) => asset.kind === "text" || asset.kind === "image" || asset.kind === "video" || asset.kind === "audio" || asset.kind === "model"), [assets]);
+    const validAssets = useMemo(() => assets.filter((asset): asset is LibraryAsset => asset.kind !== "entity"), [assets]);
     const selectedAssets = useMemo(() => validAssets.filter((asset) => selectedIds.includes(asset.id)), [selectedIds, validAssets]);
     const kindCounts = useMemo(() => new Map(kindOptions.map((option) => [option.value, option.value === "all" ? validAssets.length : validAssets.filter((asset) => asset.kind === option.value).length])), [validAssets]);
     const categoryCounts = useMemo(() => new Map(categoryOptions.map((option) => [option.value, option.value === "all" ? validAssets.length : validAssets.filter((asset) => (asset.category || "other") === option.value).length])), [validAssets]);
@@ -114,7 +116,7 @@ export default function AssetsPage() {
         setIsAssetOpen(true);
     };
 
-    const openEdit = (asset: Asset) => {
+    const openEdit = (asset: LibraryAsset) => {
         setEditingAsset(asset);
         setFormKind(asset.kind);
         setImageDraft(asset.kind === "image" ? asset.data : null);
@@ -183,12 +185,12 @@ export default function AssetsPage() {
         message.success("3D 模型已保存");
     };
 
-    const copyAssetText = async (asset: Asset) => {
+    const copyAssetText = async (asset: LibraryAsset) => {
         if (asset.kind !== "text") return;
         copyText(asset.data.content, "文本已复制");
     };
 
-    const downloadImage = (asset: Asset) => {
+    const downloadImage = (asset: LibraryAsset) => {
         if (asset.kind !== "image" && asset.kind !== "video" && asset.kind !== "audio" && asset.kind !== "model") return;
         const url = asset.kind === "image" ? asset.data.dataUrl : asset.data.url;
         const extension = asset.kind === "model" ? asset.data.fileName.split(".").pop() || "glb" : asset.data.mimeType.split("/")[1] || "png";
@@ -421,7 +423,7 @@ export default function AssetsPage() {
     );
 }
 
-function AssetCard({ asset, selected, onSelect, onOpen, onEdit, onCopy, onDownload, onDelete }: { asset: Asset; selected: boolean; onSelect: (selected: boolean) => void; onOpen: () => void; onEdit: () => void; onCopy: (asset: Asset) => void; onDownload: (asset: Asset) => void; onDelete: () => void }) {
+function AssetCard({ asset, selected, onSelect, onOpen, onEdit, onCopy, onDownload, onDelete }: { asset: LibraryAsset; selected: boolean; onSelect: (selected: boolean) => void; onOpen: () => void; onEdit: () => void; onCopy: (asset: LibraryAsset) => void; onDownload: (asset: LibraryAsset) => void; onDelete: () => void }) {
     const cover = asset.coverUrl || (asset.kind === "image" ? asset.data.dataUrl : "");
     const summary = assetSummary(asset);
     return (
@@ -494,7 +496,7 @@ function AssetFilterGroup({ title, options, value, counts, onChange, className =
     );
 }
 
-function AssetDrawer({ asset, onClose, onCopy, onDownload }: { asset: Asset | null; onClose: () => void; onCopy: (asset: Asset) => void; onDownload: (asset: Asset) => void }) {
+function AssetDrawer({ asset, onClose, onCopy, onDownload }: { asset: LibraryAsset | null; onClose: () => void; onCopy: (asset: LibraryAsset) => void; onDownload: (asset: LibraryAsset) => void }) {
     const cover = asset ? asset.coverUrl || (asset.kind === "image" ? asset.data.dataUrl : "") : "";
     return (
         <Drawer title="素材详情" open={Boolean(asset)} size="large" onClose={onClose}>
@@ -565,14 +567,14 @@ function AssetDrawer({ asset, onClose, onCopy, onDownload }: { asset: Asset | nu
     );
 }
 
-function assetSummary(asset: Asset) {
+function assetSummary(asset: LibraryAsset) {
     if (asset.kind === "text") return asset.data.content;
     if (asset.kind === "audio") return `${formatAssetDuration(asset.data.durationMs)} · ${formatBytes(asset.data.bytes)} · ${asset.data.mimeType}`;
     if (asset.kind === "model") return `${asset.data.fileName} · ${formatBytes(asset.data.bytes)} · ${asset.data.mimeType}`;
     return `${asset.data.width}x${asset.data.height} · ${formatBytes(asset.data.bytes)} · ${asset.data.mimeType}`;
 }
 
-function StorageTag({ asset }: { asset: Asset }) {
+function StorageTag({ asset }: { asset: LibraryAsset }) {
     if (asset.kind !== "image" && asset.kind !== "video" && asset.kind !== "audio" && asset.kind !== "model") return null;
     const location = resourceStorageLocation(asset.data.storageKey);
     const color = location === "oss" ? "green" : location === "local" ? "gold" : "default";
@@ -583,7 +585,7 @@ function StorageTag({ asset }: { asset: Asset }) {
     );
 }
 
-function assetSearchText(asset: Asset) {
+function assetSearchText(asset: LibraryAsset) {
     return [asset.title, asset.source || "", asset.note || "", assetCategoryLabel(asset.category), (asset.tags || []).join(" "), asset.kind === "text" ? asset.data.content : asset.data.mimeType].join(" ").toLowerCase();
 }
 
@@ -591,7 +593,7 @@ function assetCategoryLabel(category?: AssetCategory) {
     return categoryOptions.find((item) => item.value === (category || "other"))?.label || "其他";
 }
 
-function assetProjectLabel(asset: Asset) {
+function assetProjectLabel(asset: LibraryAsset) {
     const projectName = asset.metadata?.projectName;
     if (typeof projectName === "string" && projectName.trim()) return projectName;
     return Array.isArray(asset.metadata?.projectIds) && asset.metadata.projectIds.length ? "已关联项目" : "未关联项目";

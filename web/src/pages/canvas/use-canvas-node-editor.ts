@@ -9,7 +9,7 @@ import { applyNodeConfigPatch } from "@/lib/canvas/canvas-project-domain";
 import { audioExtension, imageExtension, resetGenerationTaskMetadata } from "@/lib/canvas/canvas-project-generation";
 import { CONTENT_MODERATION_ERROR_CODE, isContentModerationError } from "@/lib/generation-error";
 import { ensureCanvasNodeAsset } from "@/services/project-asset-sync";
-import { CanvasNodeType, type CanvasNodeData, type Position } from "@/types/canvas";
+import { CanvasNodeType, type CanvasNodeData, type CanvasNodeMetadata, type Position } from "@/types/canvas";
 
 type UseCanvasNodeEditorOptions = {
     canvasId: string;
@@ -136,7 +136,7 @@ export function useCanvasNodeEditor({
         }));
     }, [setNodes]);
 
-    const handleConfigNodeChange = useCallback((nodeId: string, patch: Partial<CanvasNodeData["metadata"]>) => {
+    const handleConfigNodeChange = useCallback((nodeId: string, patch: Partial<CanvasNodeMetadata>) => {
         setNodes((current) => current.map((node) => (node.id === nodeId ? applyNodeConfigPatch(node, patch) : node)));
         if (!patch.assetCategory) return;
         const node = nodesRef.current.find((item) => item.id === nodeId);

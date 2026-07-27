@@ -77,7 +77,7 @@ export function CanvasDrawingEditorModal({ open, projectId, node, onClose, onSav
             destroyOnHidden
             width="100vw"
             centered
-            styles={{ body: { padding: 0 }, content: { padding: 0, overflow: "hidden" } }}
+            styles={{ body: { padding: 0 }, container: { padding: 0, overflow: "hidden" } }}
             className="canvas-drawing-editor-modal"
         >
             <div className="flex h-[min(92dvh,980px)] flex-col">
