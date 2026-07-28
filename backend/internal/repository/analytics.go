@@ -94,7 +94,7 @@ func (r *Repository) AnalyticsTasks(filter AnalyticsFilter) ([]model.Task, error
 func (r *Repository) AnalyticsAPICallLogs(filter AnalyticsFilter) ([]model.ApiCallLog, error) {
 	var logs []model.ApiCallLog
 	query := r.apiCallLogQuery(filter)
-	return logs, query.Find(&logs).Error
+	return logs, query.Omit("RequestBody", "ResponseBody").Find(&logs).Error
 }
 
 func (r *Repository) AnalyticsActivities(filter AnalyticsFilter) ([]model.UserDailyActivity, error) {
@@ -113,7 +113,7 @@ func (r *Repository) QueryAPICallLogs(filter APICallLogFilter) ([]model.ApiCallL
 	if filter.Limit <= 0 || filter.Limit > 200 {
 		filter.Limit = 50
 	}
-	query := r.apiCallLogQuery(filter.AnalyticsFilter)
+	query := visibleAPICallLogQuery(r.apiCallLogQuery(filter.AnalyticsFilter))
 	if value := strings.TrimSpace(filter.Keyword); value != "" {
 		pattern := "%" + strings.ToLower(value) + "%"
 		query = query.
@@ -132,7 +132,7 @@ func (r *Repository) QueryAPICallLogs(filter APICallLogFilter) ([]model.ApiCallL
 		return nil, 0, err
 	}
 	var logs []model.ApiCallLog
-	err := query.Select("api_call_logs.*").Order("api_call_logs.created_at desc").Offset((filter.Page - 1) * filter.Limit).Limit(filter.Limit).Find(&logs).Error
+	err := query.Omit("RequestBody", "ResponseBody").Order("api_call_logs.created_at desc").Offset((filter.Page - 1) * filter.Limit).Limit(filter.Limit).Find(&logs).Error
 	return logs, total, err
 }
 
@@ -140,7 +140,7 @@ func (r *Repository) ExportAPICallLogs(filter APICallLogFilter, limit int) ([]mo
 	if limit <= 0 || limit > 10_000 {
 		limit = 10_000
 	}
-	query := r.apiCallLogQuery(filter.AnalyticsFilter)
+	query := visibleAPICallLogQuery(r.apiCallLogQuery(filter.AnalyticsFilter))
 	if len(filter.IDs) > 0 {
 		query = query.Where("api_call_logs.id IN ?", filter.IDs)
 	}
@@ -155,8 +155,27 @@ func (r *Repository) ExportAPICallLogs(filter APICallLogFilter, limit int) ([]mo
 		query = query.Where("api_call_logs.status = ?", filter.Status)
 	}
 	var logs []model.ApiCallLog
-	err := query.Select("api_call_logs.*").Order("api_call_logs.created_at desc").Limit(limit).Find(&logs).Error
+	err := query.Omit("RequestBody", "ResponseBody").Order("api_call_logs.created_at desc").Limit(limit).Find(&logs).Error
 	return logs, err
+}
+
+func visibleAPICallLogQuery(query *gorm.DB) *gorm.DB {
+	// 视频轮询属于一次生成调用的内部阶段，管理端只展示聚合后的创建主记录。
+	return query.Where("NOT (api_call_logs.capability = ? AND api_call_logs.request_kind IN ?)", "video", []string{"poll", "download"})
+}
+
+func (r *Repository) VideoAPICallRoot(log model.ApiCallLog) (*model.ApiCallLog, error) {
+	var root model.ApiCallLog
+	query := r.db.Where("capability = ? AND request_kind = ?", "video", "create")
+	if log.TaskID != "" {
+		query = query.Where("task_id = ?", log.TaskID)
+	} else {
+		query = query.Where("user_id = ? AND channel_id = ? AND provider_request_id = ?", log.UserID, log.ChannelID, log.ProviderRequestID)
+	}
+	if err := query.Order("created_at desc").First(&root).Error; err != nil {
+		return nil, err
+	}
+	return &root, nil
 }
 
 func (r *Repository) apiCallLogQuery(filter AnalyticsFilter) *gorm.DB {

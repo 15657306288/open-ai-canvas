@@ -228,6 +228,8 @@ type ChannelModel struct {
 type ApiCallLog struct {
 	ID                  string        `json:"id" gorm:"primaryKey;size:36"`
 	UserID              string        `json:"userId" gorm:"index;size:36;index:idx_api_logs_user_created,priority:1"`
+	UserDisplayName     string        `json:"userDisplayName,omitempty" gorm:"-"`
+	UserAccount         string        `json:"userAccount,omitempty" gorm:"-"`
 	ChannelID           string        `json:"channelId" gorm:"index;size:36;index:idx_api_logs_channel_created,priority:1"`
 	ChannelName         string        `json:"channelName" gorm:"-"`
 	TaskID              string        `json:"taskId,omitempty" gorm:"index;size:36"`
@@ -244,6 +246,8 @@ type ApiCallLog struct {
 	Status              ApiCallStatus `json:"status" gorm:"index;size:24;index:idx_api_logs_status_created,priority:1"`
 	StatusCode          int           `json:"statusCode"`
 	DurationMs          int64         `json:"durationMs"`
+	PollCount           int           `json:"pollCount"`
+	ProviderStatus      string        `json:"providerStatus,omitempty" gorm:"size:32"`
 	InputTokens         int64         `json:"inputTokens"`
 	OutputTokens        int64         `json:"outputTokens"`
 	CachedTokens        int64         `json:"cachedTokens"`
@@ -258,6 +262,9 @@ type ApiCallLog struct {
 	Error               string        `json:"error"`
 	ConcurrencyLimit    int           `json:"concurrencyLimit"`
 	UpstreamURL         string        `json:"upstreamUrl"`
+	RequestBody         string        `json:"requestBody,omitempty" gorm:"type:text"`
+	ResponseBody        string        `json:"responseBody,omitempty" gorm:"type:text"`
+	StartedAt           time.Time     `json:"startedAt"`
 	CreatedAt           time.Time     `json:"createdAt" gorm:"index;index:idx_api_logs_user_created,priority:2;index:idx_api_logs_channel_created,priority:2;index:idx_api_logs_model_created,priority:2;index:idx_api_logs_status_created,priority:2"`
 }
 

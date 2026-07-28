@@ -1,20 +1,18 @@
 import { App, Button, Input, Select, Table, Tag } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { Eye, Search } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 
 import { ListToolbar, TableSurface } from "@/components/layout/workspace-page";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { exportAdminApiLogs, listAdminApiLogs, type ApiCallLog } from "@/services/api/auth";
-import { useAdminContext } from "../admin-context";
 import { ApiLogDetailDrawer } from "../components/api-log-detail-drawer";
 import { AdminPageFrame } from "../components/admin-shell";
 import { AdminBatchBar, AdminExportButton, AdminTableEmpty, AdminTableSkeleton } from "../components/admin-ui";
 
 export default function LogsPage() {
     const { message } = App.useApp();
-    const { references } = useAdminContext();
     const [searchParams, setSearchParams] = useSearchParams();
     const keyword = searchParams.get("filter") || "";
     const status = normalizeStatus(searchParams.get("status"));
@@ -28,7 +26,6 @@ export default function LogsPage() {
     const [detailLogId, setDetailLogId] = useState<string | null>(null);
     const requestSequence = useRef(0);
     const hasFilters = Boolean(keyword || status !== "all");
-    const userNameById = useMemo(() => new Map(references.users.map((user) => [user.id, user.displayName || user.username])), [references.users]);
 
     const updateUrl = (patch: Record<string, string | number>, replace = false) => {
         const next = new URLSearchParams(searchParams);
@@ -56,16 +53,15 @@ export default function LogsPage() {
     }, [debouncedKeyword, status, page, pageSize]);
 
     const columns: ColumnsType<ApiCallLog> = [
-        { title: "时间", dataIndex: "createdAt", width: 170, render: formatTime },
-        { title: "用户", dataIndex: "userId", width: 160, render: (id) => userNameById.get(id) || id },
-        { title: "渠道", dataIndex: "channelName", width: 170, render: (name, log) => name || log.channelId || <span className="text-foreground/40">未记录</span> },
-        { title: "模型", dataIndex: "model", width: 180, render: (model) => model || <span className="text-foreground/40">未识别</span> },
-        { title: "能力 / 阶段", width: 125, render: (_, log) => `${capabilityText(log.capability)} / ${requestKindText(log.requestKind)}` },
-        { title: "状态", dataIndex: "status", width: 110, render: (value, log) => <Tag variant="filled" color={value === "succeeded" ? "success" : "error"}>{value === "succeeded" ? "成功" : `失败 ${log.statusCode || ""}`}</Tag> },
-        { title: "错误码", dataIndex: "errorCode", width: 160, ellipsis: true, render: (value) => value || "--" },
-        { title: "耗时", dataIndex: "durationMs", width: 100, render: (value) => `${value}ms` },
-        { title: "Token", width: 145, render: (_, log) => log.usageAvailable ? `${log.inputTokens} / ${log.outputTokens}` : "--" },
-        { title: "费用", width: 110, render: (_, log) => log.costAvailable ? `${log.currency || "USD"} ${(log.estimatedCostMicros / 1_000_000).toFixed(6)}` : "--" },
+        { title: "时间", width: 168, render: (_, log) => formatTime(log.startedAt || log.createdAt) },
+        { title: "用户", width: 180, render: (_, log) => <div className="min-w-0"><div className="truncate font-medium text-foreground/85">{log.userDisplayName || log.userAccount || "未知用户"}</div><div className="truncate text-xs text-foreground/45">{log.userAccount ? `@${log.userAccount}` : "账号未记录"}</div></div> },
+        { title: "渠道 / 模型", width: 230, render: (_, log) => <div className="min-w-0"><div className="truncate text-foreground/78">{log.channelName || "未记录渠道"}</div><div className="truncate text-xs text-foreground/45" title={log.model}>{log.model || "未识别模型"}</div></div> },
+        { title: "能力", dataIndex: "capability", width: 88, render: capabilityText },
+        { title: "调用状态", width: 160, render: (_, log) => <CallStatus log={log} /> },
+        { title: "错误信息", width: 260, render: (_, log) => log.status === "failed" || log.error || log.errorCode ? <div className="min-w-0" title={[log.errorCode, log.error].filter(Boolean).join(" · ")}><div className="truncate text-xs font-medium text-red-500">{log.errorCode || `HTTP ${log.statusCode || "失败"}`}</div><div className="line-clamp-2 text-xs leading-5 text-foreground/55">{log.error || "上游未返回错误详情"}</div></div> : <span className="text-foreground/30">--</span> },
+        { title: "耗时", dataIndex: "durationMs", width: 112, render: (value) => <span className="tabular-nums">{formatDuration(value)}</span> },
+        { title: "计费", width: 130, render: (_, log) => log.costAvailable ? <div><div className="tabular-nums">{formatCost(log)}</div><div className="text-xs text-foreground/40">估算费用</div></div> : <span className="text-foreground/35">未配置</span> },
+        { title: "Tokens", width: 166, render: (_, log) => log.usageAvailable ? <div className="space-y-0.5 text-xs tabular-nums"><div><span className="text-foreground/40">输入</span> {log.inputTokens.toLocaleString()}</div><div><span className="text-foreground/40">输出</span> {log.outputTokens.toLocaleString()}</div>{log.cachedTokens > 0 ? <div><span className="text-foreground/40">缓存</span> {log.cachedTokens.toLocaleString()}</div> : null}</div> : <span className="text-foreground/35">未返回</span> },
         { title: "操作", width: 90, fixed: "right", render: (_, log) => <Button size="small" icon={<Eye className="size-3.5" />} onClick={() => setDetailLogId(log.id)}>详情</Button> },
     ];
 
@@ -77,7 +73,7 @@ export default function LogsPage() {
             </ListToolbar>
             <AdminBatchBar count={selectedIds.length} onClear={() => setSelectedIds([])}><AdminExportButton type="primary" size="small" exportFile={() => exportAdminApiLogs({ ids: selectedIds })} fileName={() => `请求明细-已选${selectedIds.length}条.csv`} label="导出已选" successMessage={`已导出选中的 ${selectedIds.length} 条请求明细`} errorMessage="导出请求明细失败" /></AdminBatchBar>
             <TableSurface>
-                {loading && logs.length === 0 ? <AdminTableSkeleton rows={8} columns={11} /> : <Table className="app-data-table" size="middle" rowKey="id" loading={loading} rowSelection={{ selectedRowKeys: selectedIds, preserveSelectedRowKeys: false, onChange: (keys) => setSelectedIds(keys.map(String)) }} columns={columns} dataSource={logs} locale={{ emptyText: <AdminTableEmpty filtered={hasFilters} /> }} pagination={{ current: page, pageSize, total, showSizeChanger: true, pageSizeOptions: [20, 50, 100], showTotal: (value, range) => `${range[0]}-${range[1]} / 共 ${value} 条`, onChange: (nextPage, nextSize) => updateUrl({ page: nextSize !== pageSize ? 1 : nextPage, pageSize: nextSize }) }} scroll={{ x: 1280 }} />}
+                {loading && logs.length === 0 ? <AdminTableSkeleton rows={8} columns={10} /> : <Table className="app-data-table" size="middle" rowKey="id" loading={loading} rowSelection={{ selectedRowKeys: selectedIds, preserveSelectedRowKeys: false, onChange: (keys) => setSelectedIds(keys.map(String)) }} columns={columns} dataSource={logs} locale={{ emptyText: <AdminTableEmpty filtered={hasFilters} /> }} pagination={{ current: page, pageSize, total, showSizeChanger: true, pageSizeOptions: [20, 50, 100], showTotal: (value, range) => `${range[0]}-${range[1]} / 共 ${value} 条`, onChange: (nextPage, nextSize) => updateUrl({ page: nextSize !== pageSize ? 1 : nextPage, pageSize: nextSize }) }} scroll={{ x: 1580 }} />}
             </TableSurface>
             <ApiLogDetailDrawer logId={detailLogId} onClose={() => setDetailLogId(null)} />
         </AdminPageFrame>
@@ -89,4 +85,12 @@ function normalizePageSize(value: string | null) { const parsed = positiveInt(va
 function normalizeStatus(value: string | null): "all" | "succeeded" | "failed" { return value === "succeeded" || value === "failed" ? value : "all"; }
 function formatTime(value?: string) { return value ? new Date(value).toLocaleString("zh-CN", { hour12: false }) : "--"; }
 function capabilityText(value: string) { return ({ text: "文本", image: "图片", video: "视频", audio: "音频" } as Record<string, string>)[value] || "未知"; }
-function requestKindText(value: string) { return ({ create: "创建", poll: "轮询", download: "下载", repair: "修复" } as Record<string, string>)[value] || "请求"; }
+function formatDuration(value: number) { if (value < 1_000) return `${value} ms`; if (value < 60_000) return `${(value / 1_000).toFixed(value < 10_000 ? 1 : 0)} 秒`; const minutes = Math.floor(value / 60_000); const seconds = Math.round((value % 60_000) / 1_000); return `${minutes} 分 ${seconds} 秒`; }
+function formatCost(log: ApiCallLog) { return `${log.currency || "USD"} ${(log.estimatedCostMicros / 1_000_000).toFixed(6)}`; }
+
+function CallStatus({ log }: { log: ApiCallLog }) {
+    const providerStatus = log.providerStatus?.toLowerCase();
+    const processing = ["queued", "pending", "processing", "running", "in_progress"].includes(providerStatus || "");
+    const failed = log.status === "failed" || ["failed", "cancelled", "expired"].includes(providerStatus || "");
+    return <div><Tag variant="filled" color={failed ? "error" : processing ? "processing" : "success"}>{failed ? "失败" : processing ? "处理中" : "成功"}</Tag>{log.capability === "video" ? <div className="mt-1 text-xs tabular-nums text-foreground/45">已轮询 {log.pollCount || 0} 次</div> : null}</div>;
+}
