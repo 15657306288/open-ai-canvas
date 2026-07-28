@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v1.0.13
+
+- 运维后台和用户自定义渠道支持为每个模型独立选择请求协议，并明确展示创建路径、Content-Type、轮询和素材要求。
+- 修复 ArtBox Artdance 视频错误使用 multipart `/v1/videos` 的问题，NewAPI Video Generations 改用 JSON `/v1/video/generations` 并支持图片、视频、音频 OSS 签名地址；补充 xAI 与 Gemini Veo 长任务协议。
+- 请求明细记录实际 Content-Type，便于区分 JSON 与 multipart 请求报文。
+
 ## v1.0.12
 
 - 画布退役生成配置节点的新建入口，文本生图、图片反推、导演台及 Agent 编排改为直接创建对应类型的生成目标节点。
