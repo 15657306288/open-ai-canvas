@@ -1,5 +1,6 @@
 import { getSystemChannels, type AuthSessionPayload } from "@/services/api/auth";
 import { localForageStorage } from "@/lib/localforage-storage";
+import { appQueryClient } from "@/lib/query-client";
 import { scopedLocalStorage, setActiveUserScope } from "@/lib/user-scope";
 import { CANVAS_STORE_KEY, flushCanvasStorePersistence, useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { ASSET_STORE_KEY, useAssetStore } from "@/stores/use-asset-store";
@@ -8,8 +9,12 @@ import { useUserStore } from "@/stores/use-user-store";
 import { installRemoteUserDataAutoSync, resetRemoteUserDataSync, syncRemoteUserData } from "@/services/user-data-sync";
 
 export async function applyUserSession(payload: AuthSessionPayload) {
+    const previousUserId = useUserStore.getState().user?.id || "";
+    const nextUserId = payload.user?.id || "";
     useUserStore.getState().setHydrated(false);
     try {
+        // Query key 不携带用户 ID；身份变化时必须取消并清空旧账号请求，避免跨账号复用内存数据。
+        if (previousUserId !== nextUserId) appQueryClient.clear();
         resetRemoteUserDataSync();
         await flushCanvasStorePersistence();
         setActiveUserScope(payload.user?.id);
