@@ -49,7 +49,7 @@ export function useCanvasDirector({
         let scene = createDirectorScene(`镜头 ${shotIndex}`);
         const shot = scene.shots[0];
         scene = { ...scene, shots: [{ ...shot, name: `镜头 ${shotIndex}` }] };
-        const node = createCanvasNode(CanvasNodeType.Config, position || getCanvasCenter(), {
+        const node = createCanvasNode(CanvasNodeType.Video, position || getCanvasCenter(), {
             workflowKind: "shot",
             workflowTitle: `镜头 ${shotIndex}`,
             shotIndex,
@@ -61,6 +61,7 @@ export function useCanvasDirector({
             directorShotId: shot.id,
         });
         node.title = `镜头 ${shotIndex}`;
+        node.height = 300;
         const nextNodes = [...nodesRef.current, node];
         nodesRef.current = nextNodes;
         setNodes(nextNodes);

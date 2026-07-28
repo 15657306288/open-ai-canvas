@@ -86,16 +86,6 @@ export class CanvasSession {
             input = { ops: generationFlowOps({ ...(input as Record<string, unknown>), mode: "image" }, this.canvasState) };
             tool = "canvas_apply_ops";
         }
-        if (tool === "canvas_create_config_node") {
-            const data = input as Record<string, unknown>;
-            const x = Number(data.x ?? nextCanvasX(this.canvasState));
-            const y = Number(data.y ?? 0);
-            const configId = `config-${crypto.randomUUID()}`;
-            const mode = generationMode(data.mode);
-            const prompt = String(data.prompt || "");
-            input = { ops: [configNodeOp(configId, data, x, y), ...(data.autoRun ? [runGenerationOp(configId, mode, prompt)] : [])] };
-            tool = "canvas_apply_ops";
-        }
         if (tool === "canvas_create_generation_flow") {
             input = { ops: generationFlowOps(input as Record<string, unknown>, this.canvasState) };
             tool = "canvas_apply_ops";
@@ -179,18 +169,21 @@ function textNodeOp(input: { id?: string; text?: string; title?: string; width?:
     return { type: "add_node", id: input.id, nodeType: "text", title: input.title, position: { x, y }, width: input.width, height: input.height, metadata: { content: input.text || "", status: "success", fontSize: 14 } };
 }
 
-function configNodeOp(id: string, input: Record<string, unknown>, x: number, y: number) {
+function generationTargetNodeOp(id: string, input: Record<string, unknown>, x: number, y: number) {
     const mode = generationMode(input.mode);
     const prompt = String(input.prompt || "");
+    const nodeType = generationNodeType(mode);
     return {
         type: "add_node",
         id,
-        nodeType: "config",
+        nodeType,
         title: String(input.title || generationTitle(mode)),
         position: { x, y },
         width: typeof input.width === "number" ? input.width : undefined,
         height: typeof input.height === "number" ? input.height : undefined,
         metadata: cleanRecord({
+            content: "",
+            fontSize: nodeType === "text" ? 14 : undefined,
             generationMode: mode,
             composerContent: prompt,
             prompt,
@@ -198,6 +191,7 @@ function configNodeOp(id: string, input: Record<string, unknown>, x: number, y: 
             model: input.model,
             size: input.size,
             quality: input.quality,
+            transparentBackground: input.transparentBackground,
             count: input.count,
             seconds: input.seconds,
             vquality: input.vquality,
@@ -217,18 +211,25 @@ function generationFlowOps(input: Record<string, unknown>, state: CanvasSnapshot
     const x = Number(input.x ?? nextCanvasX(state));
     const y = Number(input.y ?? 0);
     const textId = `text-${crypto.randomUUID()}`;
-    const configId = `config-${crypto.randomUUID()}`;
+    const targetId = `${mode}-${crypto.randomUUID()}`;
     const referenceNodeIds = Array.isArray(input.referenceNodeIds) ? input.referenceNodeIds.filter((id): id is string => typeof id === "string") : [];
     const tokens = [`@[node:${textId}]`, ...referenceNodeIds.map((id) => `@[node:${id}]`)];
-    const configInput = { ...input, prompt: tokens.join("\n") };
+    const targetInput = { ...input, prompt: tokens.join("\n") };
     return [
         textNodeOp({ id: textId, text: prompt, title: String(input.title || "提示词") }, x, y),
-        configNodeOp(configId, configInput, x + 420, y),
-        { type: "connect_nodes", fromNodeId: textId, toNodeId: configId },
-        ...referenceNodeIds.map((fromNodeId) => ({ type: "connect_nodes", fromNodeId, toNodeId: configId })),
-        { type: "select_nodes", ids: [configId] },
-        ...(input.autoRun ? [runGenerationOp(configId, mode, tokens.join("\n"))] : []),
+        generationTargetNodeOp(targetId, targetInput, x + 420, y),
+        { type: "connect_nodes", fromNodeId: textId, toNodeId: targetId },
+        ...referenceNodeIds.map((fromNodeId) => ({ type: "connect_nodes", fromNodeId, toNodeId: targetId })),
+        { type: "select_nodes", ids: [targetId] },
+        ...(input.autoRun ? [runGenerationOp(targetId, mode, tokens.join("\n"))] : []),
     ];
+}
+
+function generationNodeType(mode: "text" | "image" | "video" | "audio"): CanvasNodeType {
+    if (mode === "text") return "text";
+    if (mode === "video") return "video";
+    if (mode === "audio") return "audio";
+    return "image";
 }
 
 function runGenerationOp(nodeId: string, mode: "text" | "image" | "video" | "audio", prompt?: string) {

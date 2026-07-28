@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { Segmented, Switch } from "antd";
-import { CircleDot, Clapperboard, Eraser, FolderOpen, Grid2x2, Hand, Image as ImageIcon, Info, Layers3, Moon, Music2, Palette, PanelTop, Pencil, Plus, Redo2, Square, Sun, Trash2, Type, Undo2, UploadCloud, UserRound, Video, WandSparkles, X } from "lucide-react";
+import { CircleDot, Clapperboard, Eraser, FolderOpen, Grid2x2, Hand, Image as ImageIcon, Info, Layers3, Moon, Music2, Palette, PanelTop, Pencil, Plus, Redo2, Square, Sun, Trash2, Type, Undo2, UploadCloud, UserRound, Video, X } from "lucide-react";
 
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
 import { FloatingDock, type FloatingDockEntry } from "@/components/ui/aceternity/floating-dock";
@@ -29,7 +29,6 @@ export function CanvasToolbar({
     onAddScript,
     onAddFrame,
     onAddDrawing,
-    onAddConfig,
     onOpenDirector,
     onUndo,
     onRedo,
@@ -57,7 +56,6 @@ export function CanvasToolbar({
     onAddScript: () => void;
     onAddFrame: () => void;
     onAddDrawing: () => void;
-    onAddConfig: () => void;
     onOpenDirector: () => void;
     onUndo: () => void;
     onRedo: () => void;
@@ -127,7 +125,6 @@ export function CanvasToolbar({
                         onAddImage={() => runAddAction(onAddImage)}
                         onAddVideo={() => runAddAction(onAddVideo)}
                         onAddAudio={() => runAddAction(onAddAudio)}
-                        onAddConfig={() => runAddAction(onAddConfig)}
                         onOpenDirector={() => runAddAction(onOpenDirector)}
                         onUpload={() => runAddAction(onUpload)}
                         onOpenAssets={() => runAddAction(onOpenMyAssets)}
@@ -171,7 +168,7 @@ export function CanvasToolbar({
     );
 }
 
-function AddNodeMenu({ x, theme, workspaceMode, isProjectLinked, onAddText, onChooseStyle, onAddScript, onAddFrame, onAddDrawing, onAddImage, onAddVideo, onAddAudio, onAddConfig, onOpenDirector, onUpload, onOpenAssets, onOpenProjectCharacters }: {
+function AddNodeMenu({ x, theme, workspaceMode, isProjectLinked, onAddText, onChooseStyle, onAddScript, onAddFrame, onAddDrawing, onAddImage, onAddVideo, onAddAudio, onOpenDirector, onUpload, onOpenAssets, onOpenProjectCharacters }: {
     x: number;
     theme: CanvasTheme;
     workspaceMode: CanvasWorkspaceMode;
@@ -184,7 +181,6 @@ function AddNodeMenu({ x, theme, workspaceMode, isProjectLinked, onAddText, onCh
     onAddImage: () => void;
     onAddVideo: () => void;
     onAddAudio: () => void;
-    onAddConfig: () => void;
     onOpenDirector: () => void;
     onUpload: () => void;
     onOpenAssets: () => void;
@@ -204,7 +200,6 @@ function AddNodeMenu({ x, theme, workspaceMode, isProjectLinked, onAddText, onCh
         ...(!simpleMode ? [
             { id: "director", label: "导演台", icon: <Layers3 />, badge: "3D", onClick: onOpenDirector },
             { id: "audio", label: "音频", icon: <Music2 />, onClick: onAddAudio },
-            { id: "config", label: "生成配置", icon: <WandSparkles />, onClick: onAddConfig },
         ] : []),
     ];
     const resourceCommands: CanvasCreateCommand[] = [

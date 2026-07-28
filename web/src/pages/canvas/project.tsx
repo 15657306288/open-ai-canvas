@@ -1152,15 +1152,16 @@ function InfiniteCanvasPage() {
             }
             const sourceNode = nodesRef.current.find((item) => item.id === node.id);
             if (!sourceNode) return;
-            const nodeSize = getNodeSpec(CanvasNodeType.Config);
-            const configNode = createCanvasNode(
-                CanvasNodeType.Config,
+            const nodeSize = getNodeSpec(CanvasNodeType.Image);
+            const imageNode = createCanvasNode(
+                CanvasNodeType.Image,
                 {
                     x: sourceNode.position.x + sourceNode.width + 96 + nodeSize.width / 2,
                     y: sourceNode.position.y + sourceNode.height / 2,
                 },
                 {
-                    prompt: "",
+                    prompt: `@[node:${sourceNode.id}]`,
+                    composerContent: `@[node:${sourceNode.id}]`,
                     model: effectiveConfig.imageModel || effectiveConfig.model,
                     size: effectiveConfig.size,
                     quality: effectiveConfig.quality,
@@ -1168,16 +1169,17 @@ function InfiniteCanvasPage() {
                     count: getGenerationCount(effectiveConfig.canvasImageCount || effectiveConfig.count),
                 },
             );
-            const connection = { id: nanoid(), fromNodeId: sourceNode.id, toNodeId: configNode.id };
-            const nextNodes = nodesRef.current.map((item) => (item.id === sourceNode.id ? { ...item, metadata: { ...item.metadata, content: prompt, richText: undefined, prompt, status: NODE_STATUS_SUCCESS } } : item)).concat(configNode);
+            imageNode.title = "图片生成";
+            const connection = { id: nanoid(), fromNodeId: sourceNode.id, toNodeId: imageNode.id };
+            const nextNodes = nodesRef.current.map((item) => (item.id === sourceNode.id ? { ...item, metadata: { ...item.metadata, content: prompt, richText: undefined, prompt, status: NODE_STATUS_SUCCESS } } : item)).concat(imageNode);
             const nextConnections = [...connectionsRef.current, connection];
             nodesRef.current = nextNodes;
             connectionsRef.current = nextConnections;
             setNodes(nextNodes);
             setConnections(nextConnections);
-            setSelectedNodeIds(new Set([configNode.id]));
+            setSelectedNodeIds(new Set([imageNode.id]));
             setSelectedConnectionId(null);
-            setDialogNodeId(configNode.id);
+            setDialogNodeId(imageNode.id);
         },
         [effectiveConfig, message],
     );
@@ -1554,7 +1556,6 @@ function InfiniteCanvasPage() {
                     onAddScript={() => createNode(CanvasNodeType.Script)}
                     onAddFrame={() => createNode(CanvasNodeType.Frame)}
                     onAddDrawing={() => createNode(CanvasNodeType.Drawing)}
-                    onAddConfig={() => createNode(CanvasNodeType.Config)}
                     onOpenDirector={() => createDirectorShot()}
                     onUndo={undoCanvas}
                     onRedo={redoCanvas}

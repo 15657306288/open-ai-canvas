@@ -1,6 +1,6 @@
 import { AnimatePresence, useReducedMotion } from "motion/react";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import { ArrowLeft, Check, ChevronRight, Clapperboard, Clipboard, Copy, FolderOpen, FolderPlus, Image as ImageIcon, Layers3, Link2, Maximize2, Music2, PanelTop, Pencil, Plus, Redo2, Settings2, Tags, Trash2, Type, Undo2, Upload, UserRound, Video } from "lucide-react";
+import { ArrowLeft, Check, ChevronRight, Clapperboard, Clipboard, Copy, FolderOpen, FolderPlus, Image as ImageIcon, Layers3, Link2, Maximize2, Music2, PanelTop, Pencil, Plus, Redo2, Tags, Trash2, Type, Undo2, Upload, UserRound, Video } from "lucide-react";
 
 import { aceternityMotion } from "@/lib/aceternity-motion";
 import { SpotlightSurface } from "@/components/ui/aceternity/spotlight-surface";
@@ -259,7 +259,6 @@ function AddNodeContextMenu({ parentPosition, workspaceMode, isProjectLinked, re
         ...(!simpleMode ? [
             { id: "director", label: "导演台", icon: <Layers3 />, badge: "3D", onClick: onOpenDirector },
             { id: "audio", label: "音频", icon: <Music2 />, onClick: () => onAddNode(CanvasNodeType.Audio) },
-            { id: "config", label: "生成配置", icon: <Settings2 />, onClick: () => onAddNode(CanvasNodeType.Config) },
         ] : []),
     ];
     const resourceCommands: CanvasCreateCommand[] = [

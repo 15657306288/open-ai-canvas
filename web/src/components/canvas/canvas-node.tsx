@@ -459,6 +459,7 @@ export const CanvasNode = React.memo(function CanvasNode({
 function NodeContent(props: NodeContentRendererProps) {
     const hasCustomContent = props.node.type === CanvasNodeType.Config
         || props.node.type === CanvasNodeType.Script
+        || Boolean(props.node.metadata?.directorSceneId)
         || (props.node.metadata?.workflowKind === "character" && Boolean(props.node.metadata.characterAssetId))
         || (props.node.metadata?.workflowKind === "story_input" && !props.isEditingContent)
         || (props.node.metadata?.workflowKind === "styleboard" && !props.node.metadata.content);
@@ -716,7 +717,7 @@ function SkillContent({ node, theme }: NodeContentRendererProps) {
                     <span key={tag} className="rounded-md border px-1.5 py-0.5 text-[10px]" style={{ borderColor: theme.node.stroke, color: theme.node.muted }}>
                         {tag}
                     </span>
-                )) : <span className="text-[11px]" style={{ color: theme.node.muted }}>连接到生成配置节点后生效</span>}
+                )) : <span className="text-[11px]" style={{ color: theme.node.muted }}>连接到图片、视频、音频或文本节点后生效</span>}
             </div>
         </div>
     );

@@ -1188,7 +1188,7 @@ func buildAgentStoryboardResult(task model.Task, plan agentStoryboardPlan, asset
 			assetIDs = append(assetIDs, asset.ID)
 		}
 		ops = append(ops,
-			nodeOpWithMetadata(shotID, "config", fmt.Sprintf("镜头 %d · %s", index+1, shortTitle(shot.Title, 18)), index*360, 560, map[string]any{
+			nodeOpWithMetadata(shotID, "video", fmt.Sprintf("镜头 %d · %s", index+1, shortTitle(shot.Title, 18)), index*360, 560, map[string]any{
 				"workflowKind":          "shot",
 				"workflowTitle":         shot.Title,
 				"workflowDescription":   shotDescription(shot),
@@ -1526,7 +1526,7 @@ func buildAgentResult(task model.Task) (map[string]any, []map[string]any) {
 	ops := []map[string]any{
 		nodeOp("script-"+task.ID, "text", "剧本 · "+title, 0, 0, "script", task.Prompt),
 		nodeOp("scene-"+task.ID, "text", "场景 · 主场景", 380, 0, "scene", "主场景设定、角色关系、视觉风格。"),
-		nodeOp("shot-"+task.ID, "config", "分镜 · 镜头 1", 760, 0, "shot", task.Prompt),
+		nodeOpWithMetadata("shot-"+task.ID, "video", "分镜 · 镜头 1", 760, 0, map[string]any{"workflowKind": "shot", "status": "idle", "generationMode": "video", "prompt": task.Prompt, "composerContent": task.Prompt, "videoEditOperation": "text_to_video"}),
 		nodeOp("final-"+task.ID, "video", "成片 · 待生成", 1140, 0, "final", ""),
 		connectOp("script-"+task.ID, "scene-"+task.ID),
 		connectOp("scene-"+task.ID, "shot-"+task.ID),
@@ -1555,7 +1555,7 @@ func buildVideoWorkflowResult(task model.Task) (map[string]any, []map[string]any
 	ops := []map[string]any{
 		nodeOp("video-brief-"+task.ID, "text", "编辑需求 · "+title, 0, 0, "script", task.Prompt),
 		nodeOpWithMetadata("video-ref-"+task.ID, "text", "参考素材组", 380, 0, map[string]any{"workflowKind": "reference_set", "status": "idle", "content": "原片、参考图、参考音频、风格板或历史版本。", "videoEditOperation": operation}),
-		nodeOpWithMetadata("video-shot-"+task.ID, "config", "视频任务 · "+operation, 760, 0, map[string]any{"workflowKind": "shot", "status": "idle", "generationMode": "video", "prompt": task.Prompt, "composerContent": task.Prompt, "videoEditOperation": operation}),
+		nodeOpWithMetadata("video-shot-"+task.ID, "video", "视频任务 · "+operation, 760, 0, map[string]any{"workflowKind": "shot", "status": "idle", "generationMode": "video", "prompt": task.Prompt, "composerContent": task.Prompt, "videoEditOperation": operation}),
 		nodeOpWithMetadata("video-result-"+task.ID, "video", "结果版本 · 待回填", 1140, 0, map[string]any{"workflowKind": "final", "status": "idle", "videoEditOperation": operation, "versionLabel": "v1"}),
 		connectOp("video-brief-"+task.ID, "video-ref-"+task.ID),
 		connectOp("video-ref-"+task.ID, "video-shot-"+task.ID),
