@@ -28,20 +28,22 @@ export async function executeTextGeneration({
 }: CanvasGenerationExecution) {
     let streamed = "";
     const isConfigNode = sourceNode?.type === CanvasNodeType.Config;
-    const textCount = isConfigNode ? getGenerationCount(generationConfig.count) : 1;
+    const isDirectTextTarget = sourceNode?.type === CanvasNodeType.Text && !sourceNode.metadata?.content?.trim() && !editingTextNode;
+    const textCount = isConfigNode || (isDirectTextTarget && sourceNode?.metadata?.count) ? getGenerationCount(generationConfig.count) : 1;
     const parentConfig = NODE_DEFAULT_SIZE[isConfigNode ? CanvasNodeType.Config : CanvasNodeType.Text];
     const textConfig = NODE_DEFAULT_SIZE[CanvasNodeType.Text];
     const parentPosition = sourceNode?.position || { x: 0, y: 0 };
-    const childIds = isConfigNode || editingTextNode ? Array.from({ length: textCount }, () => nanoid()) : [];
+    const generateInPlace = !isConfigNode && !editingTextNode;
+    const childIds = Array.from({ length: generateInPlace ? Math.max(0, textCount - 1) : textCount }, () => nanoid());
     registerPendingNodeIds(childIds);
-    if (isConfigNode || editingTextNode) {
+    if (childIds.length) {
         const childNodes: CanvasNodeData[] = childIds.map((id, index) => ({
             id,
             type: CanvasNodeType.Text,
             title: effectivePrompt.slice(0, 32) || "Generated Text",
             position: {
                 x: parentPosition.x + parentConfig.width + 96,
-                y: parentPosition.y + parentConfig.height / 2 - textConfig.height / 2 + (index - (textCount - 1) / 2) * (textConfig.height + 36),
+                y: parentPosition.y + parentConfig.height / 2 - textConfig.height / 2 + (index - (childIds.length - 1) / 2) * (textConfig.height + 36),
             },
             width: textConfig.width,
             height: textConfig.height,
@@ -51,7 +53,7 @@ export async function executeTextGeneration({
         setConnections((current) => [...current, ...childIds.map((childId) => ({ id: nanoid(), fromNodeId: nodeId, toNodeId: childId }))]);
     }
 
-    const textTargetIds = childIds.length ? childIds : [nodeId];
+    const textTargetIds = generateInPlace ? [nodeId, ...childIds] : childIds;
     textTargetIds.forEach((targetNodeId) => startGenerationRequest(targetNodeId, nodeId, nodeId, controller));
     const answers = await Promise.all(
         textTargetIds.map((targetNodeId) => {
@@ -75,7 +77,7 @@ export async function executeTextGeneration({
                 : node.id === nodeId && isConfigNode
                   ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS, errorDetails: undefined, generationErrorCode: undefined, failedPromptFingerprint: undefined } }
                   : node.id === nodeId && !editingTextNode
-                    ? { ...node, type: CanvasNodeType.Text, title: prompt.slice(0, 32) || "Generated Text", metadata: { ...node.metadata, content: answerByNodeId.get(node.id) || streamed, richText: undefined, status: NODE_STATUS_SUCCESS, errorDetails: undefined, generationErrorCode: undefined, failedPromptFingerprint: undefined } }
+                    ? { ...node, type: CanvasNodeType.Text, title: effectivePrompt.slice(0, 32) || "Generated Text", metadata: { ...node.metadata, content: answerByNodeId.get(node.id) || streamed, richText: undefined, status: NODE_STATUS_SUCCESS, errorDetails: undefined, generationErrorCode: undefined, failedPromptFingerprint: undefined } }
                     : node,
         ),
     );

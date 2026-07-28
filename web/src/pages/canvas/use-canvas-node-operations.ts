@@ -6,9 +6,7 @@ import { nanoid } from "nanoid";
 import { FRAME_HEADER_HEIGHT, getFrameChildIds, getFrameChildren, isFrameNode } from "@/lib/canvas/canvas-frame";
 import { alignCanvasNodes, layoutCanvasFlow, layoutCanvasNodes, nextCanvasVersionLabel, type CanvasAlignmentMode } from "@/lib/canvas/canvas-layout";
 import { createCanvasNode, removeCanvasNodes } from "@/lib/canvas/canvas-project-domain";
-import { getGenerationCount } from "@/lib/canvas/canvas-project-generation";
 import { isolateCopiedNodeMetadata } from "@/lib/canvas/canvas-node-copy";
-import { useEffectiveConfig } from "@/stores/use-config-store";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData, type ContextMenuState, type Position } from "@/types/canvas";
 import { cloneCanvasDrawing } from "@/lib/canvas/canvas-drawing-storage";
 
@@ -47,7 +45,6 @@ export function useCanvasNodeOperations({
     onNodesDeleted,
 }: UseCanvasNodeOperationsOptions) {
     const { message } = App.useApp();
-    const effectiveConfig = useEffectiveConfig();
     const clipboardRef = useRef<CanvasClipboard | null>(null);
     const preferCopiedNodesRef = useRef(false);
     const markerWritePendingRef = useRef(false);
@@ -113,18 +110,11 @@ export function useCanvasNodeOperations({
     }, [selectedNodeIdsRef, setSelectedConnectionId, setSelectedNodeIds]);
 
     const createNode = useCallback((type: CanvasNodeType, position?: Position) => {
-        const configMetadata = type === CanvasNodeType.Config
-            ? {
-                  model: effectiveConfig.imageModel || effectiveConfig.model,
-                  size: effectiveConfig.size,
-                  count: getGenerationCount(effectiveConfig.canvasImageCount || effectiveConfig.count),
-              }
-            : undefined;
-        const node = createCanvasNode(type, position || getCanvasCenter(), configMetadata);
+        const node = createCanvasNode(type, position || getCanvasCenter());
         commitNodes([...nodesRef.current, node]);
         selectNodes(new Set([node.id]));
         if (type !== CanvasNodeType.Text && type !== CanvasNodeType.Script && type !== CanvasNodeType.Audio && type !== CanvasNodeType.Frame && type !== CanvasNodeType.Drawing) setDialogNodeId(node.id);
-    }, [commitNodes, effectiveConfig.canvasImageCount, effectiveConfig.count, effectiveConfig.imageModel, effectiveConfig.model, effectiveConfig.size, getCanvasCenter, nodesRef, selectNodes, setDialogNodeId]);
+    }, [commitNodes, getCanvasCenter, nodesRef, selectNodes, setDialogNodeId]);
 
     const arrangeSelectedNodes = useCallback((mode: "row" | "column" | "grid" | "flow") => {
         const selected = nodesRef.current.filter((node) => selectedNodeIdsRef.current.has(node.id) && !node.metadata?.locked && !isFrameNode(node));

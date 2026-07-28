@@ -105,26 +105,27 @@ export function useCanvasMediaTools({
         }
         const gap = 96;
         const textSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Text];
-        const configSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Config];
+        const resultSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Text];
         const centerY = node.position.y + node.height / 2;
         const textNode = {
             ...createCanvasNode(CanvasNodeType.Text, { x: node.position.x + node.width + gap + textSpec.width / 2, y: centerY }, { content: IMAGE_PROMPT_REVERSE_PRESET, prompt: IMAGE_PROMPT_REVERSE_PRESET, status: NODE_STATUS_SUCCESS, fontSize: 14 }),
             title: "反推提示词",
         };
-        const configNode = {
-            ...createCanvasNode(CanvasNodeType.Config, { x: textNode.position.x + textNode.width + gap + configSpec.width / 2, y: centerY }, {
+        const resultNode = {
+            ...createCanvasNode(CanvasNodeType.Text, { x: textNode.position.x + textNode.width + gap + resultSpec.width / 2, y: centerY }, {
+                content: "",
                 generationMode: "text",
                 model: effectiveConfig.textModel || effectiveConfig.model || defaultConfig.textModel,
                 count: 1,
                 composerContent: `参考图片：@[node:${node.id}]\n任务说明：@[node:${textNode.id}]`,
             }),
-            title: "反推提示词配置",
+            title: "反推提示词结果",
         };
-        setNodes((current) => [...current, textNode, configNode]);
-        setConnections((current) => [...current, { id: nanoid(), fromNodeId: node.id, toNodeId: configNode.id }, { id: nanoid(), fromNodeId: textNode.id, toNodeId: configNode.id }]);
-        setSelectedNodeIds(new Set([configNode.id]));
+        setNodes((current) => [...current, textNode, resultNode]);
+        setConnections((current) => [...current, { id: nanoid(), fromNodeId: node.id, toNodeId: resultNode.id }, { id: nanoid(), fromNodeId: textNode.id, toNodeId: resultNode.id }]);
+        setSelectedNodeIds(new Set([resultNode.id]));
         setSelectedConnectionId(null);
-        setDialogNodeId(configNode.id);
+        setDialogNodeId(resultNode.id);
         setContextMenu(null);
     }, [effectiveConfig.model, effectiveConfig.textModel, message, setConnections, setContextMenu, setDialogNodeId, setNodes, setSelectedConnectionId, setSelectedNodeIds]);
 
