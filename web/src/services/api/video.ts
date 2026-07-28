@@ -2,13 +2,15 @@ import axios from "axios";
 
 import { dataUrlToFile } from "@/lib/image-utils";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
+import { getResourceOSSUrl } from "@/services/api/resources";
+import { channelRequest } from "@/services/api/custom-channel-relay";
 import { imageToDataUrl } from "@/services/image-storage";
 import { boolConfig, buildSeedancePromptText, isArkPlanBaseUrl, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
 import { buildApiUrl, isSystemProxyBaseUrl, modelOptionName, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 
-type VideoResponse = { id?: string; request_id?: string; task_id?: string; status?: string; error?: { message?: string } };
+type VideoResponse = { id?: string; request_id?: string; task_id?: string; status?: string; error?: { message?: string }; video?: { url?: string }; video_url?: string; result_url?: string };
 type ApiVideoResponse = VideoResponse | { code?: number; data?: VideoResponse | null; msg?: string };
 type ResolvedAiConfig = ReturnType<typeof resolveModelRequestConfig>;
 type SeedanceTask = {
@@ -24,7 +26,7 @@ type ApiEnvelope<T> = T | { code?: number; data?: T | null; msg?: string };
 type RequestOptions = { signal?: AbortSignal };
 
 export type VideoGenerationResult = { blob?: Blob; url?: string; mimeType?: string };
-export type VideoGenerationTask = { id: string; provider: "openai" | "seedance"; model: string };
+export type VideoGenerationTask = { id: string; provider: "openai" | "seedance" | "video-generations" | "gemini-veo"; model: string };
 export type VideoGenerationTaskState = { status: "pending" } | { status: "completed"; result: VideoGenerationResult } | { status: "failed"; error: string };
 
 function aiApiUrl(config: AiConfig, path: string) {
@@ -41,7 +43,7 @@ function aiHeaders(config: AiConfig, contentType?: string) {
 
 export async function requestVideoGeneration(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationResult> {
     const task = await createVideoGenerationTask(config, prompt, references, videoReferences, audioReferences, options);
-    const delayMs = task.provider === "seedance" ? 5000 : 2500;
+    const delayMs = task.provider === "openai" ? 2500 : 5000;
     for (let attempt = 0; attempt < 120; attempt += 1) {
         if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
         const state = await pollVideoGenerationTask(config, task, options);
@@ -57,6 +59,12 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
     const selectedModel = (config.model || config.videoModel).trim();
     const requestConfig = resolveModelRequestConfig(config, selectedModel);
     assertVideoConfig(requestConfig, requestConfig.model);
+    if (requestConfig.interfaceType === "newapi-channel-2") {
+        return createVideoGenerationsTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
+    }
+    if (requestConfig.interfaceType === "gemini-veo") {
+        return createGeminiVeoTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
+    }
     if (isSeedanceVideoConfig(requestConfig)) {
         return createSeedanceTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
     }
@@ -69,7 +77,162 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
 export async function pollVideoGenerationTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
     const requestConfig = resolveModelRequestConfig(config, task.model);
     assertVideoConfig(requestConfig, requestConfig.model);
-    return task.provider === "seedance" ? pollSeedanceTask(requestConfig, task, options) : pollOpenAIVideoTask(requestConfig, task, options);
+    if (task.provider === "seedance") return pollSeedanceTask(requestConfig, task, options);
+    if (task.provider === "video-generations") return pollVideoGenerationsTask(requestConfig, task, options);
+    if (task.provider === "gemini-veo") return pollGeminiVeoTask(requestConfig, task, options);
+    return pollOpenAIVideoTask(requestConfig, task, options);
+}
+
+async function createVideoGenerationsTask(config: ResolvedAiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
+    if (references.length > 9 || videoReferences.length > 3 || audioReferences.length > 3) throw new Error("NewAPI Video Generations 最多支持 9 张参考图、3 个参考视频和 3 个参考音频");
+    const [imageUrls, videoUrls, audioUrls] = await Promise.all([
+        Promise.all(references.map((item) => resolveVideoGenerationsUrl(item.url || item.dataUrl, item.storageKey))),
+        Promise.all(videoReferences.map((item) => resolveVideoGenerationsUrl(item.url, item.storageKey))),
+        Promise.all(audioReferences.map((item) => resolveVideoGenerationsUrl(item.url, item.storageKey))),
+    ]);
+    const payload = {
+        model: modelOptionName(model),
+        prompt: prompt.trim(),
+        seconds: normalizeVideoSeconds(config.videoSeconds),
+        aspect_ratio: normalizeVideoSize(config.size) || "16:9",
+        resolution: normalizeVideoResolution(config.vquality),
+        generate_audio: boolConfig(config.videoGenerateAudio, true),
+        ...(imageUrls.length ? { image_urls: imageUrls } : {}),
+        ...(videoUrls.length ? { video_urls: videoUrls } : {}),
+        ...(audioUrls.length ? { audio_urls: audioUrls } : {}),
+    };
+    try {
+        const created = unwrapVideoResponse(await channelPost<ApiVideoResponse>(config, aiApiUrl(config, "/video/generations"), payload, options));
+        const id = videoTaskId(created);
+        if (!id) throw new Error("NewAPI Video Generations 没有返回任务 ID");
+        return { id, provider: "video-generations", model };
+    } catch (error) {
+        throw new Error(readAxiosError(error, "NewAPI Video Generations 任务创建失败"));
+    }
+}
+
+async function pollVideoGenerationsTask(config: ResolvedAiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
+    try {
+        const raw = await channelGet<ApiEnvelope<Record<string, unknown>>>(config, aiApiUrl(config, `/video/generations/${encodeURIComponent(task.id)}`), options);
+        const state = unwrapEnvelopeRecord(raw);
+        const status = String(state.status || "").toUpperCase();
+        if (status === "SUCCESS" || status === "SUCCEEDED" || status === "COMPLETED") {
+            const url = String(state.result_url || state.video_url || state.url || "");
+            if (!url) return { status: "failed", error: "视频任务已完成但没有返回视频地址" };
+            return { status: "completed", result: await videoResultFromUrl(url, options) };
+        }
+        if (status === "FAILURE" || status === "FAILED" || status === "CANCELLED") return { status: "failed", error: String(state.fail_reason || state.error || "视频生成失败") };
+        return { status: "pending" };
+    } catch (error) {
+        throw new Error(readAxiosError(error, "NewAPI Video Generations 任务查询失败"));
+    }
+}
+
+async function resolveVideoGenerationsUrl(value: string | undefined, storageKey?: string) {
+    if (storageKey?.startsWith("resource:")) return getResourceOSSUrl(storageKey);
+    if (isPublicMediaUrl(value || "")) return String(value);
+    throw new Error("NewAPI Video Generations 的参考素材需要公网 URL；请先把素材保存到 OSS");
+}
+
+type GeminiVeoOperation = {
+    name?: string;
+    done?: boolean;
+    error?: { message?: string };
+    response?: Record<string, unknown>;
+};
+
+async function createGeminiVeoTask(config: ResolvedAiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
+    if (references.length > 1 || videoReferences.length || audioReferences.length) throw new Error("Gemini Veo 当前只支持 1 张起始图，不支持参考视频或音频");
+    const instance: Record<string, unknown> = { prompt: prompt.trim() };
+    if (references[0]) {
+        const dataUrl = await imageToDataUrl(references[0]);
+        const matched = /^data:([^;,]+);base64,(.+)$/s.exec(dataUrl);
+        if (!matched) throw new Error("Gemini Veo 起始图读取失败");
+        instance.image = { bytesBase64Encoded: matched[2], mimeType: matched[1] };
+    }
+    const payload = {
+        instances: [instance],
+        parameters: {
+            aspectRatio: normalizeVideoSize(config.size) || "16:9",
+            durationSeconds: Number.parseInt(normalizeVideoSeconds(config.videoSeconds), 10) || 6,
+            resolution: normalizeVideoResolution(config.vquality),
+            sampleCount: 1,
+        },
+    };
+    try {
+        const response = await channelPost<GeminiVeoOperation>(config, geminiVeoCreateUrl(config, modelOptionName(model)), payload, options);
+        if (!response.name) throw new Error("Gemini Veo 没有返回 operation name");
+        return { id: response.name, provider: "gemini-veo", model };
+    } catch (error) {
+        throw new Error(readAxiosError(error, "Gemini Veo 任务创建失败"));
+    }
+}
+
+async function pollGeminiVeoTask(config: ResolvedAiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
+    try {
+        const operation = await channelGet<GeminiVeoOperation>(config, geminiVeoOperationUrl(config, task.id), options);
+        if (operation.error?.message) return { status: "failed", error: operation.error.message };
+        if (!operation.done) return { status: "pending" };
+        const url = findGeminiVideoURL(operation.response);
+        if (!url) return { status: "failed", error: "Gemini Veo 任务已完成但没有返回视频地址" };
+        const blob = (await axios.get<Blob>(url, { headers: geminiVeoHeaders(config), responseType: "blob", signal: options?.signal })).data;
+        await assertVideoBlob(blob);
+        return { status: "completed", result: { blob } };
+    } catch (error) {
+        throw new Error(readAxiosError(error, "Gemini Veo 任务查询失败"));
+    }
+}
+
+function geminiVeoCreateUrl(config: ResolvedAiConfig, model: string) {
+    return `${geminiVeoBaseUrl(config)}/models/${encodeURIComponent(model)}:predictLongRunning`;
+}
+
+function geminiVeoOperationUrl(config: ResolvedAiConfig, operationName: string) {
+    return `${geminiVeoBaseUrl(config)}/${operationName.replace(/^\/+/, "")}`;
+}
+
+function geminiVeoBaseUrl(config: ResolvedAiConfig) {
+    const base = config.baseUrl.replace(/\/+$/, "");
+    return /\/v1beta$/i.test(base) ? base : `${base}/v1beta`;
+}
+
+function geminiVeoHeaders(config: ResolvedAiConfig, contentType?: string) {
+    return { "x-goog-api-key": config.apiKey, ...(contentType ? { "Content-Type": contentType } : {}) };
+}
+
+async function channelPost<T>(config: ResolvedAiConfig, upstreamUrl: string, body: unknown, options?: RequestOptions) {
+    const request = channelRequest(config, upstreamUrl, { "Content-Type": "application/json" });
+    return (await axios.post<T>(request.url, body, { headers: request.headers, withCredentials: request.credentials === "include", signal: options?.signal })).data;
+}
+
+async function channelGet<T>(config: ResolvedAiConfig, upstreamUrl: string, options?: RequestOptions) {
+    const request = channelRequest(config, upstreamUrl);
+    return (await axios.get<T>(request.url, { headers: request.headers, withCredentials: request.credentials === "include", signal: options?.signal })).data;
+}
+
+function findGeminiVideoURL(value: unknown): string {
+    if (!value || typeof value !== "object") return "";
+    if (Array.isArray(value)) {
+        for (const item of value) {
+            const found = findGeminiVideoURL(item);
+            if (found) return found;
+        }
+        return "";
+    }
+    const record = value as Record<string, unknown>;
+    for (const key of ["uri", "url", "videoUri", "video_url"]) {
+        if (typeof record[key] === "string" && /^https?:\/\//i.test(record[key])) return record[key];
+    }
+    for (const child of Object.values(record)) {
+        const found = findGeminiVideoURL(child);
+        if (found) return found;
+    }
+    return "";
+}
+
+function unwrapEnvelopeRecord(value: ApiEnvelope<Record<string, unknown>>) {
+    if (value && typeof value === "object" && "data" in value && value.data && typeof value.data === "object") return value.data;
+    return value as Record<string, unknown>;
 }
 
 export async function storeGeneratedVideo(result: VideoGenerationResult): Promise<UploadedFile> {
@@ -93,7 +256,7 @@ async function createOpenAIVideoTask(config: ResolvedAiConfig, model: string, pr
         };
         try {
             const createPath = config.interfaceType === "xai-video" ? "/videos/generations" : "/videos";
-            const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, createPath), payload, { headers: aiHeaders(config, "application/json"), signal: options?.signal })).data);
+            const created = unwrapVideoResponse(config.interfaceType === "xai-video" ? await channelPost<ApiVideoResponse>(config, aiApiUrl(config, createPath), payload, options) : (await axios.post<ApiVideoResponse>(aiApiUrl(config, createPath), payload, { headers: aiHeaders(config, "application/json"), signal: options?.signal })).data);
             const id = videoTaskId(created);
             if (!id) throw new Error("视频接口没有返回任务 ID");
             return { id, provider: "openai", model };
@@ -121,8 +284,10 @@ async function createOpenAIVideoTask(config: ResolvedAiConfig, model: string, pr
 
 async function pollOpenAIVideoTask(config: ResolvedAiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
     try {
-        const video = unwrapVideoResponse((await axios.get<ApiVideoResponse>(aiApiUrl(config, `/videos/${task.id}`), { headers: aiHeaders(config), signal: options?.signal })).data);
+        const video = unwrapVideoResponse(config.interfaceType === "xai-video" ? await channelGet<ApiVideoResponse>(config, aiApiUrl(config, `/videos/${task.id}`), options) : (await axios.get<ApiVideoResponse>(aiApiUrl(config, `/videos/${task.id}`), { headers: aiHeaders(config), signal: options?.signal })).data);
         if (video.status === "completed" || video.status === "succeeded" || video.status === "success" || video.status === "done") {
+            const resultUrl = video.video?.url || video.video_url || video.result_url;
+            if (resultUrl) return { status: "completed", result: await videoResultFromUrl(resultUrl, options) };
             const content = await axios.get<Blob>(aiApiUrl(config, `/videos/${task.id}/content`), { headers: aiHeaders(config), responseType: "blob", signal: options?.signal });
             await assertVideoBlob(content.data);
             return { status: "completed", result: { blob: content.data } };
@@ -316,7 +481,7 @@ function assertVideoConfig(config: AiConfig, model: string) {
     if (!model) throw new Error("请先配置视频模型");
     if (!config.baseUrl.trim()) throw new Error("请先配置 Base URL");
     if (!config.apiKey.trim()) throw new Error("请先配置 API Key");
-    if (config.apiFormat === "gemini") throw new Error("Gemini 调用格式暂不支持视频生成，请使用 OpenAI 格式渠道");
+    if (config.apiFormat === "gemini" && config.interfaceType !== "gemini-veo") throw new Error("当前 Gemini 文本协议不支持视频生成，请为该模型选择 Gemini Veo 协议");
 }
 
 function normalizeVideoSeconds(value: string) {

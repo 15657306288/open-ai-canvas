@@ -62,10 +62,12 @@ const (
 	ChannelInterfaceChatCompletion ChannelInterfaceType = "chat-completion"
 	ChannelInterfaceOpenAIResponse ChannelInterfaceType = "openai-response"
 	ChannelInterfaceOpenAIImage    ChannelInterfaceType = "openai-image"
+	ChannelInterfaceOpenAIAudio    ChannelInterfaceType = "openai-audio"
 	ChannelInterfaceNewAPIVideo    ChannelInterfaceType = "newapi"
 	ChannelInterfaceNewAPIChannel1 ChannelInterfaceType = "newapi-channel-1"
 	ChannelInterfaceNewAPIChannel2 ChannelInterfaceType = "newapi-channel-2"
 	ChannelInterfaceXAIVideo       ChannelInterfaceType = "xai-video"
+	ChannelInterfaceGeminiVeo      ChannelInterfaceType = "gemini-veo"
 
 	ApiCallStatusSucceeded ApiCallStatus = "succeeded"
 	ApiCallStatusFailed    ApiCallStatus = "failed"
@@ -210,19 +212,20 @@ type ModelChannel struct {
 }
 
 type ChannelModel struct {
-	ID                    string         `json:"id" gorm:"primaryKey;size:36"`
-	ChannelID             string         `json:"channelId" gorm:"size:36;index;uniqueIndex:idx_channel_model_key_active,priority:1,where:deleted_at IS NULL"`
-	ModelKey              string         `json:"modelKey" gorm:"size:120;uniqueIndex:idx_channel_model_key_active,priority:2,where:deleted_at IS NULL"`
-	DisplayName           string         `json:"displayName" gorm:"size:160"`
-	Capability            string         `json:"capability" gorm:"size:32;index"`
-	BillingMode           string         `json:"billingMode" gorm:"size:32"`
-	UnitPriceMicrocredits int64          `json:"unitPriceMicrocredits"`
-	PriceConfigured       bool           `json:"priceConfigured" gorm:"index"`
-	Enabled               bool           `json:"enabled" gorm:"index"`
-	PriceVersion          int64          `json:"priceVersion"`
-	CreatedAt             time.Time      `json:"createdAt"`
-	UpdatedAt             time.Time      `json:"updatedAt"`
-	DeletedAt             gorm.DeletedAt `json:"-" gorm:"index"`
+	ID                    string               `json:"id" gorm:"primaryKey;size:36"`
+	ChannelID             string               `json:"channelId" gorm:"size:36;index;uniqueIndex:idx_channel_model_key_active,priority:1,where:deleted_at IS NULL"`
+	ModelKey              string               `json:"modelKey" gorm:"size:120;uniqueIndex:idx_channel_model_key_active,priority:2,where:deleted_at IS NULL"`
+	DisplayName           string               `json:"displayName" gorm:"size:160"`
+	Capability            string               `json:"capability" gorm:"size:32;index"`
+	Protocol              ChannelInterfaceType `json:"protocol" gorm:"size:32;index"`
+	BillingMode           string               `json:"billingMode" gorm:"size:32"`
+	UnitPriceMicrocredits int64                `json:"unitPriceMicrocredits"`
+	PriceConfigured       bool                 `json:"priceConfigured" gorm:"index"`
+	Enabled               bool                 `json:"enabled" gorm:"index"`
+	PriceVersion          int64                `json:"priceVersion"`
+	CreatedAt             time.Time            `json:"createdAt"`
+	UpdatedAt             time.Time            `json:"updatedAt"`
+	DeletedAt             gorm.DeletedAt       `json:"-" gorm:"index"`
 }
 
 type ApiCallLog struct {
@@ -264,6 +267,7 @@ type ApiCallLog struct {
 	Error               string        `json:"error"`
 	ConcurrencyLimit    int           `json:"concurrencyLimit"`
 	UpstreamURL         string        `json:"upstreamUrl"`
+	RequestContentType  string        `json:"requestContentType,omitempty" gorm:"size:160"`
 	RequestBody         string        `json:"requestBody,omitempty" gorm:"type:text"`
 	ResponseBody        string        `json:"responseBody,omitempty" gorm:"type:text"`
 	StartedAt           time.Time     `json:"startedAt"`

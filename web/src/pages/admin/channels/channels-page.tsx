@@ -7,6 +7,7 @@ import { useSearchParams } from "react-router";
 import { ListToolbar, TableSurface } from "@/components/layout/workspace-page";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { refreshSystemChannels } from "@/lib/user-session";
+import { MODEL_PROTOCOL_OPTIONS, modelProtocolLabel, normalizeModelProtocol } from "@/lib/model-protocols";
 import { createAdminChannel, deleteAdminChannel, listAdminChannels, updateAdminChannel } from "@/services/api/auth";
 import { defaultBaseUrlForChannelInterface, type ChannelInterfaceType, type ModelChannel } from "@/stores/use-config-store";
 import { useAdminContext } from "../admin-context";
@@ -16,11 +17,7 @@ import { ChannelModelManager } from "../components/channel-model-manager";
 
 type ChannelFormValues = { name: string; baseUrl: string; apiKey?: string; interfaceType: ChannelInterfaceType; useGlobalConcurrency?: boolean; concurrencyLimit?: number; enabled?: boolean };
 
-const interfaceTypeOptions = [
-    { label: "文本", options: [{ label: "Chat Completions", value: "chat-completion" }, { label: "OpenAI Responses", value: "openai-response" }] },
-    { label: "图片", options: [{ label: "OpenAI Images", value: "openai-image" }] },
-    { label: "视频", options: [{ label: "NewAPI 视频", value: "newapi" }, { label: "NewAPI 渠道 1", value: "newapi-channel-1" }, { label: "NewAPI 渠道 2", value: "newapi-channel-2" }, { label: "xAI / Sub2API 视频", value: "xai-video" }] },
-];
+const interfaceTypeOptions = MODEL_PROTOCOL_OPTIONS;
 
 export default function ChannelsPage() {
     const { message, modal } = App.useApp();
@@ -145,7 +142,7 @@ export default function ChannelsPage() {
 
     const columns: ColumnsType<ModelChannel> = [
         { title: "渠道", dataIndex: "name", render: (_, channel) => <div><div className="font-medium">{channel.name}</div><div className="max-w-lg truncate text-xs text-foreground/45">{channel.baseUrl}</div></div> },
-        { title: "接口类型", dataIndex: "interfaceType", width: 160, render: (value: ChannelInterfaceType) => <Tag variant="filled" color={value === "newapi-channel-1" ? "green" : value === "newapi" ? "orange" : value === "newapi-channel-2" ? "purple" : value === "xai-video" ? "cyan" : "blue"}>{interfaceTypeLabel(value)}</Tag> },
+        { title: "默认协议", dataIndex: "interfaceType", width: 220, render: (value: ChannelInterfaceType) => <Tag variant="filled" color={value === "newapi" ? "orange" : value === "newapi-channel-1" ? "green" : value === "newapi-channel-2" ? "purple" : value === "xai-video" ? "cyan" : "blue"}>{modelProtocolLabel(value)}</Tag> },
         { title: "模型", dataIndex: "models", width: 100, render: (models: string[]) => `${models?.length || 0} 个` },
         { title: "最大并发", dataIndex: "concurrencyLimit", width: 120, render: (value: number) => value > 0 ? value : <span className="text-foreground/45">跟随系统</span> },
         { title: "密钥", dataIndex: "hasApiKey", width: 100, render: (configured) => <Tag variant="filled" color={configured ? "success" : "default"}>{configured ? "已配置" : "未配置"}</Tag> },
@@ -161,7 +158,7 @@ export default function ChannelsPage() {
         <AdminPageFrame title="系统渠道" description="渠道、模型与售价" actions={<Button type="primary" icon={<Plus className="size-4" />} onClick={() => openDrawer()}>新增系统渠道</Button>}>
             <ListToolbar active={hasFilters} onReset={() => updateUrl({ filter: "", interfaceType: "all", status: "all", page: 1 })}>
                 <Input id="admin-channel-search" aria-label="搜索系统渠道" autoComplete="off" allowClear className="app-list-search" prefix={<Search className="size-4 text-foreground/40" />} value={keyword} placeholder="搜索渠道名称或地址" onChange={(event) => updateUrl({ filter: event.target.value, page: 1 }, true)} />
-                <Select className="w-40" value={interfaceType} onChange={(value) => updateUrl({ interfaceType: value, page: 1 })} options={[{ label: "全部接口", value: "all" }, ...interfaceTypeOptions.flatMap((group) => group.options)]} />
+                <Select className="w-40" value={interfaceType} onChange={(value) => updateUrl({ interfaceType: value, page: 1 })} options={[{ label: "全部协议", value: "all" }, ...interfaceTypeOptions.flatMap((group) => group.options)]} />
                 <Select className="w-32" value={status} onChange={(value) => updateUrl({ status: value, page: 1 })} options={[{ label: "全部状态", value: "all" }, { label: "已启用", value: "enabled" }, { label: "已停用", value: "disabled" }]} />
             </ListToolbar>
             <TableSurface>
@@ -170,7 +167,7 @@ export default function ChannelsPage() {
             <Drawer title={editingChannel ? "编辑系统渠道" : "新增系统渠道"} open={drawerOpen} size="min(560px, 100vw)" onClose={closeDrawer} maskClosable={!saving} destroyOnHidden extra={<Button type="primary" loading={saving} onClick={() => void save()}>保存</Button>}>
                 <Form form={form} layout="vertical" requiredMark={false}>
                     <Form.Item name="name" label="渠道名称" rules={[{ required: true, message: "请填写渠道名称" }]}><Input placeholder="例如：OpenAI 官方渠道" /></Form.Item>
-                    <Form.Item name="interfaceType" label="接口类型" rules={[{ required: true, message: "请选择接口类型" }]} extra="按生成能力选择实际上游协议；系统渠道统一使用 Bearer 鉴权。"><Select options={interfaceTypeOptions} onChange={(value: ChannelInterfaceType) => { const current = String(form.getFieldValue("baseUrl") || "").trim(); if (!current || current === defaultBaseUrlForChannelInterface()) form.setFieldValue("baseUrl", defaultBaseUrlForChannelInterface(value)); }} /></Form.Item>
+                    <Form.Item name="interfaceType" label="默认模型协议" rules={[{ required: true, message: "请选择默认模型协议" }]} extra="仅用于新增或拉取模型时预填；每个模型可在模型管理中选择自己的实际请求协议。"><Select options={interfaceTypeOptions} onChange={(value: ChannelInterfaceType) => { const current = String(form.getFieldValue("baseUrl") || "").trim(); const officialDefaults = [defaultBaseUrlForChannelInterface(), defaultBaseUrlForChannelInterface("gemini-veo")]; if (!current || officialDefaults.includes(current)) form.setFieldValue("baseUrl", defaultBaseUrlForChannelInterface(value)); }} /></Form.Item>
                     <Form.Item name="baseUrl" label="Base URL" rules={[{ required: true, message: "请填写 Base URL" }]}><Input placeholder="填写渠道 Base URL" /></Form.Item>
                     <Form.Item name="apiKey" label={editingChannel ? `API Key（${configuredSecretText}）` : "API Key"} rules={editingChannel ? [] : [{ required: true, message: "请填写 API Key" }]}><Input.Password autoComplete="new-password" placeholder={editingChannel ? "留空保留原密钥" : "系统渠道密钥"} /></Form.Item>
                     <Form.Item name="useGlobalConcurrency" label="跟随系统并发配置" valuePropName="checked"><Switch /></Form.Item>
@@ -185,5 +182,4 @@ export default function ChannelsPage() {
 function positiveInt(value: string | null, fallback: number) { const parsed = Number(value); return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback; }
 function normalizePageSize(value: string | null) { const parsed = positiveInt(value, 20); return [20, 50, 100].includes(parsed) ? parsed : 20; }
 function normalizeStatus(value: string | null): "all" | "enabled" | "disabled" { return value === "enabled" || value === "disabled" ? value : "all"; }
-function normalizeInterface(value: string | null): "all" | ChannelInterfaceType { return ["chat-completion", "openai-response", "openai-image", "newapi", "newapi-channel-1", "newapi-channel-2", "xai-video"].includes(value || "") ? value as ChannelInterfaceType : "all"; }
-function interfaceTypeLabel(value?: ChannelInterfaceType) { return ({ "chat-completion": "Chat Completions", "openai-response": "OpenAI Responses", "openai-image": "OpenAI Images", newapi: "NewAPI 视频", "newapi-channel-1": "NewAPI 渠道 1", "newapi-channel-2": "NewAPI 渠道 2", "xai-video": "xAI / Sub2API 视频" } as Record<string, string>)[value || ""] || "未设置"; }
+function normalizeInterface(value: string | null): "all" | ChannelInterfaceType { return normalizeModelProtocol(value) || "all"; }

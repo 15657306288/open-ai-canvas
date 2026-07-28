@@ -663,7 +663,9 @@ func proxySystemRequest(c *gin.Context, svc *service.Service, user *model.User, 
 		switch channel.InterfaceType {
 		case model.ChannelInterfaceOpenAIImage:
 			capability = "image"
-		case model.ChannelInterfaceNewAPIVideo, model.ChannelInterfaceNewAPIChannel1, model.ChannelInterfaceNewAPIChannel2, model.ChannelInterfaceXAIVideo:
+		case model.ChannelInterfaceOpenAIAudio:
+			capability = "audio"
+		case model.ChannelInterfaceNewAPIVideo, model.ChannelInterfaceNewAPIChannel1, model.ChannelInterfaceNewAPIChannel2, model.ChannelInterfaceXAIVideo, model.ChannelInterfaceGeminiVeo:
 			capability = "video"
 		}
 		order, err := svc.ReserveProxyBilling(user.ID, channel.ID, strings.TrimPrefix(modelName, "models/"), capability, c.GetHeader("X-Canvas-Scene"), c.GetHeader("X-Idempotency-Key"), proxyRequestVideoSeconds(c.GetHeader("Content-Type"), body))
@@ -752,7 +754,9 @@ func apiCallLog(user *model.User, channel *model.ModelChannel, billingOrderID st
 	switch channel.InterfaceType {
 	case model.ChannelInterfaceOpenAIImage:
 		capability = "image"
-	case model.ChannelInterfaceNewAPIVideo, model.ChannelInterfaceNewAPIChannel1, model.ChannelInterfaceNewAPIChannel2, model.ChannelInterfaceXAIVideo:
+	case model.ChannelInterfaceOpenAIAudio:
+		capability = "audio"
+	case model.ChannelInterfaceNewAPIVideo, model.ChannelInterfaceNewAPIChannel1, model.ChannelInterfaceNewAPIChannel2, model.ChannelInterfaceXAIVideo, model.ChannelInterfaceGeminiVeo:
 		capability = "video"
 	}
 	requestKind := "create"
@@ -763,24 +767,25 @@ func apiCallLog(user *model.User, channel *model.ModelChannel, billingOrderID st
 		}
 	}
 	return model.ApiCallLog{
-		UserID:           user.ID,
-		ChannelID:        channel.ID,
-		BillingOrderID:   billingOrderID,
-		Source:           "system-channel",
-		Capability:       capability,
-		RequestKind:      requestKind,
-		Billable:         method == http.MethodPost,
-		APIFormat:        channel.APIFormat,
-		Method:           method,
-		Path:             path,
-		Model:            readPayloadModel(body),
-		Status:           status,
-		StatusCode:       statusCode,
-		DurationMs:       duration.Milliseconds(),
-		Error:            errorText,
-		ConcurrencyLimit: concurrencyLimit,
-		UpstreamURL:      target,
-		RequestBody:      service.SanitizeAPICallPayload(body, contentType),
+		UserID:             user.ID,
+		ChannelID:          channel.ID,
+		BillingOrderID:     billingOrderID,
+		Source:             "system-channel",
+		Capability:         capability,
+		RequestKind:        requestKind,
+		Billable:           method == http.MethodPost,
+		APIFormat:          channel.APIFormat,
+		Method:             method,
+		Path:               path,
+		Model:              readPayloadModel(body),
+		Status:             status,
+		StatusCode:         statusCode,
+		DurationMs:         duration.Milliseconds(),
+		Error:              errorText,
+		ConcurrencyLimit:   concurrencyLimit,
+		UpstreamURL:        target,
+		RequestContentType: contentType,
+		RequestBody:        service.SanitizeAPICallPayload(body, contentType),
 	}
 }
 

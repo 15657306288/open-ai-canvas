@@ -76,6 +76,7 @@ export type ApiCallLog = {
     error?: string;
     concurrencyLimit: number;
     upstreamUrl: string;
+    requestContentType?: string;
     requestBody?: string;
     responseBody?: string;
     startedAt?: string;

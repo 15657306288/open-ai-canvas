@@ -42,6 +42,7 @@ function LogDetail({ log }: { log: ApiCallLog }) {
         ["计费", log.costAvailable ? `${log.currency || "USD"} ${(log.estimatedCostMicros / 1_000_000).toFixed(6)}` : "未配置价格"],
         ["错误信息", [log.errorCode, log.error].filter(Boolean).join(" · ") || "--"],
         ["方法与路径", `${log.method} ${log.path}`],
+        ["请求 Content-Type", log.requestContentType || "--"],
         ["HTTP 状态", String(log.statusCode || "--")],
         ["任务 ID", log.taskId || "--"],
         ["供应商任务 ID", log.providerRequestId || "--"],

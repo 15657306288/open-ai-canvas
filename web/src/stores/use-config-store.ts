@@ -4,10 +4,11 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 
 import { scopedLocalStorage } from "@/lib/user-scope";
+import { modelProtocolCapability, normalizeModelProtocol, type ModelProtocol } from "@/lib/model-protocols";
 import { normalizeVideoDuration, normalizeVideoResolution } from "@/lib/video-generation-options";
 
 export type ApiCallFormat = "openai" | "gemini";
-export type ChannelInterfaceType = "chat-completion" | "openai-response" | "openai-image" | "newapi" | "newapi-channel-1" | "newapi-channel-2" | "xai-video";
+export type ChannelInterfaceType = ModelProtocol;
 
 export type ModelChannel = {
     id: string;
@@ -25,6 +26,7 @@ export type ModelChannel = {
         model: string;
         displayName?: string;
         capability: ModelCapability;
+        protocol?: ModelProtocol;
         billingMode: "fixed_request" | "per_second";
         unitPriceMicrocredits: number;
     }>;
@@ -299,7 +301,7 @@ export function createModelChannel(channel?: Partial<ModelChannel>): ModelChanne
         scope: channel?.scope === "system" ? "system" : "user",
         enabled: channel?.enabled !== false,
         hasApiKey: channel?.hasApiKey,
-        modelCosts: channel?.modelCosts,
+        modelCosts: channel?.modelCosts?.map((item) => ({ ...item, protocol: normalizeModelProtocol(item.protocol) })),
     };
 }
 
@@ -373,13 +375,16 @@ export function resolveModelChannel(config: AiConfig, value: string) {
 
 export function resolveModelRequestConfig(config: AiConfig, value: string) {
     const channel = resolveModelChannel(config, value);
+    const model = modelOptionName(value || config.model);
+    const modelProtocol = channel.modelCosts?.find((item) => item.model === model)?.protocol;
+    const interfaceType = modelProtocol || channel.interfaceType;
     return {
         ...config,
-        model: modelOptionName(value || config.model),
+        model,
         baseUrl: channel.baseUrl,
         apiKey: channel.apiKey,
-        apiFormat: channel.apiFormat,
-        interfaceType: channel.interfaceType,
+        apiFormat: interfaceType ? (interfaceType === "gemini-veo" ? "gemini" as const : "openai" as const) : channel.apiFormat,
+        interfaceType,
         channelId: channel.scope === "system" ? channel.id : "",
     };
 }
@@ -426,15 +431,13 @@ export function defaultBaseUrlForApiFormat(apiFormat: ApiCallFormat) {
 }
 
 export function defaultBaseUrlForChannelInterface(interfaceType?: ChannelInterfaceType) {
+    if (interfaceType === "gemini-veo") return GEMINI_BASE_URL;
     if (interfaceType === "newapi" || interfaceType === "newapi-channel-1" || interfaceType === "newapi-channel-2" || interfaceType === "xai-video") return "";
     return OPENAI_BASE_URL;
 }
 
 function capabilityForChannelInterface(interfaceType?: ChannelInterfaceType): ModelCapability | undefined {
-    if (interfaceType === "chat-completion" || interfaceType === "openai-response") return "text";
-    if (interfaceType === "openai-image") return "image";
-    if (interfaceType === "newapi" || interfaceType === "newapi-channel-1" || interfaceType === "newapi-channel-2" || interfaceType === "xai-video") return "video";
-    return undefined;
+    return modelProtocolCapability(interfaceType);
 }
 
 function normalizeApiFormat(apiFormat: unknown): ApiCallFormat {
@@ -442,7 +445,7 @@ function normalizeApiFormat(apiFormat: unknown): ApiCallFormat {
 }
 
 function normalizeChannelInterfaceType(value: unknown): ChannelInterfaceType | undefined {
-    return value === "chat-completion" || value === "openai-response" || value === "openai-image" || value === "newapi" || value === "newapi-channel-1" || value === "newapi-channel-2" || value === "xai-video" ? value : undefined;
+    return normalizeModelProtocol(value);
 }
 
 function uniqueRawModels(models: string[]) {

@@ -1,0 +1,67 @@
+export type ModelProtocol =
+    | "chat-completion"
+    | "openai-response"
+    | "openai-image"
+    | "openai-audio"
+    | "newapi"
+    | "newapi-channel-1"
+    | "newapi-channel-2"
+    | "xai-video"
+    | "gemini-veo";
+
+export type ProtocolCapability = "text" | "image" | "video" | "audio";
+
+export type ModelProtocolDefinition = {
+    value: ModelProtocol;
+    label: string;
+    capability: ProtocolCapability;
+    create: string;
+    contentType: string;
+    poll?: string;
+    media: string;
+};
+
+export const MODEL_PROTOCOLS: ModelProtocolDefinition[] = [
+    { value: "chat-completion", label: "OpenAI Chat Completions", capability: "text", create: "POST /v1/chat/completions", contentType: "application/json", media: "文本与多模态消息" },
+    { value: "openai-response", label: "OpenAI Responses", capability: "text", create: "POST /v1/responses", contentType: "application/json", media: "文本与多模态输入" },
+    { value: "openai-image", label: "OpenAI Images", capability: "image", create: "POST /v1/images/generations", contentType: "application/json / multipart", media: "生成、编辑与参考图" },
+    { value: "openai-audio", label: "OpenAI Audio", capability: "audio", create: "POST /v1/audio/speech", contentType: "application/json", media: "文本转语音" },
+    { value: "newapi", label: "OpenAI / NewAPI Videos", capability: "video", create: "POST /v1/videos", poll: "GET /v1/videos/{task_id}", contentType: "multipart/form-data", media: "input_reference[] 参考图" },
+    { value: "newapi-channel-1", label: "NewAPI 媒体任务", capability: "video", create: "POST /v1/videos", poll: "GET /v1/videos/{task_id}", contentType: "application/json", media: "图片、视频、音频公网 URL" },
+    { value: "newapi-channel-2", label: "NewAPI Video Generations", capability: "video", create: "POST /v1/video/generations", poll: "GET /v1/video/generations/{task_id}", contentType: "application/json", media: "image_urls / video_urls / audio_urls" },
+    { value: "xai-video", label: "xAI 官方视频", capability: "video", create: "POST /v1/videos/generations", poll: "GET /v1/videos/{request_id}", contentType: "application/json", media: "单张起始图" },
+    { value: "gemini-veo", label: "Gemini Veo", capability: "video", create: "POST /v1beta/models/{model}:predictLongRunning", poll: "GET /v1beta/{operation_name}", contentType: "application/json", media: "文本与单张起始图" },
+];
+
+export const MODEL_PROTOCOL_OPTIONS = [
+    { label: "文本", options: protocolOptions("text") },
+    { label: "图片", options: protocolOptions("image") },
+    { label: "视频", options: protocolOptions("video") },
+    { label: "音频", options: protocolOptions("audio") },
+];
+
+export function modelProtocolDefinition(value?: string) {
+    return MODEL_PROTOCOLS.find((item) => item.value === value);
+}
+
+export function modelProtocolLabel(value?: string) {
+    return modelProtocolDefinition(value)?.label || "自动识别";
+}
+
+export function modelProtocolCapability(value?: string) {
+    return modelProtocolDefinition(value)?.capability;
+}
+
+export function modelProtocolSummary(value?: string) {
+    const protocol = modelProtocolDefinition(value);
+    if (!protocol) return "保存模型时选择协议后，将在这里显示实际请求方式。";
+    return [protocol.create, protocol.contentType, protocol.poll, protocol.media].filter(Boolean).join(" · ");
+}
+
+export function normalizeModelProtocol(value: unknown): ModelProtocol | undefined {
+    return typeof value === "string" && MODEL_PROTOCOLS.some((item) => item.value === value) ? value as ModelProtocol : undefined;
+}
+
+function protocolOptions(capability: ProtocolCapability) {
+    return MODEL_PROTOCOLS.filter((item) => item.capability === capability).map((item) => ({ label: `${item.label} · ${item.create.replace("POST ", "")}`, value: item.value }));
+}

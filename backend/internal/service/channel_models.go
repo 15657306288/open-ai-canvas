@@ -16,6 +16,7 @@ type ChannelModelRequest struct {
 	ModelKey              string `json:"modelKey"`
 	DisplayName           string `json:"displayName"`
 	Capability            string `json:"capability"`
+	Protocol              string `json:"protocol"`
 	BillingMode           string `json:"billingMode"`
 	UnitPriceMicrocredits int64  `json:"unitPriceMicrocredits"`
 	PriceConfigured       bool   `json:"priceConfigured"`
@@ -85,7 +86,7 @@ func (s *Service) FetchAdminChannelModels(ctx context.Context, actor *model.User
 			continue
 		}
 		// 自动发现不能绕过定价边界；新模型由管理员定价后再手动启用。
-		missing = append(missing, model.ChannelModel{ID: newID(), ChannelID: channelID, ModelKey: name, DisplayName: name, Capability: capabilityForChannel(*channel), BillingMode: "fixed_request", Enabled: false, PriceVersion: 1})
+		missing = append(missing, model.ChannelModel{ID: newID(), ChannelID: channelID, ModelKey: name, DisplayName: name, Capability: capabilityForChannel(*channel), Protocol: channel.InterfaceType, BillingMode: "fixed_request", Enabled: false, PriceVersion: 1})
 	}
 	added, err := s.repo.CreateMissingChannelModels(missing)
 	if err != nil {
@@ -112,6 +113,16 @@ func (s *Service) SaveAdminChannelModel(actor *model.User, channelID string, id 
 	}
 	if capability == "" {
 		return nil, BadAuthRequest("请选择模型能力")
+	}
+	protocol := model.ChannelInterfaceType(strings.TrimSpace(req.Protocol))
+	if protocol == "" {
+		protocol = channel.InterfaceType
+	}
+	if !validChannelInterfaceType(protocol) {
+		return nil, BadAuthRequest("请选择有效的模型请求协议")
+	}
+	if expected := capabilityForProtocol(protocol); expected != "" && expected != capability {
+		return nil, BadAuthRequest("模型能力与请求协议不匹配")
 	}
 	billingMode := strings.TrimSpace(req.BillingMode)
 	if billingMode == "" {
@@ -140,6 +151,7 @@ func (s *Service) SaveAdminChannelModel(actor *model.User, channelID string, id 
 		item.DisplayName = modelKey
 	}
 	item.Capability = capability
+	item.Protocol = protocol
 	item.BillingMode = billingMode
 	item.UnitPriceMicrocredits = req.UnitPriceMicrocredits
 	item.PriceConfigured = req.PriceConfigured
@@ -216,7 +228,7 @@ func (s *Service) syncInitialChannelModels(channel *model.ModelChannel, names []
 			}
 			continue
 		}
-		item := model.ChannelModel{ID: newID(), ChannelID: channel.ID, ModelKey: name, DisplayName: name, Capability: capabilityForChannel(*channel), BillingMode: "fixed_request", Enabled: true, PriceVersion: 1}
+		item := model.ChannelModel{ID: newID(), ChannelID: channel.ID, ModelKey: name, DisplayName: name, Capability: capabilityForChannel(*channel), Protocol: channel.InterfaceType, BillingMode: "fixed_request", Enabled: true, PriceVersion: 1}
 		if err := s.repo.SaveChannelModel(&item); err != nil {
 			return err
 		}
@@ -266,12 +278,20 @@ func (s *Service) syncChannelModelNames(channel *model.ModelChannel) error {
 }
 
 func capabilityForChannel(channel model.ModelChannel) string {
-	switch channel.InterfaceType {
+	return capabilityForProtocol(channel.InterfaceType)
+}
+
+func capabilityForProtocol(protocol model.ChannelInterfaceType) string {
+	switch protocol {
 	case model.ChannelInterfaceOpenAIImage:
 		return "image"
-	case model.ChannelInterfaceNewAPIVideo, model.ChannelInterfaceNewAPIChannel1, model.ChannelInterfaceNewAPIChannel2, model.ChannelInterfaceXAIVideo:
+	case model.ChannelInterfaceOpenAIAudio:
+		return "audio"
+	case model.ChannelInterfaceNewAPIVideo, model.ChannelInterfaceNewAPIChannel1, model.ChannelInterfaceNewAPIChannel2, model.ChannelInterfaceXAIVideo, model.ChannelInterfaceGeminiVeo:
 		return "video"
-	default:
+	case model.ChannelInterfaceChatCompletion, model.ChannelInterfaceOpenAIResponse:
 		return "text"
+	default:
+		return ""
 	}
 }

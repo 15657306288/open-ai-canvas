@@ -28,7 +28,13 @@ func TestAuthorizeCustomRelayAllowsModelsAndAgentEndpoints(t *testing.T) {
 		{method: http.MethodGet, target: "https://api.example.com/v1/models", apiFormat: "openai"},
 		{method: http.MethodPost, target: "https://api.example.com/v1/responses", apiFormat: "openai", contentType: "application/json"},
 		{method: http.MethodPost, target: "https://api.example.com/v1/chat/completions", apiFormat: "openai", contentType: "application/json; charset=utf-8"},
+		{method: http.MethodPost, target: "https://api.example.com/v1/video/generations", apiFormat: "openai", contentType: "application/json"},
+		{method: http.MethodGet, target: "https://api.example.com/v1/video/generations/task-1", apiFormat: "openai"},
+		{method: http.MethodPost, target: "https://api.x.ai/v1/videos/generations", apiFormat: "openai", contentType: "application/json"},
+		{method: http.MethodGet, target: "https://api.x.ai/v1/videos/request-1", apiFormat: "openai"},
 		{method: http.MethodPost, target: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse", apiFormat: "gemini", contentType: "application/json"},
+		{method: http.MethodPost, target: "https://generativelanguage.googleapis.com/v1beta/models/veo-3.0-generate-preview:predictLongRunning", apiFormat: "gemini", contentType: "application/json"},
+		{method: http.MethodGet, target: "https://generativelanguage.googleapis.com/v1beta/operations/operation-1", apiFormat: "gemini"},
 	}
 	for _, test := range tests {
 		target, err := url.Parse(test.target)
