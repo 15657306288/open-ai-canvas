@@ -2,12 +2,6 @@ import { runBackendCanvasGenerationTask } from "@/lib/canvas/canvas-project-gene
 import { parseCharacterBreakdown, type CharacterBreakdown } from "@/lib/canvas/canvas-character-reference";
 import type { AiConfig } from "@/stores/use-config-store";
 
-export type ChapterStoryboardDraft = {
-    title: string;
-    description: string;
-    durationMs: number;
-};
-
 type ChapterAnalysisInput = {
     projectId: string;
     projectName: string;
@@ -33,20 +27,6 @@ export async function extractChapterCharacters(input: ChapterAnalysisInput): Pro
     return parseCharacterBreakdown(result);
 }
 
-export async function generateChapterStoryboard(input: ChapterAnalysisInput): Promise<ChapterStoryboardDraft[]> {
-    const prompt = [
-        `请把短剧项目《${input.projectName}》的章节“${input.chapterTitle}”拆成可直接制作的分镜镜头。`,
-        "镜头顺序必须忠于正文事件顺序；每个镜头只承担一个清楚的叙事动作。描述必须包含主体、动作、场景、景别、机位、镜头运动、光线和必要对白，不要写抽象评价。单镜头建议 3 至 8 秒。",
-        `【项目画风】\n${input.projectStyle || "项目尚未指定画风，保持镜头描述中性、可执行。"}`,
-        "只返回 JSON，不要 Markdown 或解释。JSON 结构必须严格为：",
-        '{"shots":[{"title":"镜头名称","description":"可直接用于分镜制作的完整镜头描述","durationSeconds":5}]}',
-        "【章节正文】",
-        input.sourceText,
-    ].join("\n\n");
-    const result = await runProjectTextTask(input, "chapter_storyboard", prompt);
-    return parseChapterStoryboard(result);
-}
-
 async function runProjectTextTask(input: ChapterAnalysisInput, operation: string, prompt: string) {
     const model = input.config.textModel || input.config.model;
     const result = await runBackendCanvasGenerationTask({
@@ -59,29 +39,4 @@ async function runProjectTextTask(input: ChapterAnalysisInput, operation: string
     });
     if (!result.text?.trim()) throw new Error("模型没有返回可用结果");
     return result.text;
-}
-
-function parseChapterStoryboard(raw: string): ChapterStoryboardDraft[] {
-    const unfenced = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
-    const start = unfenced.indexOf("{");
-    const end = unfenced.lastIndexOf("}");
-    if (start < 0 || end < start) throw new Error("分镜生成没有返回可识别的 JSON");
-    let parsed: unknown;
-    try {
-        parsed = JSON.parse(unfenced.slice(start, end + 1));
-    } catch (error) {
-        throw new Error(`分镜结果格式不正确：${error instanceof Error ? error.message : "无法解析 JSON"}`);
-    }
-    const shots = parsed && typeof parsed === "object" ? (parsed as { shots?: unknown }).shots : undefined;
-    if (!Array.isArray(shots)) throw new Error("分镜结果缺少 shots 数组");
-    const result = shots.flatMap((item, index) => {
-        if (!item || typeof item !== "object") return [];
-        const value = item as Record<string, unknown>;
-        const description = String(value.description || "").trim();
-        if (!description) return [];
-        const durationSeconds = Math.min(30, Math.max(1, Number(value.durationSeconds) || 5));
-        return [{ title: String(value.title || `镜头 ${index + 1}`).trim(), description, durationMs: Math.round(durationSeconds * 1000) }];
-    });
-    if (!result.length) throw new Error("分镜结果中没有可用镜头");
-    return result;
 }
