@@ -253,6 +253,8 @@ type ApiCallLog struct {
 	CachedTokens        int64         `json:"cachedTokens"`
 	UsageAvailable      bool          `json:"usageAvailable"`
 	MediaCount          int           `json:"mediaCount"`
+	MediaPreviewURL     string        `json:"mediaPreviewUrl,omitempty" gorm:"-"`
+	MediaPreviewKind    string        `json:"mediaPreviewKind,omitempty" gorm:"-"`
 	VideoSeconds        int           `json:"videoSeconds"`
 	ProviderRequestID   string        `json:"providerRequestId" gorm:"size:160"`
 	EstimatedCostMicros int64         `json:"estimatedCostMicros"`

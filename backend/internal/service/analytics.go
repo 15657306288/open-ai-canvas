@@ -228,6 +228,26 @@ func (s *Service) decorateAPICallLogs(logs []model.ApiCallLog) error {
 	for _, user := range users {
 		userByID[user.ID] = user
 	}
+	taskIDs := make([]string, 0, len(logs))
+	seenTaskIDs := make(map[string]struct{}, len(logs))
+	for _, log := range logs {
+		if (log.Capability != "image" && log.Capability != "video") || log.TaskID == "" {
+			continue
+		}
+		if _, exists := seenTaskIDs[log.TaskID]; exists {
+			continue
+		}
+		seenTaskIDs[log.TaskID] = struct{}{}
+		taskIDs = append(taskIDs, log.TaskID)
+	}
+	tasks, err := s.repo.APICallLogTasks(taskIDs)
+	if err != nil {
+		return err
+	}
+	taskByID := make(map[string]model.Task, len(tasks))
+	for _, task := range tasks {
+		taskByID[task.ID] = task
+	}
 	for index := range logs {
 		if logs[index].StartedAt.IsZero() {
 			logs[index].StartedAt = logs[index].CreatedAt
@@ -243,8 +263,49 @@ func (s *Service) decorateAPICallLogs(logs []model.ApiCallLog) error {
 			logs[index].UserDisplayName = user.DisplayName
 			logs[index].UserAccount = user.Username
 		}
+		if task, exists := taskByID[logs[index].TaskID]; exists && task.UserID == logs[index].UserID {
+			previewURL, previewKind := taskMediaPreview(task.ResultJSON, task.Type)
+			if canvasResourceID(previewURL) != "" {
+				logs[index].MediaPreviewURL = "/api/admin/api-logs/" + logs[index].ID + "/media"
+				logs[index].MediaPreviewKind = previewKind
+			} else if strings.HasPrefix(previewURL, "https://") || strings.HasPrefix(previewURL, "http://") {
+				logs[index].MediaPreviewURL = previewURL
+				logs[index].MediaPreviewKind = previewKind
+			}
+		}
 	}
 	return nil
+}
+
+// 管理员媒体读取必须同时校验日志、任务和资源归属，不能绕过用户资源边界按资源 ID 任意读取。
+func (s *Service) OpenAdminAPICallLogMediaRange(actor *model.User, logID string, rangeHeader string) (*ResourceStream, error) {
+	if err := s.RequireAdmin(actor); err != nil {
+		return nil, err
+	}
+	log, err := s.repo.APICallLog(strings.TrimSpace(logID))
+	if err != nil {
+		return nil, err
+	}
+	if log.TaskID == "" || (log.Capability != "image" && log.Capability != "video") {
+		return nil, BadAuthRequest("该请求没有可预览媒体")
+	}
+	task, err := s.repo.Task(log.TaskID)
+	if err != nil {
+		return nil, err
+	}
+	if task.UserID != log.UserID {
+		return nil, BadAuthRequest("请求与媒体归属不一致")
+	}
+	previewURL, _ := taskMediaPreview(task.ResultJSON, task.Type)
+	resourceID := canvasResourceID(previewURL)
+	if resourceID == "" {
+		return nil, BadAuthRequest("该请求没有已持久化媒体")
+	}
+	resource, err := s.repo.ResourceForUser(log.UserID, resourceID)
+	if err != nil {
+		return nil, err
+	}
+	return s.openResourceRange(log.UserID, resource, rangeHeader)
 }
 
 func (s *Service) AdminAPICallLog(actor *model.User, id string) (*model.ApiCallLog, error) {

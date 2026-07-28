@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -520,6 +521,48 @@ func RegisterAdminRoutes(r *gin.RouterGroup, svc *service.Service) {
 			return
 		}
 		ok(c, logs)
+	})
+	r.GET("/admin/api-logs/:id/media", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		stream, err := svc.OpenAdminAPICallLogMediaRange(user, c.Param("id"), c.GetHeader("Range"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		defer stream.Body.Close()
+		resource := stream.Resource
+		mimeType := resource.MimeType
+		if mimeType == "" {
+			mimeType = "application/octet-stream"
+		}
+		c.Header("Cache-Control", "private, no-cache")
+		c.Header("Accept-Ranges", "bytes")
+		c.Header("X-Content-Type-Options", "nosniff")
+		if c.Query("download") == "1" {
+			extension := filepath.Ext(resource.ObjectKey)
+			if len(extension) > 12 {
+				extension = ""
+			}
+			c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=api-log-media%s", extension))
+		}
+		if resource.Provider == "local" {
+			if seeker, ok := stream.Body.(io.ReadSeeker); ok {
+				c.Header("Content-Type", mimeType)
+				http.ServeContent(c.Writer, c.Request, resource.ID, resource.UpdatedAt, seeker)
+				return
+			}
+		}
+		if stream.ContentRange != "" {
+			c.Header("Content-Range", stream.ContentRange)
+		}
+		if stream.AcceptRanges != "" {
+			c.Header("Accept-Ranges", stream.AcceptRanges)
+		}
+		c.DataFromReader(stream.StatusCode, stream.ContentLength, mimeType, stream.Body, nil)
 	})
 	r.GET("/admin/api-logs/:id", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
