@@ -230,8 +230,8 @@ function findGeminiVideoURL(value: unknown): string {
     return "";
 }
 
-function unwrapEnvelopeRecord(value: ApiEnvelope<Record<string, unknown>>) {
-    if (value && typeof value === "object" && "data" in value && value.data && typeof value.data === "object") return value.data;
+function unwrapEnvelopeRecord(value: ApiEnvelope<Record<string, unknown>>): Record<string, unknown> {
+    if (value && typeof value === "object" && "data" in value && value.data && typeof value.data === "object") return value.data as Record<string, unknown>;
     return value as Record<string, unknown>;
 }
 
@@ -477,7 +477,7 @@ function seedanceErrorMessage(state: SeedanceTask) {
     return state.error?.message || state.error_code || "";
 }
 
-function assertVideoConfig(config: AiConfig, model: string) {
+function assertVideoConfig(config: ResolvedAiConfig, model: string) {
     if (!model) throw new Error("请先配置视频模型");
     if (!config.baseUrl.trim()) throw new Error("请先配置 Base URL");
     if (!config.apiKey.trim()) throw new Error("请先配置 API Key");
