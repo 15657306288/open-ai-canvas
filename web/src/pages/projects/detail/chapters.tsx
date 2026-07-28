@@ -29,6 +29,7 @@ import {
     Link2,
     List,
     ListOrdered,
+    LayoutGrid,
     Minus,
     MoreHorizontal,
     MoveVertical,
@@ -51,6 +52,7 @@ import { WorkspaceErrorState, WorkspaceState } from "@/components/layout/workspa
 import { canvasStylePresets } from "@/components/canvas/canvas-style-picker-modal";
 import { normalizeCharacterName } from "@/lib/canvas/canvas-character-reference";
 import { decodeNovelText, splitTextIntoChapters } from "@/lib/canvas/canvas-document";
+import { upsertProjectChapterStoryboard } from "@/lib/canvas/project-chapter-storyboard";
 import { navigateToSettings } from "@/lib/settings-navigation";
 import {
     createProjectAssetCandidates,
@@ -58,11 +60,14 @@ import {
     deleteProjectUnit,
     getProjectUnit,
     importProjectUnits,
+    linkCanvasUnit,
     reorderProjectUnits,
     replaceProjectUnitShots,
     updateProjectUnit,
     type ProjectUnit,
 } from "@/services/api/projects";
+import { createCanvasProjectWithRemoteSync, saveRemoteUserDataNow } from "@/services/user-data-sync";
+import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 
 import { formatCount, formatTime, statusLabel, type ProjectDetailViewProps } from "./shared";
@@ -89,8 +94,10 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     const [draftHtml, setDraftHtml] = useState("");
     const [dirty, setDirty] = useState(false);
     const [analysisKind, setAnalysisKind] = useState<"characters" | "storyboard" | "">("");
+    const [importingCanvasId, setImportingCanvasId] = useState("");
     const effectiveConfig = useEffectiveConfig();
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
+    const localCanvases = useCanvasStore((state) => state.projects);
     const listRef = useRef<HTMLDivElement>(null);
     const deferredSearchQuery = useDeferredValue(searchQuery.trim().toLocaleLowerCase("zh-CN"));
     const orderedUnits = useMemo(() => {
@@ -106,6 +113,11 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     const selectedUnit = selectedUnitQuery.data?.unit || selectedUnitSummary;
     const chapterNumberById = useMemo(() => new Map(orderedUnits.map((unit, index) => [unit.id, index + 1])), [orderedUnits]);
     const canvasCountByUnitId = useMemo(() => detail.canvasUnitLinks.reduce<Map<string, number>>((result, link) => result.set(link.unitId, (result.get(link.unitId) || 0) + 1), new Map()), [detail.canvasUnitLinks]);
+    const projectCanvasTargets = useMemo(() => {
+        const targets = new Map(detail.canvases.map((canvas) => [canvas.id, { id: canvas.id, title: canvas.title }]));
+        localCanvases.filter((canvas) => canvas.projectId === detail.project.id).forEach((canvas) => targets.set(canvas.id, { id: canvas.id, title: canvas.title }));
+        return Array.from(targets.values());
+    }, [detail.canvases, detail.project.id, localCanvases]);
     const visibleUnits = useMemo(() => {
         if (!deferredSearchQuery) return orderedUnits;
         const numericQuery = /^\d+$/.test(deferredSearchQuery) ? deferredSearchQuery.replace(/^0+/, "") || "0" : "";
@@ -296,6 +308,43 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
             onOk: replaceStoryboard,
         });
     };
+    const importStoryboardToCanvas = async (targetCanvasId?: string) => {
+        if (!selectedUnit) return;
+        const shots = detail.shots.filter((shot) => shot.unitId === selectedUnit.id);
+        if (!shots.length) {
+            message.warning("请先生成本章分镜");
+            return;
+        }
+        setImportingCanvasId(targetCanvasId || "new");
+        try {
+            let canvasId = targetCanvasId || "";
+            if (canvasId) {
+                const canvas = useCanvasStore.getState().openProject(canvasId);
+                if (!canvas) throw new Error("目标画布尚未同步到本地，请刷新后重试");
+                const merged = upsertProjectChapterStoryboard(canvas.nodes, canvas.connections, { unit: selectedUnit, shots });
+                useCanvasStore.getState().updateProject(canvasId, { nodes: merged.nodes, connections: merged.connections, projectId: detail.project.id });
+                await saveRemoteUserDataNow();
+            } else {
+                const seed = upsertProjectChapterStoryboard([], [], { unit: selectedUnit, shots });
+                const created = await createCanvasProjectWithRemoteSync(`${selectedUnit.title} · 分镜画布`, detail.project.id, { nodes: seed.nodes, connections: seed.connections });
+                canvasId = created.id;
+                if (created.syncError) {
+                    message.warning(created.syncError instanceof Error ? `分镜画布已保存在本地，章节关联稍后重试：${created.syncError.message}` : "分镜画布已保存在本地，章节关联稍后重试");
+                    navigate(`/canvas/${canvasId}`);
+                    return;
+                }
+            }
+            await linkCanvasUnit(detail.project.id, { canvasId, unitId: selectedUnit.id, role: "storyboard" });
+            refreshProject();
+            message.success(`已将 ${shots.length} 个分镜导入画布并关联本章`);
+            navigate(`/canvas/${canvasId}`);
+        } catch (error) {
+            refreshProject();
+            message.error(error instanceof Error ? `分镜导入失败：${error.message}` : "分镜导入失败");
+        } finally {
+            setImportingCanvasId("");
+        }
+    };
     const selectChapter = (unitId: string) => {
         if (unitId === selectedId) return;
         if (dirty) { message.warning("请先保存当前章节，再切换章节"); return; }
@@ -396,15 +445,16 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
             <section className="min-h-0 min-w-0 w-full bg-background/18 p-2.5 sm:p-3.5">
                 {selectedUnit ? (
                     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-lg border border-border/80 bg-background">
-                        <header className="flex shrink-0 items-start gap-3 border-b border-border/70 px-4 py-3">
+                        <header className="flex shrink-0 flex-wrap items-start gap-3 border-b border-border/70 px-4 py-3">
                             <div className="min-w-0 flex-1">
                                 <div className="mb-1 text-[10px] font-medium tabular-nums text-foreground/38">第 {String(orderedUnits.findIndex((unit) => unit.id === selectedUnit.id) + 1).padStart(2, "0")} 章</div>
                                 <Input variant="borderless" value={draftTitle} disabled={!selectedUnitQuery.data?.unit} onChange={(event) => { setDraftTitle(event.target.value); setDirty(true); }} className="!h-auto !px-0 !py-0 !text-xl !font-semibold !leading-tight disabled:!cursor-wait disabled:!text-foreground" placeholder="章节标题" />
                                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px] text-foreground/38"><span>{dirty ? "有未保存修改" : `保存于 ${formatTime(selectedUnit.updatedAt)}`}</span><span>·</span><span>{formatCount(wordCount)} 字</span><span>·</span><span>{chapterCanvasCount(selectedUnit.id)} 个画布</span></div>
                             </div>
-                            <div className="flex shrink-0 items-center gap-1.5">
+                            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
                                 <Button size="small" icon={<UsersRound className="size-3.5" />} disabled={!selectedUnitQuery.data?.unit || dirty || Boolean(analysisKind)} loading={analysisKind === "characters"} onClick={() => void extractCharacters()}>提取角色</Button>
                                 <Button size="small" icon={<Clapperboard className="size-3.5" />} disabled={!selectedUnitQuery.data?.unit || dirty || Boolean(analysisKind)} loading={analysisKind === "storyboard"} onClick={generateStoryboard}>{chapterShotCount(selectedUnit.id) ? "重新生成分镜" : "生成分镜"}</Button>
+                                {chapterShotCount(selectedUnit.id) ? <Dropdown trigger={["click"]} menu={{ items: [{ key: "new", icon: <Plus className="size-3.5" />, label: "新建章节画布并导入" }, ...(projectCanvasTargets.length ? [{ type: "divider" as const }, ...projectCanvasTargets.map((canvas) => ({ key: canvas.id, icon: <LayoutGrid className="size-3.5" />, label: `导入到：${canvas.title}${detail.canvasUnitLinks.some((link) => link.canvasId === canvas.id && link.unitId === selectedUnit.id) ? " · 已关联本章" : ""}` }))] : [])], onClick: ({ key }) => void importStoryboardToCanvas(key === "new" ? undefined : key) }}><Button size="small" type="primary" icon={<LayoutGrid className="size-3.5" />} loading={Boolean(importingCanvasId)} disabled={Boolean(analysisKind)}>导入分镜</Button></Dropdown> : null}
                                 <Button size="small" type={dirty ? "primary" : "default"} icon={dirty ? <Save className="size-3.5" /> : <Check className="size-3.5" />} disabled={!selectedUnitQuery.data?.unit || !dirty || !draftTitle.trim() || saveMutation.isPending} loading={saveMutation.isPending} onClick={() => saveMutation.mutate()}>{dirty ? "保存" : "已保存"}</Button>
                             </div>
                         </header>

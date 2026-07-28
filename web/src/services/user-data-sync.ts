@@ -82,8 +82,9 @@ export function scheduleRemoteUserDataSync() {
     }, 1200);
 }
 
-export async function createCanvasProjectWithRemoteSync(title: string, projectId?: string) {
+export async function createCanvasProjectWithRemoteSync(title: string, projectId?: string, initialContent?: Partial<Pick<CanvasProject, "nodes" | "connections">>) {
     const id = useCanvasStore.getState().createProject(title, projectId);
+    if (initialContent) useCanvasStore.getState().updateProject(id, initialContent);
     if (!activeRemoteUserId) return { id, syncError: new Error("尚未建立云端同步会话") };
     try {
         await saveRemoteUserDataNow();
