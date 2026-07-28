@@ -1253,6 +1253,7 @@ function InfiniteCanvasPage() {
                     onUpdateRow={(rowId, patch) => updateScriptRow(contentNode.id, rowId, patch)}
                     onPromptChange={(composerContent) => handleConfigNodeChange(contentNode.id, { composerContent })}
                     onGenerateScript={(prompt) => void generateScriptRows(contentNode.id, prompt)}
+                    onModelChange={(model) => handleConfigNodeChange(contentNode.id, { model })}
                     onShotDurationChange={(duration: StoryboardShotDuration) => handleConfigNodeChange(contentNode.id, { storyboardShotDuration: duration })}
                     onShotCountChange={(count: StoryboardShotCount) => handleConfigNodeChange(contentNode.id, { storyboardShotCount: count })}
                     workspaceMode={workspaceMode}

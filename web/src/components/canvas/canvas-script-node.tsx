@@ -4,10 +4,14 @@ import type { ColumnsType } from "antd/es/table";
 import { ChevronDown, ChevronUp, Clapperboard, Copy, Expand, Film, Grid3X3, Image as ImageIcon, ListTree, Merge, Minus, Plus, RefreshCw, Send, Square, Trash2, Video, X } from "lucide-react";
 
 import { CanvasResourceMentionTextarea } from "@/components/canvas/canvas-resource-mention-textarea";
+import { ModelPicker } from "@/components/model-picker";
+import { buildGenerationConfig } from "@/lib/canvas/canvas-project-generation";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { pipelineStatusLabel, type CanvasStoryboardPipelineProgress, type StoryboardPipelineStage } from "@/lib/canvas/canvas-storyboard-progress";
 import { isContentModerationError } from "@/lib/generation-error";
+import { navigateToSettings } from "@/lib/settings-navigation";
 import { canvasThemes } from "@/lib/canvas-theme";
+import { useEffectiveConfig } from "@/stores/use-config-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { CanvasGenerationBatch, CanvasGenerationBatchItem, CanvasGenerationBatchItemStatus, CanvasNodeData, CanvasNodeStatus, CanvasWorkspaceMode, StoryboardColumn, StoryboardRow, StoryboardShotCount, StoryboardShotDuration } from "@/types/canvas";
 
@@ -51,7 +55,7 @@ const columnOptions: Array<{ label: string; value: StoryboardColumn }> = [
     { label: "负面要求", value: "negativePrompt" },
 ];
 
-export function CanvasScriptNodeContent({ node, batch, pipeline, scale, mentionReferences, onOpen, onCreateImageNodes, onCreateVideoNodes, onGenerateImages, onGenerateVideos, onMergeVideos, onCreateActionBoards, onRetryBatch, onRetryBatchItem, onStopBatch, onCancelBatchItem, onAddRow, onRemoveRow, onUpdateRow, onPromptChange, onGenerateScript, onShotDurationChange, onShotCountChange, onComposerHeightChange, onConnectStart, onScrollTopChange, workspaceMode = "professional" }: {
+export function CanvasScriptNodeContent({ node, batch, pipeline, scale, mentionReferences, onOpen, onCreateImageNodes, onCreateVideoNodes, onGenerateImages, onGenerateVideos, onMergeVideos, onCreateActionBoards, onRetryBatch, onRetryBatchItem, onStopBatch, onCancelBatchItem, onAddRow, onRemoveRow, onUpdateRow, onPromptChange, onGenerateScript, onModelChange, onShotDurationChange, onShotCountChange, onComposerHeightChange, onConnectStart, onScrollTopChange, workspaceMode = "professional" }: {
     node: CanvasNodeData;
     batch?: CanvasGenerationBatch;
     pipeline: CanvasStoryboardPipelineProgress;
@@ -73,6 +77,7 @@ export function CanvasScriptNodeContent({ node, batch, pipeline, scale, mentionR
     onUpdateRow: (rowId: string, patch: Partial<StoryboardRow>) => void;
     onPromptChange: (prompt: string) => void;
     onGenerateScript: (prompt: string) => void;
+    onModelChange: (model: string) => void;
     onShotDurationChange: (duration: StoryboardShotDuration) => void;
     onShotCountChange: (count: StoryboardShotCount) => void;
     onComposerHeightChange: (height: number) => void;
@@ -81,6 +86,8 @@ export function CanvasScriptNodeContent({ node, batch, pipeline, scale, mentionR
     workspaceMode?: CanvasWorkspaceMode;
 }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
+    const effectiveConfig = useEffectiveConfig();
+    const generationConfig = buildGenerationConfig(effectiveConfig, node, "text");
     const simpleMode = workspaceMode === "simple";
     const rows = node.metadata?.storyboard?.rows || [];
     const [prompt, setPrompt] = useState(node.metadata?.composerContent || "");
@@ -203,7 +210,20 @@ export function CanvasScriptNodeContent({ node, batch, pipeline, scale, mentionR
                     onWheel={(event) => event.stopPropagation()}
                 />
                 <div className="flex min-w-0 items-center justify-end gap-2" onMouseDown={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
-                    {simpleMode ? <span className="mr-auto text-[11px]" style={{ color: theme.node.muted }}>自动拆分镜头 · 默认时长</span> : <Select<StoryboardShotCount>
+                    <div className="mr-auto min-w-36 max-w-56 flex-1">
+                        <ModelPicker
+                            className="!h-7 !w-full !min-w-0 !text-[10px] !font-normal [&_img]:!size-3 [&_.lucide]:!size-3"
+                            fullWidth
+                            config={generationConfig}
+                            value={generationConfig.model}
+                            capability="text"
+                            placeholder="选择文本模型"
+                            showSelectedPrice={false}
+                            onChange={onModelChange}
+                            onMissingConfig={() => navigateToSettings({ continueCreation: true })}
+                        />
+                    </div>
+                    {simpleMode ? <span className="text-[11px]" style={{ color: theme.node.muted }}>自动拆分 · 默认时长</span> : <Select<StoryboardShotCount>
                         className="min-w-32"
                         size="small"
                         value={shotCount}
