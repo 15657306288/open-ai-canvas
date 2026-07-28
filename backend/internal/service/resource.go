@@ -165,6 +165,10 @@ func (s *Service) OpenResourceRange(userID string, id string, rangeHeader string
 	if err != nil {
 		return nil, err
 	}
+	return s.openResourceRange(userID, resource, rangeHeader)
+}
+
+func (s *Service) openResourceRange(userID string, resource *model.Resource, rangeHeader string) (*ResourceStream, error) {
 	if resource.Status != model.ResourceStatusReady {
 		return nil, BadAuthRequest("资源尚未上传完成")
 	}

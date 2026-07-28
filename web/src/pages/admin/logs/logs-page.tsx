@@ -1,6 +1,7 @@
-import { App, Button, Input, Select, Table, Tag } from "antd";
+import { App, Button, Input, Modal, Select, Table, Tag } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { Eye, Search } from "lucide-react";
+import { Download, Eye, Play, Search } from "lucide-react";
+import { saveAs } from "file-saver";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 
@@ -24,6 +25,7 @@ export default function LogsPage() {
     const [loading, setLoading] = useState(true);
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [detailLogId, setDetailLogId] = useState<string | null>(null);
+    const [mediaPreview, setMediaPreview] = useState<{ url: string; kind: "image" | "video"; title: string } | null>(null);
     const requestSequence = useRef(0);
     const hasFilters = Boolean(keyword || status !== "all");
 
@@ -57,6 +59,7 @@ export default function LogsPage() {
         { title: "用户", width: 180, render: (_, log) => <div className="min-w-0"><div className="truncate font-medium text-foreground/85">{log.userDisplayName || log.userAccount || "未知用户"}</div><div className="truncate text-xs text-foreground/45">{log.userAccount ? `@${log.userAccount}` : "账号未记录"}</div></div> },
         { title: "渠道 / 模型", width: 230, render: (_, log) => <div className="min-w-0"><div className="truncate text-foreground/78">{log.channelName || "未记录渠道"}</div><div className="truncate text-xs text-foreground/45" title={log.model}>{log.model || "未识别模型"}</div></div> },
         { title: "能力", dataIndex: "capability", width: 88, render: capabilityText },
+        { title: "结果", width: 118, render: (_, log) => <MediaResult log={log} onPreview={(url, kind) => setMediaPreview({ url, kind, title: `${capabilityText(log.capability)}结果` })} /> },
         { title: "调用状态", width: 160, render: (_, log) => <CallStatus log={log} /> },
         { title: "错误信息", width: 260, render: (_, log) => log.status === "failed" || log.error || log.errorCode ? <div className="min-w-0" title={[log.errorCode, log.error].filter(Boolean).join(" · ")}><div className="truncate text-xs font-medium text-red-500">{log.errorCode || `HTTP ${log.statusCode || "失败"}`}</div><div className="line-clamp-2 text-xs leading-5 text-foreground/55">{log.error || "上游未返回错误详情"}</div></div> : <span className="text-foreground/30">--</span> },
         { title: "耗时", dataIndex: "durationMs", width: 112, render: (value) => <span className="tabular-nums">{formatDuration(value)}</span> },
@@ -73,9 +76,12 @@ export default function LogsPage() {
             </ListToolbar>
             <AdminBatchBar count={selectedIds.length} onClear={() => setSelectedIds([])}><AdminExportButton type="primary" size="small" exportFile={() => exportAdminApiLogs({ ids: selectedIds })} fileName={() => `请求明细-已选${selectedIds.length}条.csv`} label="导出已选" successMessage={`已导出选中的 ${selectedIds.length} 条请求明细`} errorMessage="导出请求明细失败" /></AdminBatchBar>
             <TableSurface>
-                {loading && logs.length === 0 ? <AdminTableSkeleton rows={8} columns={10} /> : <Table className="app-data-table" size="middle" rowKey="id" loading={loading} rowSelection={{ selectedRowKeys: selectedIds, preserveSelectedRowKeys: false, onChange: (keys) => setSelectedIds(keys.map(String)) }} columns={columns} dataSource={logs} locale={{ emptyText: <AdminTableEmpty filtered={hasFilters} /> }} pagination={{ current: page, pageSize, total, showSizeChanger: true, pageSizeOptions: [20, 50, 100], showTotal: (value, range) => `${range[0]}-${range[1]} / 共 ${value} 条`, onChange: (nextPage, nextSize) => updateUrl({ page: nextSize !== pageSize ? 1 : nextPage, pageSize: nextSize }) }} scroll={{ x: 1580 }} />}
+                {loading && logs.length === 0 ? <AdminTableSkeleton rows={8} columns={11} /> : <Table className="app-data-table" size="middle" rowKey="id" loading={loading} rowSelection={{ selectedRowKeys: selectedIds, preserveSelectedRowKeys: false, onChange: (keys) => setSelectedIds(keys.map(String)) }} columns={columns} dataSource={logs} locale={{ emptyText: <AdminTableEmpty filtered={hasFilters} /> }} pagination={{ current: page, pageSize, total, showSizeChanger: true, pageSizeOptions: [20, 50, 100], showTotal: (value, range) => `${range[0]}-${range[1]} / 共 ${value} 条`, onChange: (nextPage, nextSize) => updateUrl({ page: nextSize !== pageSize ? 1 : nextPage, pageSize: nextSize }) }} scroll={{ x: 1700 }} />}
             </TableSurface>
             <ApiLogDetailDrawer logId={detailLogId} onClose={() => setDetailLogId(null)} />
+            <Modal title={mediaPreview?.title || "媒体预览"} open={Boolean(mediaPreview)} width={880} onCancel={() => setMediaPreview(null)} footer={mediaPreview ? <Button icon={<Download className="size-4" />} onClick={() => downloadMedia(mediaPreview.url, mediaPreview.kind)}>下载原文件</Button> : null} destroyOnHidden>
+                {mediaPreview?.kind === "video" ? <video src={mediaPreview.url} controls playsInline preload="metadata" className="max-h-[72vh] w-full bg-black object-contain" /> : mediaPreview ? <img src={mediaPreview.url} alt={mediaPreview.title} className="max-h-[72vh] w-full bg-black object-contain" /> : null}
+            </Modal>
         </AdminPageFrame>
     );
 }
@@ -87,6 +93,24 @@ function formatTime(value?: string) { return value ? new Date(value).toLocaleStr
 function capabilityText(value: string) { return ({ text: "文本", image: "图片", video: "视频", audio: "音频" } as Record<string, string>)[value] || "未知"; }
 function formatDuration(value: number) { if (value < 1_000) return `${value} ms`; if (value < 60_000) return `${(value / 1_000).toFixed(value < 10_000 ? 1 : 0)} 秒`; const minutes = Math.floor(value / 60_000); const seconds = Math.round((value % 60_000) / 1_000); return `${minutes} 分 ${seconds} 秒`; }
 function formatCost(log: ApiCallLog) { return `${log.currency || "USD"} ${(log.estimatedCostMicros / 1_000_000).toFixed(6)}`; }
+
+function MediaResult({ log, onPreview }: { log: ApiCallLog; onPreview: (url: string, kind: "image" | "video") => void }) {
+    const url = log.mediaPreviewUrl;
+    const kind = log.mediaPreviewKind;
+    if (!url || (kind !== "image" && kind !== "video")) return <span className="text-foreground/30">--</span>;
+    return <div className="flex w-[90px] items-center gap-1.5">
+        <button type="button" title={`预览${kind === "video" ? "视频" : "图片"}`} className="group relative h-11 w-16 shrink-0 overflow-hidden rounded border border-border/75 bg-black/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => onPreview(url, kind)}>
+            {kind === "video" ? <video src={url} muted playsInline preload="metadata" className="size-full object-cover" /> : <img src={url} alt="生成结果" loading="lazy" decoding="async" className="size-full object-cover" />}
+            <span className="absolute inset-0 grid place-items-center bg-black/0 text-white opacity-0 transition group-hover:bg-black/35 group-hover:opacity-100 group-focus-visible:bg-black/35 group-focus-visible:opacity-100">{kind === "video" ? <Play className="size-4 fill-current" /> : <Eye className="size-4" />}</span>
+            {log.mediaCount > 1 ? <span className="absolute bottom-0.5 right-0.5 rounded-sm bg-black/65 px-1 text-[9px] leading-4 text-white">{log.mediaCount}</span> : null}
+        </button>
+        <Button type="text" size="small" className="!size-7 !min-w-7 !p-0" icon={<Download className="size-3.5" />} onClick={() => downloadMedia(url, kind)} title="下载原文件" aria-label="下载原文件" />
+    </div>;
+}
+
+function downloadMedia(url: string, kind: "image" | "video") {
+    saveAs(url, `api-call-${kind}.${kind === "video" ? "mp4" : "png"}`);
+}
 
 function CallStatus({ log }: { log: ApiCallLog }) {
     const providerStatus = log.providerStatus?.toLowerCase();

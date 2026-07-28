@@ -113,6 +113,30 @@ func (r *Repository) QueryAPICallLogs(filter APICallLogFilter) ([]model.ApiCallL
 	if filter.Limit <= 0 || filter.Limit > 200 {
 		filter.Limit = 50
 	}
+	var total int64
+	// GORM 会把 Distinct 状态保留在同一查询链；计数和分页必须分别构造，避免 PostgreSQL 的 DISTINCT + ORDER BY 冲突。
+	if err := r.filteredAPICallLogQuery(filter).Model(&model.ApiCallLog{}).Distinct("api_call_logs.id").Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var logs []model.ApiCallLog
+	err := r.filteredAPICallLogQuery(filter).Omit("RequestBody", "ResponseBody").Order("api_call_logs.created_at desc").Offset((filter.Page - 1) * filter.Limit).Limit(filter.Limit).Find(&logs).Error
+	return logs, total, err
+}
+
+func (r *Repository) ExportAPICallLogs(filter APICallLogFilter, limit int) ([]model.ApiCallLog, error) {
+	if limit <= 0 || limit > 10_000 {
+		limit = 10_000
+	}
+	query := r.filteredAPICallLogQuery(filter)
+	if len(filter.IDs) > 0 {
+		query = query.Where("api_call_logs.id IN ?", filter.IDs)
+	}
+	var logs []model.ApiCallLog
+	err := query.Omit("RequestBody", "ResponseBody").Order("api_call_logs.created_at desc").Limit(limit).Find(&logs).Error
+	return logs, err
+}
+
+func (r *Repository) filteredAPICallLogQuery(filter APICallLogFilter) *gorm.DB {
 	query := visibleAPICallLogQuery(r.apiCallLogQuery(filter.AnalyticsFilter))
 	if value := strings.TrimSpace(filter.Keyword); value != "" {
 		pattern := "%" + strings.ToLower(value) + "%"
@@ -127,36 +151,16 @@ func (r *Repository) QueryAPICallLogs(filter APICallLogFilter) ([]model.ApiCallL
 	if filter.Status != "" {
 		query = query.Where("api_call_logs.status = ?", filter.Status)
 	}
-	var total int64
-	if err := query.Model(&model.ApiCallLog{}).Distinct("api_call_logs.id").Count(&total).Error; err != nil {
-		return nil, 0, err
-	}
-	var logs []model.ApiCallLog
-	err := query.Omit("RequestBody", "ResponseBody").Order("api_call_logs.created_at desc").Offset((filter.Page - 1) * filter.Limit).Limit(filter.Limit).Find(&logs).Error
-	return logs, total, err
+	return query
 }
 
-func (r *Repository) ExportAPICallLogs(filter APICallLogFilter, limit int) ([]model.ApiCallLog, error) {
-	if limit <= 0 || limit > 10_000 {
-		limit = 10_000
+func (r *Repository) APICallLogTasks(ids []string) ([]model.Task, error) {
+	if len(ids) == 0 {
+		return []model.Task{}, nil
 	}
-	query := visibleAPICallLogQuery(r.apiCallLogQuery(filter.AnalyticsFilter))
-	if len(filter.IDs) > 0 {
-		query = query.Where("api_call_logs.id IN ?", filter.IDs)
-	}
-	if value := strings.TrimSpace(filter.Keyword); value != "" {
-		pattern := "%" + strings.ToLower(value) + "%"
-		query = query.Joins("LEFT JOIN users ON users.id = api_call_logs.user_id").Joins("LEFT JOIN model_channels ON model_channels.id = api_call_logs.channel_id").Where(
-			"lower(api_call_logs.user_id) LIKE ? OR lower(users.username) LIKE ? OR lower(users.display_name) LIKE ? OR lower(api_call_logs.channel_id) LIKE ? OR lower(model_channels.name) LIKE ? OR lower(api_call_logs.model) LIKE ? OR lower(api_call_logs.path) LIKE ? OR lower(api_call_logs.provider_request_id) LIKE ?",
-			pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern,
-		)
-	}
-	if filter.Status != "" {
-		query = query.Where("api_call_logs.status = ?", filter.Status)
-	}
-	var logs []model.ApiCallLog
-	err := query.Omit("RequestBody", "ResponseBody").Order("api_call_logs.created_at desc").Limit(limit).Find(&logs).Error
-	return logs, err
+	var tasks []model.Task
+	err := r.db.Select("id", "user_id", "type", "result_json").Where("id IN ?", ids).Find(&tasks).Error
+	return tasks, err
 }
 
 func visibleAPICallLogQuery(query *gorm.DB) *gorm.DB {
