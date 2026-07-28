@@ -214,7 +214,7 @@ func (s *Service) decorateAPICallLogs(logs []model.ApiCallLog) error {
 	// 历史日志允许读取逻辑删除渠道的名称，但不读取或返回渠道密钥。
 	channels, err := s.repo.HistoricalSystemChannelReferences()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	channelNames := make(map[string]string, len(channels))
 	for _, channel := range channels {
