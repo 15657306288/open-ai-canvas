@@ -906,7 +906,7 @@ func runNewAPIChannel1VideoTask(ctx context.Context, input canvasGenerationInput
 			if videoURL == "" {
 				return nil, fmt.Errorf("NewAPI 渠道 1 任务 %s 已完成但没有返回视频 URL", id)
 			}
-			data, mimeType, err := getExternalBinary(ctx, videoURL)
+			data, mimeType, err := getExternalBinary(withProviderRequestKind(ctx, "download"), videoURL)
 			if err != nil {
 				return nil, fmt.Errorf("NewAPI 渠道 1 视频结果下载失败（任务 %s）：%w", id, err)
 			}
@@ -1108,7 +1108,7 @@ func runSeedanceVideosTask(ctx context.Context, input canvasGenerationInput) (ma
 		if status == "completed" || status == "succeeded" {
 			videoURL := stringField(state, "video_url")
 			if videoURL != "" {
-				data, mimeType, err := getExternalBinary(ctx, videoURL)
+				data, mimeType, err := getExternalBinary(withProviderRequestKind(ctx, "download"), videoURL)
 				if err != nil {
 					return nil, fmt.Errorf("视频结果下载失败：%w", err)
 				}
@@ -1173,7 +1173,7 @@ func runSeedanceAgentPlanVideoTask(ctx context.Context, input canvasGenerationIn
 			if videoURL == "" {
 				return nil, errors.New("Seedance 任务成功但没有返回视频 URL")
 			}
-			data, mimeType, err := getExternalBinary(ctx, videoURL)
+			data, mimeType, err := getExternalBinary(withProviderRequestKind(ctx, "download"), videoURL)
 			if err != nil {
 				return nil, fmt.Errorf("视频结果下载失败：%w", err)
 			}
@@ -1396,6 +1396,7 @@ func recordProviderRequest(req *http.Request, startedAt time.Time, statusCode in
 		APIFormat: "openai", Method: req.Method, Path: req.URL.Path, Model: metadata.Model,
 		Status: status, StatusCode: statusCode, DurationMs: time.Since(startedAt).Milliseconds(),
 		Error: errorText, ConcurrencyLimit: metadata.ConcurrencyLimit, UpstreamURL: req.URL.Scheme + "://" + req.URL.Host + req.URL.Path,
+		ProviderRequestID: metadata.ProviderRequestID, RequestBody: requestPayloadForLog(req), ResponseBody: SanitizeAPICallPayload(responseBody, ""),
 	}
 	channelSlotFailure := false
 	if code, message := ChannelSlotFailureDetails(requestErr); code != "" {

@@ -608,7 +608,7 @@ func proxySystemRequest(c *gin.Context, svc *service.Service, user *model.User, 
 	// 同步代理与后台任务必须共享渠道槽位，否则两条入口会共同超过供应商并发上限。
 	releaseChannel, concurrencyLimit, err := svc.AcquireChannelSlot(c.Request.Context(), channel.ID, "", 36*time.Minute)
 	if err != nil {
-		log := apiCallLog(user, channel, billingOrderID, c.Request.Method, path, target, body, model.ApiCallStatusFailed, 0, time.Since(startedAt), err.Error(), concurrencyLimit)
+		log := apiCallLog(user, channel, billingOrderID, c.Request.Method, path, target, body, c.GetHeader("Content-Type"), model.ApiCallStatusFailed, 0, time.Since(startedAt), err.Error(), concurrencyLimit)
 		log.ErrorCode, log.Error = service.ChannelSlotFailureDetails(err)
 		logSystemProxyCall(svc, log, nil)
 		fail(c, http.StatusServiceUnavailable, err)
@@ -661,7 +661,7 @@ func proxySystemRequest(c *gin.Context, svc *service.Service, user *model.User, 
 		status = model.ApiCallStatusFailed
 		errorText = err.Error()
 		_ = svc.MarkBillingUncertain(billingOrderID, "系统渠道连接中断，费用状态待核对")
-		logSystemProxyCall(svc, apiCallLog(user, channel, billingOrderID, c.Request.Method, path, target, body, status, statusCode, time.Since(startedAt), errorText, concurrencyLimit), nil)
+		logSystemProxyCall(svc, apiCallLog(user, channel, billingOrderID, c.Request.Method, path, target, body, c.GetHeader("Content-Type"), status, statusCode, time.Since(startedAt), errorText, concurrencyLimit), nil)
 		fail(c, http.StatusBadGateway, errors.New("系统渠道连接失败"))
 		return
 	}
@@ -676,7 +676,7 @@ func proxySystemRequest(c *gin.Context, svc *service.Service, user *model.User, 
 		status = model.ApiCallStatusFailed
 		errorText = readErr.Error()
 		_ = svc.MarkBillingUncertain(billingOrderID, "系统渠道响应读取失败，费用状态待核对")
-		logSystemProxyCall(svc, apiCallLog(user, channel, billingOrderID, c.Request.Method, path, target, body, status, statusCode, time.Since(startedAt), errorText, concurrencyLimit), nil)
+		logSystemProxyCall(svc, apiCallLog(user, channel, billingOrderID, c.Request.Method, path, target, body, c.GetHeader("Content-Type"), status, statusCode, time.Since(startedAt), errorText, concurrencyLimit), nil)
 		fail(c, http.StatusBadGateway, errors.New("系统渠道响应读取失败"))
 		return
 	}
@@ -694,7 +694,7 @@ func proxySystemRequest(c *gin.Context, svc *service.Service, user *model.User, 
 	} else {
 		_ = svc.RefundBilling(billingOrderID, "上游明确返回失败")
 	}
-	logSystemProxyCall(svc, apiCallLog(user, channel, billingOrderID, c.Request.Method, path, target, body, status, statusCode, time.Since(startedAt), errorText, concurrencyLimit), responseBody)
+	logSystemProxyCall(svc, apiCallLog(user, channel, billingOrderID, c.Request.Method, path, target, body, c.GetHeader("Content-Type"), status, statusCode, time.Since(startedAt), errorText, concurrencyLimit), responseBody)
 	for _, key := range []string{"Content-Type", "Cache-Control", "Content-Disposition"} {
 		if value := resp.Header.Get(key); value != "" {
 			c.Header(key, value)
@@ -704,7 +704,7 @@ func proxySystemRequest(c *gin.Context, svc *service.Service, user *model.User, 
 	c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), responseBody)
 }
 
-func apiCallLog(user *model.User, channel *model.ModelChannel, billingOrderID string, method string, path string, target string, body []byte, status model.ApiCallStatus, statusCode int, duration time.Duration, errorText string, concurrencyLimit int) model.ApiCallLog {
+func apiCallLog(user *model.User, channel *model.ModelChannel, billingOrderID string, method string, path string, target string, body []byte, contentType string, status model.ApiCallStatus, statusCode int, duration time.Duration, errorText string, concurrencyLimit int) model.ApiCallLog {
 	capability := "text"
 	switch channel.InterfaceType {
 	case model.ChannelInterfaceOpenAIImage:
@@ -737,10 +737,12 @@ func apiCallLog(user *model.User, channel *model.ModelChannel, billingOrderID st
 		Error:            errorText,
 		ConcurrencyLimit: concurrencyLimit,
 		UpstreamURL:      target,
+		RequestBody:      service.SanitizeAPICallPayload(body, contentType),
 	}
 }
 
 func logSystemProxyCall(svc *service.Service, log model.ApiCallLog, responseBody []byte) {
+	log.ResponseBody = service.SanitizeAPICallPayload(responseBody, "")
 	svc.EnrichAPICallLog(&log, responseBody)
 	_ = svc.LogAPICall(log)
 }

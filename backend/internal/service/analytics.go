@@ -192,23 +192,13 @@ func (s *Service) AdminAPICallLogs(actor *model.User, query APICallLogQuery) (*A
 	if err != nil {
 		return nil, err
 	}
-	// 历史日志允许读取逻辑删除渠道的名称，但不读取或返回渠道密钥。
-	channels, err := s.repo.HistoricalSystemChannelReferences()
-	if err != nil {
+	if err := s.decorateAPICallLogs(logs); err != nil {
 		return nil, err
 	}
-	channelNames := make(map[string]string, len(channels))
-	for _, channel := range channels {
-		channelNames[channel.ID] = channel.Name
-	}
 	for index := range logs {
-		if logs[index].ChannelID == "" {
-			logs[index].ChannelName = "自定义渠道"
-		} else if name := channelNames[logs[index].ChannelID]; name != "" {
-			logs[index].ChannelName = name
-		} else {
-			logs[index].ChannelName = "已删除渠道"
-		}
+		// 原始报文只允许通过详情接口按单条读取。
+		logs[index].RequestBody = ""
+		logs[index].ResponseBody = ""
 	}
 	page, limit := query.Page, query.Limit
 	if page <= 0 {
@@ -220,11 +210,56 @@ func (s *Service) AdminAPICallLogs(actor *model.User, query APICallLogQuery) (*A
 	return &APICallLogPage{Logs: logs, Total: total, Page: page, Limit: limit}, nil
 }
 
+func (s *Service) decorateAPICallLogs(logs []model.ApiCallLog) error {
+	// 历史日志允许读取逻辑删除渠道的名称，但不读取或返回渠道密钥。
+	channels, err := s.repo.HistoricalSystemChannelReferences()
+	if err != nil {
+		return nil, err
+	}
+	channelNames := make(map[string]string, len(channels))
+	for _, channel := range channels {
+		channelNames[channel.ID] = channel.Name
+	}
+	users, err := s.repo.Users()
+	if err != nil {
+		return err
+	}
+	userByID := make(map[string]model.User, len(users))
+	for _, user := range users {
+		userByID[user.ID] = user
+	}
+	for index := range logs {
+		if logs[index].StartedAt.IsZero() {
+			logs[index].StartedAt = logs[index].CreatedAt
+		}
+		if logs[index].ChannelID == "" {
+			logs[index].ChannelName = "自定义渠道"
+		} else if name := channelNames[logs[index].ChannelID]; name != "" {
+			logs[index].ChannelName = name
+		} else {
+			logs[index].ChannelName = "已删除渠道"
+		}
+		if user, exists := userByID[logs[index].UserID]; exists {
+			logs[index].UserDisplayName = user.DisplayName
+			logs[index].UserAccount = user.Username
+		}
+	}
+	return nil
+}
+
 func (s *Service) AdminAPICallLog(actor *model.User, id string) (*model.ApiCallLog, error) {
 	if err := s.RequireAdmin(actor); err != nil {
 		return nil, err
 	}
-	return s.repo.APICallLog(strings.TrimSpace(id))
+	log, err := s.repo.APICallLog(strings.TrimSpace(id))
+	if err != nil {
+		return nil, err
+	}
+	logs := []model.ApiCallLog{*log}
+	if err := s.decorateAPICallLogs(logs); err != nil {
+		return nil, err
+	}
+	return &logs[0], nil
 }
 
 func (s *Service) AdminAPICallLogsCSV(actor *model.User, query APICallLogQuery) ([]byte, error) {
@@ -243,12 +278,19 @@ func (s *Service) AdminAPICallLogsCSV(actor *model.User, query APICallLogQuery) 
 	if err != nil {
 		return nil, err
 	}
+	if err := s.decorateAPICallLogs(logs); err != nil {
+		return nil, err
+	}
 	var buffer bytes.Buffer
 	buffer.WriteString("\xEF\xBB\xBF")
 	writer := csv.NewWriter(&buffer)
-	_ = writer.Write([]string{"时间", "用户ID", "渠道ID", "任务ID", "计费单ID", "能力", "请求阶段", "模型", "状态", "HTTP状态", "耗时毫秒", "渠道并发上限", "供应商任务ID", "错误码", "错误"})
+	_ = writer.Write([]string{"时间", "用户", "用户账号", "渠道", "模型", "能力", "状态", "轮询次数", "耗时毫秒", "输入Token", "输出Token", "缓存Token", "计费", "币种", "错误码", "错误"})
 	for _, log := range logs {
-		_ = writer.Write([]string{log.CreatedAt.UTC().Format(time.RFC3339), log.UserID, log.ChannelID, log.TaskID, log.BillingOrderID, log.Capability, log.RequestKind, log.Model, string(log.Status), strconv.Itoa(log.StatusCode), strconv.FormatInt(log.DurationMs, 10), strconv.Itoa(log.ConcurrencyLimit), log.ProviderRequestID, log.ErrorCode, log.Error})
+		startedAt := log.StartedAt
+		if startedAt.IsZero() {
+			startedAt = log.CreatedAt
+		}
+		_ = writer.Write([]string{startedAt.UTC().Format(time.RFC3339), log.UserDisplayName, log.UserAccount, log.ChannelName, log.Model, log.Capability, string(log.Status), strconv.Itoa(log.PollCount), strconv.FormatInt(log.DurationMs, 10), strconv.FormatInt(log.InputTokens, 10), strconv.FormatInt(log.OutputTokens, 10), strconv.FormatInt(log.CachedTokens, 10), strconv.FormatInt(log.EstimatedCostMicros, 10), log.Currency, log.ErrorCode, log.Error})
 	}
 	writer.Flush()
 	if err := writer.Error(); err != nil {
@@ -804,7 +846,13 @@ func (s *Service) estimateCallCost(log *model.ApiCallLog) {
 }
 
 func (s *Service) EnrichAPICallLog(log *model.ApiCallLog, responseBody []byte) {
-	if log == nil || len(responseBody) == 0 || !json.Valid(responseBody) {
+	if log == nil {
+		return
+	}
+	if log.ProviderRequestID == "" {
+		log.ProviderRequestID = providerRequestIDFromPath(log.Path)
+	}
+	if len(responseBody) == 0 || !json.Valid(responseBody) {
 		return
 	}
 	var payload map[string]any
@@ -843,7 +891,14 @@ func (s *Service) EnrichAPICallLog(log *model.ApiCallLog, responseBody []byte) {
 		log.OutputTokens = firstInt64(usageMetadata, "candidatesTokenCount")
 		log.CachedTokens = firstInt64(usageMetadata, "cachedContentTokenCount")
 	}
-	log.ProviderRequestID = firstNonEmpty(stringField(payload, "task_id"), stringField(payload, "id"), stringField(payload, "request_id"))
+	log.ProviderRequestID = firstNonEmpty(stringField(payload, "task_id"), stringField(payload, "id"), stringField(payload, "request_id"), log.ProviderRequestID)
+	log.ProviderStatus = strings.ToLower(firstNonEmpty(stringField(payload, "status"), log.ProviderStatus))
+	if log.ProviderStatus == "failed" || log.ProviderStatus == "cancelled" || log.ProviderStatus == "expired" {
+		log.Status = model.ApiCallStatusFailed
+		errorCode, errorMessage := providerFailureDetails(payload)
+		log.ErrorCode = firstNonEmpty(errorCode, log.ErrorCode)
+		log.Error = firstNonEmpty(errorMessage, log.Error)
+	}
 	if log.Capability == "image" {
 		if data, ok := payload["data"].([]any); ok {
 			log.MediaCount = len(data)
@@ -851,6 +906,21 @@ func (s *Service) EnrichAPICallLog(log *model.ApiCallLog, responseBody []byte) {
 			log.MediaCount = len(images)
 		}
 	}
+}
+
+func providerRequestIDFromPath(path string) string {
+	parts := strings.Split(strings.Trim(strings.TrimSpace(path), "/"), "/")
+	for index := len(parts) - 1; index >= 0; index-- {
+		part := strings.TrimSpace(parts[index])
+		if part == "" || part == "content" || part == "download" {
+			continue
+		}
+		if index > 0 && (parts[index-1] == "videos" || parts[index-1] == "tasks") {
+			return part
+		}
+		break
+	}
+	return ""
 }
 
 func firstInt64(values map[string]any, keys ...string) int64 {

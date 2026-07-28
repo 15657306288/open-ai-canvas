@@ -41,6 +41,8 @@ export type RuntimeLimits = {
 export type ApiCallLog = {
     id: string;
     userId: string;
+    userDisplayName?: string;
+    userAccount?: string;
     channelId: string;
     channelName: string;
     taskId?: string;
@@ -56,6 +58,8 @@ export type ApiCallLog = {
     status: "succeeded" | "failed";
     statusCode: number;
     durationMs: number;
+    pollCount: number;
+    providerStatus?: string;
     inputTokens: number;
     outputTokens: number;
     cachedTokens: number;
@@ -70,6 +74,9 @@ export type ApiCallLog = {
     error?: string;
     concurrencyLimit: number;
     upstreamUrl: string;
+    requestBody?: string;
+    responseBody?: string;
+    startedAt?: string;
     createdAt: string;
 };
 

@@ -472,6 +472,9 @@ func (s *Service) LogAPICall(log model.ApiCallLog) error {
 	if log.CreatedAt.IsZero() {
 		log.CreatedAt = time.Now()
 	}
+	if log.StartedAt.IsZero() {
+		log.StartedAt = log.CreatedAt.Add(-time.Duration(log.DurationMs) * time.Millisecond)
+	}
 	s.estimateCallCost(&log)
 	if log.BillingOrderID != "" && log.ProviderRequestID != "" {
 		if err := s.repo.UpdateBillingProviderRequestID(log.BillingOrderID, log.ProviderRequestID); err != nil {
@@ -493,6 +496,11 @@ func (s *Service) LogAPICall(log model.ApiCallLog) error {
 			return err
 		}
 	}
+	if merged, err := s.mergeVideoAPICallLog(log); err != nil {
+		return err
+	} else if merged {
+		return nil
+	}
 	policy, err := s.RuntimePolicy()
 	if err != nil {
 		return err
@@ -503,11 +511,63 @@ func (s *Service) LogAPICall(log model.ApiCallLog) error {
 	if err != nil {
 		return err
 	}
-	incomingBytes := int64(len(log.Path) + len(log.Model) + len(log.ProviderRequestID) + len(log.ErrorCode) + len(log.Error) + len(log.UpstreamURL))
+	incomingBytes := int64(len(log.Path) + len(log.Model) + len(log.ProviderRequestID) + len(log.ErrorCode) + len(log.Error) + len(log.UpstreamURL) + len(log.RequestBody) + len(log.ResponseBody))
 	if err := validateAPICallLogQuotaWithPolicy(usage, incomingBytes, policy.Resource); err != nil {
 		return err
 	}
 	return s.repo.Create(&log)
+}
+
+func (s *Service) mergeVideoAPICallLog(log model.ApiCallLog) (bool, error) {
+	if log.Capability != "video" || (log.RequestKind != "poll" && log.RequestKind != "download") {
+		return false, nil
+	}
+	if log.TaskID == "" && log.ProviderRequestID == "" {
+		return false, nil
+	}
+	root, err := s.repo.VideoAPICallRoot(log)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if log.RequestKind == "poll" {
+		root.PollCount++
+		if log.ResponseBody != "" {
+			root.ResponseBody = log.ResponseBody
+		}
+	}
+	if log.ProviderRequestID != "" {
+		root.ProviderRequestID = log.ProviderRequestID
+	}
+	if log.ProviderStatus != "" {
+		root.ProviderStatus = log.ProviderStatus
+	}
+	startedAt := root.StartedAt
+	if startedAt.IsZero() {
+		startedAt = root.CreatedAt.Add(-time.Duration(root.DurationMs) * time.Millisecond)
+		root.StartedAt = startedAt
+	}
+	root.DurationMs = max(root.DurationMs, log.CreatedAt.Sub(startedAt).Milliseconds())
+	root.StatusCode = log.StatusCode
+	root.ConcurrencyLimit = log.ConcurrencyLimit
+	if log.Status == model.ApiCallStatusFailed {
+		root.Status = log.Status
+		root.ErrorCode = log.ErrorCode
+		root.Error = log.Error
+	} else {
+		root.Status = model.ApiCallStatusSucceeded
+		root.ErrorCode = ""
+		root.Error = ""
+	}
+	if log.UsageAvailable {
+		root.UsageAvailable = true
+		root.InputTokens = log.InputTokens
+		root.OutputTokens = log.OutputTokens
+		root.CachedTokens = log.CachedTokens
+	}
+	return true, s.repo.Save(root)
 }
 
 func (s *Service) APICallLogs(actor *model.User, limit int) ([]model.ApiCallLog, error) {
