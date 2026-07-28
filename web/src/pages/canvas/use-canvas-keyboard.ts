@@ -23,6 +23,7 @@ type UseCanvasKeyboardOptions = {
     cancelSelectionBox: () => void;
     copySelectedNodes: () => void;
     pasteCopiedNodes: () => boolean;
+    shouldPreferCopiedNodes: () => boolean;
     pasteSystemClipboard: (position?: undefined, clipboardEvent?: ClipboardEvent | null) => Promise<boolean> | boolean;
     deleteNodes: (ids: Set<string>) => void;
     deleteConnection: (connectionId: string) => void;
@@ -50,6 +51,7 @@ export function useCanvasKeyboard({
     cancelSelectionBox,
     copySelectedNodes,
     pasteCopiedNodes,
+    shouldPreferCopiedNodes,
     pasteSystemClipboard,
     deleteNodes,
     deleteConnection,
@@ -125,8 +127,9 @@ export function useCanvasKeyboard({
         const handlePaste = (event: ClipboardEvent) => {
             const target = event.target instanceof Element ? event.target : null;
             if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || target?.closest("[contenteditable='true'],[data-canvas-no-zoom]")) return;
-            // 系统剪贴板有图片时优先粘贴图片；否则再粘贴画布内部复制的节点。
+            // 节点标记写入失败或仍在写入时避开旧系统图片，其余情况保持系统内容优先。
             event.preventDefault();
+            if (shouldPreferCopiedNodes() && pasteCopiedNodes()) return;
             void (async () => {
                 const handled = await pasteSystemClipboard(undefined, event);
                 if (!handled) pasteCopiedNodes();
@@ -139,5 +142,5 @@ export function useCanvasKeyboard({
             window.removeEventListener("keydown", handleKeyDown, true);
             window.removeEventListener("paste", handlePaste, true);
         };
-    }, [cancelSelectionBox, copySelectedNodes, deleteConnection, deleteNodes, deselectCanvas, fitCanvasContent, fitCanvasSelection, nodesRef, pasteCopiedNodes, pasteSystemClipboard, redoCanvas, saveCanvasProject, selectedConnectionId, selectedNodeIdsRef, setAnnotationNodeId, setContextMenu, setCropNodeId, setInfoNodeId, setMaskEditNodeId, setSelectedConnectionId, setSelectedNodeIds, setShortcutRequestNonce, undoCanvas, zoomToActualSize]);
+    }, [cancelSelectionBox, copySelectedNodes, deleteConnection, deleteNodes, deselectCanvas, fitCanvasContent, fitCanvasSelection, nodesRef, pasteCopiedNodes, pasteSystemClipboard, redoCanvas, saveCanvasProject, selectedConnectionId, selectedNodeIdsRef, setAnnotationNodeId, setContextMenu, setCropNodeId, setInfoNodeId, setMaskEditNodeId, setSelectedConnectionId, setSelectedNodeIds, setShortcutRequestNonce, shouldPreferCopiedNodes, undoCanvas, zoomToActualSize]);
 }

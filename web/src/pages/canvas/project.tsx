@@ -590,7 +590,9 @@ function InfiniteCanvasPage() {
         duplicateNode,
         hasCopiedNodes,
         pasteCopiedNodes,
+        releaseCopiedNodesPastePriority,
         setPrimaryVersion,
+        shouldPreferCopiedNodes,
         toggleNodeLocked,
     } = useCanvasNodeOperations({
         projectId,
@@ -953,6 +955,7 @@ function InfiniteCanvasPage() {
         cancelSelectionBox,
         copySelectedNodes,
         pasteCopiedNodes,
+        shouldPreferCopiedNodes,
         pasteSystemClipboard,
         deleteNodes,
         deleteConnection,
@@ -977,9 +980,10 @@ function InfiniteCanvasPage() {
 
     const pasteAtPosition = useCallback(
         (position: Position) => {
+            if (shouldPreferCopiedNodes() && pasteCopiedNodes(position)) return;
             void (async () => {
                 try {
-                    // 右键粘贴同样优先系统剪贴板图片，再回退内部节点。
+                    // 标记写入成功时仍优先系统图片，兼容截图和从外部应用复制的媒体。
                     const handled = await pasteSystemClipboard(position);
                     if (!handled) pasteCopiedNodes(position);
                 } catch {
@@ -987,11 +991,12 @@ function InfiniteCanvasPage() {
                 }
             })();
         },
-        [message, pasteCopiedNodes, pasteSystemClipboard],
+        [message, pasteCopiedNodes, pasteSystemClipboard, shouldPreferCopiedNodes],
     );
 
     const copyNodeContentToClipboard = useCallback(
         async (node: CanvasNodeData | null) => {
+            releaseCopiedNodesPastePriority();
             const content = node?.metadata?.content;
             if (!node || !content) {
                 message.warning("没有可复制的内容");
@@ -1017,11 +1022,12 @@ function InfiniteCanvasPage() {
                 message.error("复制失败，请检查浏览器剪贴板权限");
             }
         },
-        [message],
+        [message, releaseCopiedNodesPastePriority],
     );
 
     const copyNodeMediaUrlToClipboard = useCallback(
         async (node: CanvasNodeData | null) => {
+            releaseCopiedNodesPastePriority();
             try {
                 const storageKey = node?.metadata?.storageKey;
                 const content = node?.metadata?.content?.trim();
@@ -1030,13 +1036,13 @@ function InfiniteCanvasPage() {
                 const mediaURL = mediaPath ? new URL(mediaPath, window.location.href).toString() : "";
                 if (!mediaURL) throw new Error("当前媒体只有本地内容，没有可复制的地址");
                 if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(mediaURL);
-                else if (!copyToClipboard(mediaURL)) throw new Error("当前浏览器不支持写入剪贴板");
+                else if (!await copyToClipboard(mediaURL)) throw new Error("当前浏览器不支持写入剪贴板");
                 message.success(node?.type === CanvasNodeType.Video ? "视频地址已复制" : "图片地址已复制");
             } catch (error) {
                 message.error(error instanceof Error ? error.message : "媒体地址复制失败");
             }
         },
-        [message],
+        [message, releaseCopiedNodesPastePriority],
     );
 
     const handleCanvasContextMenu = useCallback(
