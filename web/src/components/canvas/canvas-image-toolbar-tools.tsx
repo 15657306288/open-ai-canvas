@@ -158,7 +158,7 @@ export const imageToolDefinitions: ImageToolDefinition[] = [
     },
 ];
 
-export const defaultImageQuickToolIds: ImageQuickToolId[] = ["info", "reversePrompt", "annotation", "maskEdit", "emotion", "crop", "angle"];
+export const defaultImageQuickToolIds: ImageQuickToolId[] = ["info", "download", "maskEdit", "emotion", "crop", "angle"];
 
 export function isImageQuickToolId(value: string): value is ImageQuickToolId {
     return defaultBaseToolIds.some((id) => id === value) || imageToolDefinitions.some((tool) => tool.id === value);
