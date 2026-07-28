@@ -4,6 +4,7 @@ import type { ColumnsType } from "antd/es/table";
 import { ArrowLeft, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 
 import { ListToolbar, TableSurface } from "@/components/layout/workspace-page";
+import { MODEL_PROTOCOL_OPTIONS, modelProtocolCapability, modelProtocolDefinition, modelProtocolLabel, modelProtocolSummary, type ModelProtocol } from "@/lib/model-protocols";
 import { createAdminChannelModel, deleteAdminChannelModel, fetchAdminChannelModels, listAdminChannelModels, updateAdminChannelModel, type ChannelModel } from "@/services/api/wallet";
 import type { ModelChannel } from "@/stores/use-config-store";
 
@@ -11,6 +12,7 @@ type FormValues = {
     modelKey: string;
     displayName?: string;
     capability: ChannelModel["capability"];
+    protocol: ModelProtocol;
     billingMode: ChannelModel["billingMode"];
     unitPrice: number;
     enabled: boolean;
@@ -32,6 +34,7 @@ export function ChannelModelManager({ channel, onClose, onChanged }: { channel: 
     const [form] = Form.useForm<FormValues>();
     const billingMode = Form.useWatch("billingMode", form) || "fixed_request";
     const modelCapability = Form.useWatch("capability", form);
+    const modelProtocol = Form.useWatch("protocol", form);
 
     const reload = async () => {
         if (!channel) return;
@@ -74,13 +77,13 @@ export function ChannelModelManager({ channel, onClose, onChanged }: { channel: 
 
     const startCreate = () => {
         setEditing(null);
-        form.setFieldsValue({ modelKey: "", displayName: "", capability: capabilityFromInterface(channel?.interfaceType), billingMode: "fixed_request", unitPrice: 0, enabled: true });
+        form.setFieldsValue({ modelKey: "", displayName: "", capability: capabilityFromInterface(channel?.interfaceType), protocol: channel.interfaceType || "chat-completion", billingMode: "fixed_request", unitPrice: 0, enabled: true });
         setEditorOpen(true);
     };
 
     const startEdit = (item: ChannelModel) => {
         setEditing(item);
-        form.setFieldsValue({ modelKey: item.modelKey, displayName: item.displayName, capability: item.capability, billingMode: item.billingMode, unitPrice: item.unitPriceMicrocredits / 1_000_000, enabled: item.enabled });
+        form.setFieldsValue({ modelKey: item.modelKey, displayName: item.displayName, capability: item.capability, protocol: item.protocol || channel.interfaceType || "chat-completion", billingMode: item.billingMode, unitPrice: item.unitPriceMicrocredits / 1_000_000, enabled: item.enabled });
         setEditorOpen(true);
     };
 
@@ -92,6 +95,7 @@ export function ChannelModelManager({ channel, onClose, onChanged }: { channel: 
                 modelKey: values.modelKey.trim(),
                 displayName: values.displayName?.trim() || values.modelKey.trim(),
                 capability: values.capability,
+                protocol: values.protocol,
                 billingMode: values.billingMode,
                 unitPriceMicrocredits: Math.round(values.unitPrice * 1_000_000),
                 priceConfigured: true,
@@ -133,6 +137,7 @@ export function ChannelModelManager({ channel, onClose, onChanged }: { channel: 
             ),
         },
         { title: "能力", dataIndex: "capability", width: 90, render: capabilityLabel },
+        { title: "请求协议", dataIndex: "protocol", width: 230, render: (value: ModelProtocol) => <div><div className="text-xs font-medium">{modelProtocolLabel(value || channel.interfaceType)}</div><div className="truncate text-[10px] text-foreground/45">{modelProtocolDefinition(value || channel.interfaceType)?.create}</div></div> },
         { title: "计费", width: 165, render: (_, item) => (item.priceConfigured ? `${formatCredits(item.unitPriceMicrocredits)} 积分 / ${item.billingMode === "per_second" ? "秒" : "次"}` : <Tag color="orange">未配置价格</Tag>) },
         { title: "版本", dataIndex: "priceVersion", width: 75, render: (value) => `v${value}` },
         { title: "状态", dataIndex: "enabled", width: 85, render: (enabled) => (enabled ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>) },
@@ -166,7 +171,7 @@ export function ChannelModelManager({ channel, onClose, onChanged }: { channel: 
                     <Button aria-label="返回系统渠道" icon={<ArrowLeft className="size-4" />} onClick={onClose} />
                     <div className="min-w-0">
                         <h2 className="truncate text-lg font-semibold">{channel.name} / 模型管理</h2>
-                        <p className="mt-1 text-xs text-foreground/50">维护模型能力、计费单位、积分单价与启用状态。</p>
+                        <p className="mt-1 text-xs text-foreground/50">维护模型能力、请求协议、计费与启用状态。</p>
                     </div>
                 </div>
                 <Space wrap>
@@ -192,10 +197,10 @@ export function ChannelModelManager({ channel, onClose, onChanged }: { channel: 
                     columns={columns}
                     dataSource={filteredItems}
                     pagination={{ current: page, pageSize, total: filteredItems.length, showSizeChanger: true, pageSizeOptions: [20, 50, 100], showTotal: (total, range) => `${range[0]}-${range[1]} / 共 ${total} 个模型`, onChange: (nextPage, nextPageSize) => { setPage(nextPageSize !== pageSize ? 1 : nextPage); setPageSize(nextPageSize); } }}
-                    scroll={{ x: 760 }}
+                    scroll={{ x: 990 }}
                 />
             </TableSurface>
-            <Drawer title={editing ? "编辑模型" : "新增模型"} open={editorOpen} size="min(520px, 100vw)" onClose={() => setEditorOpen(false)} styles={{ body: { paddingBottom: 88 } }} extra={editing ? <Button size="small" icon={<Plus className="size-3.5" />} onClick={startCreate}>新增</Button> : null}>
+            <Drawer title={editing ? "编辑模型" : "新增模型"} open={editorOpen} size="min(720px, 100vw)" onClose={() => setEditorOpen(false)} styles={{ body: { paddingBottom: 88 } }} extra={editing ? <Button size="small" icon={<Plus className="size-3.5" />} onClick={startCreate}>新增</Button> : null}>
                 <Form form={form} layout="vertical" requiredMark={false}>
                     <Form.Item name="modelKey" label="模型标识" rules={[{ required: true, message: "请输入模型标识" }]}>
                         <Input placeholder="gpt-image-2" />
@@ -204,8 +209,15 @@ export function ChannelModelManager({ channel, onClose, onChanged }: { channel: 
                         <Input placeholder="不填则使用模型标识" />
                     </Form.Item>
                     <Form.Item name="capability" label="能力" rules={[{ required: true }]}>
-                        <Select onChange={(value) => { if (value !== "video") form.setFieldValue("billingMode", "fixed_request"); }} options={[{ label: "文本", value: "text" }, { label: "图片", value: "image" }, { label: "视频", value: "video" }, { label: "音频", value: "audio" }]} />
+                        <Select onChange={(value) => { if (value !== "video") form.setFieldValue("billingMode", "fixed_request"); const current = form.getFieldValue("protocol") as ModelProtocol; if (modelProtocolCapability(current) !== value) form.setFieldValue("protocol", MODEL_PROTOCOL_OPTIONS.flatMap((group) => group.options).find((item) => modelProtocolCapability(item.value) === value)?.value); }} options={[{ label: "文本", value: "text" }, { label: "图片", value: "image" }, { label: "视频", value: "video" }, { label: "音频", value: "audio" }]} />
                     </Form.Item>
+                    <Form.Item name="protocol" label="请求协议" rules={[{ required: true, message: "请选择模型请求协议" }]} extra="协议决定创建路径、Content-Type、请求字段和轮询方式。">
+                        <Select options={MODEL_PROTOCOL_OPTIONS.map((group) => ({ ...group, options: group.options.filter((item) => modelProtocolCapability(item.value) === modelCapability) }))} />
+                    </Form.Item>
+                    <div className="mb-5 rounded-md border border-border/70 bg-foreground/[.025] px-3 py-2.5">
+                        <div className="text-xs font-semibold">实际请求预览</div>
+                        <div className="mt-1 font-mono text-[11px] leading-5 text-foreground/60">{modelProtocolSummary(modelProtocol)}</div>
+                    </div>
                     <Form.Item name="billingMode" label="计费方式" rules={[{ required: true }]}>
                         <Segmented block options={[{ label: "按次计费", value: "fixed_request" }, { label: "按秒计费", value: "per_second", disabled: modelCapability !== "video" }]} />
                     </Form.Item>
@@ -223,9 +235,7 @@ export function ChannelModelManager({ channel, onClose, onChanged }: { channel: 
 }
 
 function capabilityFromInterface(value?: ModelChannel["interfaceType"]): ChannelModel["capability"] {
-    if (value === "openai-image") return "image";
-    if (value === "newapi" || value === "newapi-channel-1" || value === "newapi-channel-2" || value === "xai-video") return "video";
-    return "text";
+    return modelProtocolCapability(value) || "text";
 }
 
 function capabilityLabel(value: ChannelModel["capability"]) {

@@ -23,10 +23,13 @@ import (
 )
 
 var (
-	runtimeService        *service.Service
-	geminiGeneratePath    = regexp.MustCompile(`^/models/([^/:]+):(generateContent|streamGenerateContent)$`)
-	customGeminiRelayPath = regexp.MustCompile(`(?:^|/)models/[^/:]+:(generateContent|streamGenerateContent)$`)
-	openAIPostEndpoints   = map[string]bool{
+	runtimeService            *service.Service
+	geminiGeneratePath        = regexp.MustCompile(`^/models/([^/:]+):(generateContent|streamGenerateContent)$`)
+	customGeminiRelayPath     = regexp.MustCompile(`(?:^|/)models/[^/:]+:(generateContent|streamGenerateContent|predictLongRunning)$`)
+	customVideoTaskPath       = regexp.MustCompile(`(?:^|/)video/generations/[^/]+$`)
+	customXAIVideoTaskPath    = regexp.MustCompile(`(?:^|/)videos/[^/]+$`)
+	customGeminiOperationPath = regexp.MustCompile(`(?:^|/)(?:models/[^/]+/)?operations/[^/]+$`)
+	openAIPostEndpoints       = map[string]bool{
 		"/responses": true, "/chat/completions": true, "/images/generations": true, "/images/edits": true,
 		"/audio/speech": true,
 	}
@@ -57,7 +60,13 @@ func authorizeCustomRelay(method string, target *url.URL, apiFormat string, cont
 		return errors.New("自定义渠道调用格式无效")
 	}
 	if method == http.MethodGet {
-		if len(query) != 0 || (requestPath != "/models" && !strings.HasSuffix(requestPath, "/models")) {
+		allowed := requestPath == "/models" || strings.HasSuffix(requestPath, "/models")
+		if apiFormat == "openai" {
+			allowed = allowed || customVideoTaskPath.MatchString(requestPath) || customXAIVideoTaskPath.MatchString(requestPath)
+		} else {
+			allowed = allowed || customGeminiOperationPath.MatchString(requestPath)
+		}
+		if len(query) != 0 || !allowed {
 			return errors.New("自定义渠道不允许访问该上游接口")
 		}
 		return nil
@@ -70,7 +79,7 @@ func authorizeCustomRelay(method string, target *url.URL, apiFormat string, cont
 		return errors.New("自定义渠道不允许使用该请求方法")
 	}
 	if apiFormat == "openai" {
-		if len(query) != 0 || (!strings.HasSuffix(requestPath, "/responses") && !strings.HasSuffix(requestPath, "/chat/completions")) {
+		if len(query) != 0 || (!strings.HasSuffix(requestPath, "/responses") && !strings.HasSuffix(requestPath, "/chat/completions") && !strings.HasSuffix(requestPath, "/video/generations") && !strings.HasSuffix(requestPath, "/videos/generations")) {
 			return errors.New("自定义渠道不允许访问该上游接口")
 		}
 		return nil
@@ -169,7 +178,9 @@ func interfaceAllowsProxyPath(interfaceType model.ChannelInterfaceType, requestP
 		return requestPath == "/responses"
 	case model.ChannelInterfaceOpenAIImage:
 		return requestPath == "/images/generations" || requestPath == "/images/edits"
-	case model.ChannelInterfaceNewAPIVideo, model.ChannelInterfaceNewAPIChannel1, model.ChannelInterfaceNewAPIChannel2, model.ChannelInterfaceXAIVideo:
+	case model.ChannelInterfaceOpenAIAudio:
+		return requestPath == "/audio/speech"
+	case model.ChannelInterfaceNewAPIVideo, model.ChannelInterfaceNewAPIChannel1, model.ChannelInterfaceNewAPIChannel2, model.ChannelInterfaceXAIVideo, model.ChannelInterfaceGeminiVeo:
 		return false
 	default:
 		return true

@@ -695,6 +695,11 @@ func TestRunNewAPIChannel2VideoTaskDownloadsTemporaryResult(t *testing.T) {
 			if !ok || len(images) != 2 || images[0] != testReferenceImageDataURL {
 				t.Errorf("image_urls = %#v", body["image_urls"])
 			}
+			videos, _ := body["video_urls"].([]interface{})
+			audios, _ := body["audio_urls"].([]interface{})
+			if len(videos) != 1 || len(audios) != 1 || body["generate_audio"] != true {
+				t.Errorf("multi-reference body = %#v", body)
+			}
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"task_id":"grok-task","status":"queued"}`))
 		case "GET /v1/video/generations/grok-task":
@@ -716,7 +721,9 @@ func TestRunNewAPIChannel2VideoTaskDownloadsTemporaryResult(t *testing.T) {
 			{ID: "image-1", DataURL: testReferenceImageDataURL},
 			{ID: "image-2", DataURL: testReferenceImageDataURL},
 		},
-		Metadata: map[string]interface{}{"videoEditOperation": "image_to_video"},
+		ReferenceVideos: []providerMedia{{ID: "video-1", URL: server.URL + "/reference.mp4"}},
+		ReferenceAudios: []providerMedia{{ID: "audio-1", URL: server.URL + "/reference.mp3"}},
+		Metadata:        map[string]interface{}{"videoEditOperation": "image_to_video"},
 	})
 	if err != nil {
 		t.Fatalf("runVideoTask() error = %v", err)
@@ -726,6 +733,48 @@ func TestRunNewAPIChannel2VideoTaskDownloadsTemporaryResult(t *testing.T) {
 		t.Fatalf("video = %#v", video)
 	}
 	want := "POST /v1/video/generations,GET /v1/video/generations/grok-task,GET /video.mp4"
+	if got := strings.Join(paths, ","); got != want {
+		t.Fatalf("paths = %q, want %q", got, want)
+	}
+}
+
+func TestRunGeminiVeoVideoTaskUsesLongRunningOperation(t *testing.T) {
+	t.Setenv("CANVAS_ALLOW_PRIVATE_UPSTREAMS", "true")
+	paths := make([]string, 0, 3)
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.Method+" "+r.URL.Path)
+		if r.Header.Get("x-goog-api-key") != "test-key" {
+			t.Errorf("x-goog-api-key = %q", r.Header.Get("x-goog-api-key"))
+		}
+		switch r.Method + " " + r.URL.Path {
+		case "POST /v1beta/models/veo-test:predictLongRunning":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"name":"operations/op-1"}`))
+		case "GET /v1beta/operations/op-1":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"done":true,"response":{"generatedSamples":[{"video":{"uri":"` + server.URL + `/video.mp4"}}]}}`))
+		case "GET /video.mp4":
+			w.Header().Set("Content-Type", "video/mp4")
+			_, _ = w.Write([]byte("video"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	result, err := runVideoTask(context.Background(), canvasGenerationInput{
+		Prompt: "make it move",
+		Config: providerConfig{BaseURL: server.URL, APIKey: "test-key", APIFormat: "gemini", Model: "veo-test", InterfaceType: "gemini-veo", VideoSeconds: "6", Size: "16:9", VQuality: "720"},
+	})
+	if err != nil {
+		t.Fatalf("runVideoTask() error = %v", err)
+	}
+	video := result["video"].(map[string]interface{})
+	if video["dataUrl"] != "data:video/mp4;base64,dmlkZW8=" {
+		t.Fatalf("video = %#v", video)
+	}
+	want := "POST /v1beta/models/veo-test:predictLongRunning,GET /v1beta/operations/op-1,GET /video.mp4"
 	if got := strings.Join(paths, ","); got != want {
 		t.Fatalf("paths = %q, want %q", got, want)
 	}

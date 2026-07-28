@@ -12,6 +12,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -157,7 +158,7 @@ func (s *Service) processCanvasGenerationTask(ctx context.Context, userID string
 		return nil, err
 	}
 	input.Config = config
-	if input.Config.APIFormat == "gemini" {
+	if input.Config.APIFormat == "gemini" && input.Config.InterfaceType != string(model.ChannelInterfaceGeminiVeo) {
 		return nil, errors.New("后端任务队列暂不支持 Gemini 调用格式，请使用 OpenAI 兼容渠道")
 	}
 	if strings.TrimSpace(input.Config.BaseURL) == "" || strings.TrimSpace(input.Config.APIKey) == "" || strings.TrimSpace(input.Config.Model) == "" {
@@ -167,7 +168,8 @@ func (s *Service) processCanvasGenerationTask(ctx context.Context, userID string
 		return nil, err
 	}
 	if resumedProviderRequestID(ctx) == "" {
-		if err := s.hydrateGenerationMedia(userID, &input, input.Config.InterfaceType == "newapi-channel-1"); err != nil {
+		requirePublicURL := input.Config.InterfaceType == "newapi-channel-1" || input.Config.InterfaceType == "newapi-channel-2"
+		if err := s.hydrateGenerationMedia(userID, &input, requirePublicURL); err != nil {
 			return nil, err
 		}
 	}
@@ -203,7 +205,7 @@ func (s *Service) hydrateGenerationMedia(userID string, input *canvasGenerationI
 func (s *Service) hydrateProviderMedia(userID string, media *providerMedia, requirePublicURL bool) error {
 	if !strings.HasPrefix(media.StorageKey, "resource:") {
 		if requirePublicURL && strings.HasPrefix(strings.TrimSpace(media.DataURL), "data:") {
-			return errors.New("NewAPI 渠道 1 的参考素材不能使用内嵌数据，请先上传到 OSS 或提供公网素材地址")
+			return errors.New("当前 JSON 视频协议的参考素材不能使用内嵌数据，请先上传到 OSS 或提供公网素材地址")
 		}
 		return nil
 	}
@@ -217,18 +219,18 @@ func (s *Service) hydrateProviderMedia(userID string, media *providerMedia, requ
 			return errors.New("任务参考资源尚未上传完成")
 		}
 		if resource.Provider == "local" {
-			return errors.New("NewAPI 渠道 1 的参考素材需要公网可访问地址，请启用 OSS 后重新上传该素材")
+			return errors.New("当前 JSON 视频协议的参考素材需要公网可访问地址，请启用 OSS 后重新上传该素材")
 		}
 		setting, err := s.ossSettingForResource(userID, resource)
 		if err != nil {
 			return err
 		}
 		if setting.Provider != "aliyun" {
-			return errors.New("NewAPI 渠道 1 的参考素材暂时只支持阿里云 OSS 签名地址")
+			return errors.New("当前 JSON 视频协议的私有参考素材暂时只支持阿里云 OSS 签名地址")
 		}
 		signedURL, err := signedOSSObjectURL(setting, resource.ObjectKey, time.Now().Add(providerResourceURLTTL))
 		if err != nil {
-			return fmt.Errorf("生成 NewAPI 渠道 1 参考素材地址失败：%w", err)
+			return fmt.Errorf("生成 JSON 视频协议参考素材地址失败：%w", err)
 		}
 		media.URL = signedURL
 		media.DataURL = ""
@@ -299,6 +301,15 @@ func (s *Service) resolveProviderConfig(config providerConfig) (providerConfig, 
 	config.ChannelID = channel.ID
 	config.APIFormat = channel.APIFormat
 	config.InterfaceType = string(channel.InterfaceType)
+	if channelModel, modelErr := s.repo.ChannelModelByKey(channel.ID, modelName); modelErr == nil && channelModel.Protocol != "" {
+		config.InterfaceType = string(channelModel.Protocol)
+	}
+	// 模型协议是实际请求契约；混合渠道中鉴权格式也必须随模型协议切换。
+	if config.InterfaceType == string(model.ChannelInterfaceGeminiVeo) {
+		config.APIFormat = "gemini"
+	} else if config.InterfaceType != "" {
+		config.APIFormat = "openai"
+	}
 	config.BaseURL = channel.BaseURL
 	config.APIKey = channel.APIKey
 	config.Model = modelName
@@ -585,6 +596,9 @@ func runAudioTask(ctx context.Context, input canvasGenerationInput) (map[string]
 }
 
 func runVideoTask(ctx context.Context, input canvasGenerationInput) (map[string]interface{}, error) {
+	if input.Config.InterfaceType == "gemini-veo" {
+		return runGeminiVeoVideoTask(ctx, input)
+	}
 	if input.Config.InterfaceType == "newapi-channel-2" {
 		return runNewAPIChannel2VideoTask(ctx, input)
 	}
@@ -684,6 +698,126 @@ func runVideoTask(ctx context.Context, input canvasGenerationInput) (map[string]
 	return nil, errors.New("视频生成超时")
 }
 
+func runGeminiVeoVideoTask(ctx context.Context, input canvasGenerationInput) (map[string]interface{}, error) {
+	if len(input.ReferenceImages) > 1 || len(input.ReferenceVideos) > 0 || len(input.ReferenceAudios) > 0 {
+		return nil, errors.New("Gemini Veo 当前只支持 1 张起始图，不支持参考视频或音频")
+	}
+	id := resumedProviderRequestID(ctx)
+	if id == "" {
+		instance := map[string]interface{}{"prompt": strings.TrimSpace(input.Prompt)}
+		if len(input.ReferenceImages) == 1 {
+			raw, mimeType, err := mediaBytes(input.ReferenceImages[0])
+			if err != nil {
+				return nil, fmt.Errorf("读取 Gemini Veo 起始图失败：%w", err)
+			}
+			instance["image"] = map[string]interface{}{"bytesBase64Encoded": base64.StdEncoding.EncodeToString(raw), "mimeType": mimeType}
+		}
+		body := map[string]interface{}{
+			"instances": []interface{}{instance},
+			"parameters": map[string]interface{}{
+				"aspectRatio":     normalizeNewAPIChannel2Ratio(input.Config.Size, strings.ToLower(input.Config.Model)),
+				"durationSeconds": normalizeSeedanceVideosDuration(input.Config.VideoSeconds),
+				"resolution":      normalizeNewAPIChannel2Resolution(input.Config.VQuality, strings.ToLower(input.Config.Model)),
+				"sampleCount":     1,
+			},
+		}
+		var created map[string]interface{}
+		if err := postGeminiJSON(ctx, input.Config, "/models/"+url.PathEscape(input.Config.Model)+":predictLongRunning", body, &created); err != nil {
+			return nil, err
+		}
+		id = strings.TrimSpace(stringField(created, "name"))
+	}
+	if id == "" {
+		return nil, errors.New("Gemini Veo 没有返回 operation name")
+	}
+	for deadline := providerPollingDeadline(ctx); time.Now().Before(deadline); {
+		var operation map[string]interface{}
+		if err := getGeminiJSON(ctx, input.Config, "/"+strings.TrimLeft(id, "/"), &operation); err != nil {
+			return nil, err
+		}
+		if errorValue, ok := operation["error"].(map[string]interface{}); ok && stringField(errorValue, "message") != "" {
+			return nil, fmt.Errorf("Gemini Veo 视频生成失败（任务 %s）：%s", id, stringField(errorValue, "message"))
+		}
+		done, _ := operation["done"].(bool)
+		if done {
+			videoURL := findProviderMediaURL(operation["response"])
+			if videoURL == "" {
+				return nil, fmt.Errorf("Gemini Veo 任务 %s 已完成但没有返回视频地址", id)
+			}
+			data, mimeType, err := getGeminiBinary(withProviderRequestKind(ctx, "download"), input.Config, videoURL)
+			if err != nil {
+				return nil, fmt.Errorf("Gemini Veo 视频下载失败（任务 %s）：%w", id, err)
+			}
+			mimeType = normalizedMediaMimeType(mimeType, data)
+			return map[string]interface{}{"mode": "video", "video": map[string]interface{}{"dataUrl": dataURL(mimeType, data), "mimeType": mimeType}}, nil
+		}
+		if err := sleepContext(ctx, 5*time.Second); err != nil {
+			return nil, err
+		}
+	}
+	return nil, fmt.Errorf("Gemini Veo 视频生成超时（任务 %s）", id)
+}
+
+func postGeminiJSON(ctx context.Context, config providerConfig, path string, body interface{}, target interface{}) error {
+	data, _ := json.Marshal(body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, geminiVeoURL(config.BaseURL, path), bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("x-goog-api-key", config.APIKey)
+	req.Header.Set("Content-Type", "application/json")
+	return doJSON(req, target)
+}
+
+func getGeminiJSON(ctx context.Context, config providerConfig, path string, target interface{}) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, geminiVeoURL(config.BaseURL, path), nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("x-goog-api-key", config.APIKey)
+	return doJSON(req, target)
+}
+
+func getGeminiBinary(ctx context.Context, config providerConfig, rawURL string) ([]byte, string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	req.Header.Set("x-goog-api-key", config.APIKey)
+	return doBinary(req)
+}
+
+func geminiVeoURL(baseURL string, path string) string {
+	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if !strings.HasSuffix(strings.ToLower(base), "/v1beta") {
+		base += "/v1beta"
+	}
+	return base + "/" + strings.TrimLeft(path, "/")
+}
+
+func findProviderMediaURL(value interface{}) string {
+	switch typed := value.(type) {
+	case map[string]interface{}:
+		for _, key := range []string{"uri", "url", "videoUri", "video_url"} {
+			if candidate := strings.TrimSpace(stringField(typed, key)); isPublicMediaURL(candidate) {
+				return candidate
+			}
+		}
+		for _, child := range typed {
+			if candidate := findProviderMediaURL(child); candidate != "" {
+				return candidate
+			}
+		}
+	case []interface{}:
+		for _, child := range typed {
+			if candidate := findProviderMediaURL(child); candidate != "" {
+				return candidate
+			}
+		}
+	}
+	return ""
+}
+
 func newAPIVideoResultURL(state map[string]interface{}) string {
 	return nestedNewAPIVideoResultURL(state, false, 0)
 }
@@ -736,7 +870,7 @@ func runNewAPIChannel2VideoTask(ctx context.Context, input canvasGenerationInput
 		}
 	}
 	if id == "" {
-		return nil, errors.New("NewAPI 渠道 2 没有返回任务 ID")
+		return nil, errors.New("NewAPI Video Generations 没有返回任务 ID")
 	}
 
 	for deadline := time.Now().Add(newAPIChannel2VideoPollTimeout); time.Now().Before(deadline); {
@@ -752,32 +886,32 @@ func runNewAPIChannel2VideoTask(ctx context.Context, input canvasGenerationInput
 		case "SUCCESS":
 			videoURL := strings.TrimSpace(stringField(state, "result_url"))
 			if videoURL == "" {
-				return nil, fmt.Errorf("NewAPI 渠道 2 任务 %s 已成功但没有返回视频地址", id)
+				return nil, fmt.Errorf("NewAPI Video Generations 任务 %s 已成功但没有返回视频地址", id)
 			}
 			data, mimeType, err := getExternalBinary(withProviderRequestKind(ctx, "download"), videoURL)
 			if err != nil {
-				return nil, fmt.Errorf("NewAPI 渠道 2 视频结果下载失败（任务 %s）：%w", id, err)
+				return nil, fmt.Errorf("NewAPI Video Generations 视频结果下载失败（任务 %s）：%w", id, err)
 			}
 			mimeType = normalizedMediaMimeType(mimeType, data)
 			return map[string]interface{}{"mode": "video", "video": map[string]interface{}{"dataUrl": dataURL(mimeType, data), "mimeType": mimeType}}, nil
 		case "FAILURE":
 			reason := strings.TrimSpace(stringField(state, "fail_reason"))
-			return nil, fmt.Errorf("NewAPI 渠道 2 视频生成失败（任务 %s）：%s", id, defaultString(reason, "上游返回失败"))
+			return nil, fmt.Errorf("NewAPI Video Generations 视频生成失败（任务 %s）：%s", id, defaultString(reason, "上游返回失败"))
 		case "SUBMITTED", "QUEUED", "IN_PROGRESS", "NOT_START", "":
 			// 按上游协议继续轮询；空状态也可能出现在任务刚写入队列时。
 		default:
-			return nil, fmt.Errorf("NewAPI 渠道 2 任务 %s 返回未知状态：%s", id, status)
+			return nil, fmt.Errorf("NewAPI Video Generations 任务 %s 返回未知状态：%s", id, status)
 		}
 		if err := sleepContext(ctx, newAPIChannel2VideoPollInterval); err != nil {
 			return nil, err
 		}
 	}
-	return nil, fmt.Errorf("NewAPI 渠道 2 视频生成超时（任务 %s）", id)
+	return nil, fmt.Errorf("NewAPI Video Generations 视频生成超时（任务 %s）", id)
 }
 
 func newAPIChannel2VideoBody(input canvasGenerationInput) (map[string]interface{}, error) {
-	if len(input.ReferenceVideos) > 0 || len(input.ReferenceAudios) > 0 {
-		return nil, errors.New("NewAPI 渠道 2 只支持参考图片，不支持参考视频或音频")
+	if len(input.ReferenceImages) > 9 || len(input.ReferenceVideos) > 3 || len(input.ReferenceAudios) > 3 {
+		return nil, errors.New("NewAPI Video Generations 最多支持 9 张参考图、3 个参考视频和 3 个参考音频")
 	}
 	modelName := strings.ToLower(strings.TrimSpace(input.Config.Model))
 	requiresSingleImage := modelName == "grok-video-1.5" || modelName == "grok-video-1.5-1080p"
@@ -785,19 +919,16 @@ func newAPIChannel2VideoBody(input canvasGenerationInput) (map[string]interface{
 	// 单图模型以实际参考图为准，兼容旧画布中未随连接关系更新的 text_to_video 元数据。
 	if shouldSendNewAPIVideoImages(input) || requiresSingleImage {
 		for _, image := range input.ReferenceImages {
-			url, err := openAIImageInputURL(image)
+			url, err := videoGenerationsMediaURL(image)
 			if err != nil {
 				return nil, err
 			}
 			images = append(images, url)
 		}
 	}
-	if len(images) > 7 {
-		return nil, errors.New("NewAPI 渠道 2 最多支持 7 张参考图")
-	}
 	if requiresSingleImage {
 		if len(images) != 1 {
-			return nil, fmt.Errorf("NewAPI 渠道 2 的 %s 必须且只能提供 1 张参考图（当前 %d 张）", input.Config.Model, len(images))
+			return nil, fmt.Errorf("NewAPI Video Generations 的 %s 必须且只能提供 1 张参考图（当前 %d 张）", input.Config.Model, len(images))
 		}
 	}
 
@@ -813,16 +944,47 @@ func newAPIChannel2VideoBody(input canvasGenerationInput) (map[string]interface{
 	ratio := normalizeNewAPIChannel2Ratio(input.Config.Size, modelName)
 	resolution := normalizeNewAPIChannel2Resolution(input.Config.VQuality, modelName)
 	body := map[string]interface{}{
-		"model":        input.Config.Model,
-		"prompt":       strings.TrimSpace(input.Prompt),
-		"seconds":      seconds,
-		"aspect_ratio": ratio,
-		"resolution":   resolution,
+		"model":          input.Config.Model,
+		"prompt":         strings.TrimSpace(input.Prompt),
+		"seconds":        seconds,
+		"aspect_ratio":   ratio,
+		"resolution":     resolution,
+		"generate_audio": parseBool(input.Config.VideoGenerateAudio, true),
 	}
 	if len(images) > 0 {
 		body["image_urls"] = images
 	}
+	videoURLs := make([]string, 0, len(input.ReferenceVideos))
+	for _, video := range input.ReferenceVideos {
+		url, err := videoGenerationsMediaURL(video)
+		if err != nil {
+			return nil, err
+		}
+		videoURLs = append(videoURLs, url)
+	}
+	if len(videoURLs) > 0 {
+		body["video_urls"] = videoURLs
+	}
+	audioURLs := make([]string, 0, len(input.ReferenceAudios))
+	for _, audio := range input.ReferenceAudios {
+		url, err := videoGenerationsMediaURL(audio)
+		if err != nil {
+			return nil, err
+		}
+		audioURLs = append(audioURLs, url)
+	}
+	if len(audioURLs) > 0 {
+		body["audio_urls"] = audioURLs
+	}
 	return body, nil
+}
+
+func videoGenerationsMediaURL(media providerMedia) (string, error) {
+	value := strings.TrimSpace(firstNonEmpty(media.URL, media.DataURL))
+	if isPublicMediaURL(value) || strings.HasPrefix(value, "data:") {
+		return value, nil
+	}
+	return "", errors.New("NewAPI Video Generations 的参考素材需要公网 URL；私有素材请先保存到 OSS")
 }
 
 func normalizeNewAPIChannel2Ratio(value string, modelName string) string {
@@ -886,10 +1048,10 @@ func runNewAPIChannel1VideoTask(ctx context.Context, input canvasGenerationInput
 	}
 	status := strings.ToUpper(strings.TrimSpace(stringField(created, "status")))
 	if strings.HasPrefix(status, "FAILED") {
-		return nil, fmt.Errorf("NewAPI 渠道 1 视频生成失败（任务 %s）：%s", id, strings.TrimSpace(strings.TrimPrefix(status, "FAILED:")))
+		return nil, fmt.Errorf("NewAPI 媒体任务视频生成失败（任务 %s）：%s", id, strings.TrimSpace(strings.TrimPrefix(status, "FAILED:")))
 	}
 	if id == "" {
-		return nil, errors.New("NewAPI 渠道 1 没有返回任务 ID")
+		return nil, errors.New("NewAPI 媒体任务没有返回任务 ID")
 	}
 	for deadline := providerPollingDeadline(ctx); time.Now().Before(deadline); {
 		var state map[string]interface{}
@@ -904,27 +1066,27 @@ func runNewAPIChannel1VideoTask(ctx context.Context, input canvasGenerationInput
 		case status == "SUCCEEDED":
 			videoURL := stringField(state, "object")
 			if videoURL == "" {
-				return nil, fmt.Errorf("NewAPI 渠道 1 任务 %s 已完成但没有返回视频 URL", id)
+				return nil, fmt.Errorf("NewAPI 媒体任务 %s 已完成但没有返回视频 URL", id)
 			}
 			data, mimeType, err := getExternalBinary(withProviderRequestKind(ctx, "download"), videoURL)
 			if err != nil {
-				return nil, fmt.Errorf("NewAPI 渠道 1 视频结果下载失败（任务 %s）：%w", id, err)
+				return nil, fmt.Errorf("NewAPI 媒体任务视频结果下载失败（任务 %s）：%w", id, err)
 			}
 			return map[string]interface{}{"mode": "video", "video": map[string]interface{}{"dataUrl": dataURL(mimeType, data), "mimeType": mimeType}}, nil
 		case strings.HasPrefix(status, "FAILED"):
 			message := strings.TrimSpace(strings.TrimPrefix(status, "FAILED:"))
-			return nil, fmt.Errorf("NewAPI 渠道 1 视频生成失败（任务 %s）：%s", id, defaultString(message, "上游返回失败"))
+			return nil, fmt.Errorf("NewAPI 媒体任务视频生成失败（任务 %s）：%s", id, defaultString(message, "上游返回失败"))
 		}
 		if err := sleepContext(ctx, newAPIChannel1VideoPollInterval); err != nil {
 			return nil, err
 		}
 	}
-	return nil, fmt.Errorf("NewAPI 渠道 1 视频生成超时（任务 %s）", id)
+	return nil, fmt.Errorf("NewAPI 媒体任务视频生成超时（任务 %s）", id)
 }
 
 func newAPIChannel1VideoBody(input canvasGenerationInput) (map[string]interface{}, error) {
 	if len(input.ReferenceImages) > 9 || len(input.ReferenceVideos) > 3 || len(input.ReferenceAudios) > 3 {
-		return nil, errors.New("NewAPI 渠道 1 最多支持 9 张参考图、3 个参考视频和 3 个参考音频")
+		return nil, errors.New("NewAPI 媒体任务最多支持 9 张参考图、3 个参考视频和 3 个参考音频")
 	}
 	media := make([]map[string]string, 0, len(input.ReferenceImages)+len(input.ReferenceVideos)+len(input.ReferenceAudios))
 	if shouldSendNewAPIVideoImages(input) {
@@ -970,7 +1132,7 @@ func newAPIChannel1VideoBody(input canvasGenerationInput) (map[string]interface{
 func newAPIChannel1MediaURL(media providerMedia) (string, error) {
 	value := strings.TrimSpace(media.URL)
 	if !isPublicMediaURL(value) {
-		return "", errors.New("NewAPI 渠道 1 的参考素材必须使用公网 HTTP(S) URL，请启用 OSS 或提供公网素材地址")
+		return "", errors.New("NewAPI 媒体任务的参考素材必须使用公网 HTTP(S) URL，请启用 OSS 或提供公网素材地址")
 	}
 	if _, err := ValidateOutboundURL(value); err != nil {
 		return "", err
@@ -1012,7 +1174,8 @@ func validateGenerationInterface(mode string, interfaceType string) error {
 	allowed := map[string]map[string]bool{
 		"text":  {"chat-completion": true, "openai-response": true},
 		"image": {"openai-image": true},
-		"video": {"newapi": true, "newapi-channel-1": true, "newapi-channel-2": true, "xai-video": true},
+		"video": {"newapi": true, "newapi-channel-1": true, "newapi-channel-2": true, "xai-video": true, "gemini-veo": true},
+		"audio": {"openai-audio": true},
 	}
 	if allowed[mode] != nil && !allowed[mode][interfaceType] {
 		return fmt.Errorf("接口类型 %s 不支持%s生成", interfaceType, mode)
@@ -1389,14 +1552,18 @@ func recordProviderRequest(req *http.Request, startedAt time.Time, statusCode in
 	if metadata.RequestKind != "" {
 		requestKind = metadata.RequestKind
 	}
+	apiFormat := "openai"
+	if req.Header.Get("x-goog-api-key") != "" {
+		apiFormat = "gemini"
+	}
 	log := model.ApiCallLog{
 		UserID: metadata.UserID, ChannelID: metadata.ChannelID, TaskID: metadata.TaskID, BillingOrderID: metadata.BillingOrderID,
 		Source: "backend-task", Capability: metadata.Capability, Operation: metadata.Operation,
 		RequestKind: requestKind, Billable: req.Method == http.MethodPost,
-		APIFormat: "openai", Method: req.Method, Path: req.URL.Path, Model: metadata.Model,
+		APIFormat: apiFormat, Method: req.Method, Path: req.URL.Path, Model: metadata.Model,
 		Status: status, StatusCode: statusCode, DurationMs: time.Since(startedAt).Milliseconds(),
 		Error: errorText, ConcurrencyLimit: metadata.ConcurrencyLimit, UpstreamURL: req.URL.Scheme + "://" + req.URL.Host + req.URL.Path,
-		ProviderRequestID: metadata.ProviderRequestID, RequestBody: requestPayloadForLog(req), ResponseBody: SanitizeAPICallPayload(responseBody, ""),
+		ProviderRequestID: metadata.ProviderRequestID, RequestContentType: req.Header.Get("Content-Type"), RequestBody: requestPayloadForLog(req), ResponseBody: SanitizeAPICallPayload(responseBody, ""),
 	}
 	channelSlotFailure := false
 	if code, message := ChannelSlotFailureDetails(requestErr); code != "" {

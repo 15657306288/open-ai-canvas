@@ -7,6 +7,7 @@ import { UserOSSSettingsForm } from "@/components/layout/user-oss-settings-form"
 import { WorkspaceState } from "@/components/layout/workspace-state";
 import { WorkspaceSignalIcon } from "@/components/ui/aceternity/workspace-signal-icon";
 import { refreshSystemChannels } from "@/lib/user-session";
+import { MODEL_PROTOCOL_OPTIONS, modelProtocolLabel } from "@/lib/model-protocols";
 import { fetchChannelModels } from "@/services/api/image";
 import { audioFormatOptions, audioVoiceOptions, normalizeAudioSpeedValue } from "@/lib/audio-generation";
 import {
@@ -22,7 +23,7 @@ import {
     type ModelChannel,
 } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
-import { ChannelVideoPricing } from "./channel-video-pricing";
+import { ChannelModelSettings } from "./channel-video-pricing";
 import { ModelDefaultGrid } from "./model-default-grid";
 
 type ConfigSectionKey = "channels" | "models" | "preferences" | "storage";
@@ -38,24 +39,8 @@ type UserChannelProtocol = ChannelInterfaceType | "auto" | "gemini";
 
 const channelProtocolOptions = [
     { label: "OpenAI 自动兼容", value: "auto" },
-    { label: "Gemini 原生", value: "gemini" },
-    {
-        label: "文本",
-        options: [
-            { label: "Chat Completions", value: "chat-completion" },
-            { label: "OpenAI Responses", value: "openai-response" },
-        ],
-    },
-    { label: "图片", options: [{ label: "OpenAI Images", value: "openai-image" }] },
-    {
-        label: "视频",
-        options: [
-            { label: "NewAPI 视频", value: "newapi" },
-            { label: "NewAPI 渠道 1", value: "newapi-channel-1" },
-            { label: "NewAPI 渠道 2", value: "newapi-channel-2" },
-            { label: "xAI / Sub2API 视频", value: "xai-video" },
-        ],
-    },
+    { label: "Google Gemini（模型级选择）", value: "gemini" },
+    ...MODEL_PROTOCOL_OPTIONS,
 ];
 
 function isConfigSection(value: string | null): value is ConfigSectionKey {
@@ -134,12 +119,11 @@ export default function SettingsPage() {
     };
 
     const updateChannelProtocol = (channel: ModelChannel, protocol: UserChannelProtocol) => {
-        const apiFormat = protocol === "gemini" ? "gemini" : "openai";
+        const apiFormat = protocol === "gemini" || protocol === "gemini-veo" ? "gemini" : "openai";
         const interfaceType = protocol === "auto" || protocol === "gemini" ? undefined : protocol;
         const defaultBaseUrl = protocol === "gemini" ? defaultBaseUrlForApiFormat("gemini") : defaultBaseUrlForChannelInterface(interfaceType);
         const baseUrl = isKnownDefaultBaseUrl(channel.baseUrl) ? defaultBaseUrl : channel.baseUrl;
-        const videoProtocol = interfaceType === "newapi" || interfaceType === "newapi-channel-1" || interfaceType === "newapi-channel-2" || interfaceType === "xai-video";
-        updateChannel(channel.id, { apiFormat, interfaceType, baseUrl, modelCosts: videoProtocol ? channel.modelCosts : [] });
+        updateChannel(channel.id, { apiFormat, interfaceType, baseUrl });
     };
 
     const addChannel = () => {
@@ -296,7 +280,7 @@ export default function SettingsPage() {
                                         <div className="min-w-0 flex-1">
                                             <div className="flex w-fit max-w-full flex-wrap items-center gap-1.5 text-xs text-foreground/65">
                                                 <Info className="size-3.5 shrink-0" />
-                                                <span>模型会按渠道协议和后台能力自动归类，拉取完成后可直接选择默认模型。</span>
+                                                <span>渠道保存连接和默认协议；拉取模型后，请为需要特殊路径的模型单独选择请求协议。</span>
                                                 <Button type="link" size="small" className="h-auto p-0 text-xs font-semibold" onClick={() => selectSection("models")}>
                                                     打开模型选择
                                                 </Button>
@@ -366,7 +350,7 @@ export default function SettingsPage() {
                                                                 onBlur={(event) => updateChannel(channel.id, { name: event.target.value.trim() || "未命名渠道" })}
                                                             />
                                                         </Form.Item>
-                                                        <Form.Item label="接口协议" htmlFor={`channel-${channel.id}-protocol`} className="mb-0 lg:col-span-3">
+                                                        <Form.Item label="默认模型协议" htmlFor={`channel-${channel.id}-protocol`} className="mb-0 lg:col-span-3" extra="用于新模型预填，单个模型可在下方覆盖。">
                                                             <Select<UserChannelProtocol>
                                                                 id={`channel-${channel.id}-protocol`}
                                                                 value={channelProtocolValue(channel)}
@@ -408,7 +392,7 @@ export default function SettingsPage() {
                                                             />
                                                         </Form.Item>
                                                     </div>
-                                                    <ChannelVideoPricing channel={channel} onChange={(modelCosts) => updateChannel(channel.id, { modelCosts })} />
+                                                    <ChannelModelSettings channel={channel} onChange={(modelCosts) => updateChannel(channel.id, { modelCosts })} />
                                                 </section>
                                             ))}
                                         </div>
@@ -620,16 +604,8 @@ function channelProtocolLabel(channel: ModelChannel) {
             return "OpenAI Responses";
         case "openai-image":
             return "OpenAI Images";
-        case "newapi":
-            return "NewAPI 视频";
-        case "newapi-channel-1":
-            return "NewAPI 渠道 1";
-        case "newapi-channel-2":
-            return "NewAPI 渠道 2";
-        case "xai-video":
-            return "xAI / Sub2API 视频";
         default:
-            return "OpenAI 自动兼容";
+            return protocol === "auto" ? "OpenAI 自动兼容" : modelProtocolLabel(protocol);
     }
 }
 

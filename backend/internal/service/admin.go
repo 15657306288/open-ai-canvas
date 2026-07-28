@@ -104,11 +104,12 @@ type PublicModelChannel struct {
 }
 
 type PublicChannelModelPrice struct {
-	Model                 string `json:"model"`
-	DisplayName           string `json:"displayName"`
-	Capability            string `json:"capability"`
-	BillingMode           string `json:"billingMode"`
-	UnitPriceMicrocredits int64  `json:"unitPriceMicrocredits"`
+	Model                 string                     `json:"model"`
+	DisplayName           string                     `json:"displayName"`
+	Capability            string                     `json:"capability"`
+	Protocol              model.ChannelInterfaceType `json:"protocol"`
+	BillingMode           string                     `json:"billingMode"`
+	UnitPriceMicrocredits int64                      `json:"unitPriceMicrocredits"`
 }
 
 func (s *Service) RequireAdmin(user *model.User) error {
@@ -511,7 +512,7 @@ func (s *Service) LogAPICall(log model.ApiCallLog) error {
 	if err != nil {
 		return err
 	}
-	incomingBytes := int64(len(log.Path) + len(log.Model) + len(log.ProviderRequestID) + len(log.ErrorCode) + len(log.Error) + len(log.UpstreamURL) + len(log.RequestBody) + len(log.ResponseBody))
+	incomingBytes := int64(len(log.Path) + len(log.Model) + len(log.ProviderRequestID) + len(log.ErrorCode) + len(log.Error) + len(log.UpstreamURL) + len(log.RequestContentType) + len(log.RequestBody) + len(log.ResponseBody))
 	if err := validateAPICallLogQuotaWithPolicy(usage, incomingBytes, policy.Resource); err != nil {
 		return err
 	}
@@ -600,8 +601,11 @@ func channelFromRequest(req ChannelRequest, channel model.ModelChannel) (model.M
 	if req.APIKey != "" {
 		channel.APIKey = req.APIKey
 	}
-	// 系统渠道均由后端按已声明的接口类型分发，调用格式固定为 Bearer/OpenAI 兼容鉴权。
+	// Gemini Veo 使用 x-goog-api-key，其余系统协议使用 Bearer 鉴权。
 	channel.APIFormat = "openai"
+	if interfaceType == model.ChannelInterfaceGeminiVeo {
+		channel.APIFormat = "gemini"
+	}
 	channel.InterfaceType = interfaceType
 	if req.UseGlobalConcurrency != nil && *req.UseGlobalConcurrency {
 		channel.ConcurrencyLimit = 0
@@ -641,7 +645,7 @@ func mergeChannelRequest(req ChannelRequest, channel model.ModelChannel) Channel
 
 func validChannelInterfaceType(value model.ChannelInterfaceType) bool {
 	switch value {
-	case model.ChannelInterfaceChatCompletion, model.ChannelInterfaceOpenAIResponse, model.ChannelInterfaceOpenAIImage, model.ChannelInterfaceNewAPIVideo, model.ChannelInterfaceNewAPIChannel1, model.ChannelInterfaceNewAPIChannel2, model.ChannelInterfaceXAIVideo:
+	case model.ChannelInterfaceChatCompletion, model.ChannelInterfaceOpenAIResponse, model.ChannelInterfaceOpenAIImage, model.ChannelInterfaceOpenAIAudio, model.ChannelInterfaceNewAPIVideo, model.ChannelInterfaceNewAPIChannel1, model.ChannelInterfaceNewAPIChannel2, model.ChannelInterfaceXAIVideo, model.ChannelInterfaceGeminiVeo:
 		return true
 	default:
 		return false
@@ -673,7 +677,11 @@ func publicChannel(channel model.ModelChannel, admin bool, channelModels []model
 		}
 		models = append(models, item.ModelKey)
 		if item.Enabled && item.PriceConfigured {
-			modelCosts = append(modelCosts, PublicChannelModelPrice{Model: item.ModelKey, DisplayName: item.DisplayName, Capability: item.Capability, BillingMode: item.BillingMode, UnitPriceMicrocredits: item.UnitPriceMicrocredits})
+			protocol := item.Protocol
+			if protocol == "" {
+				protocol = channel.InterfaceType
+			}
+			modelCosts = append(modelCosts, PublicChannelModelPrice{Model: item.ModelKey, DisplayName: item.DisplayName, Capability: item.Capability, Protocol: protocol, BillingMode: item.BillingMode, UnitPriceMicrocredits: item.UnitPriceMicrocredits})
 		}
 	}
 	if len(models) == 0 {
