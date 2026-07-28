@@ -272,6 +272,12 @@ export function useCanvasNodeOperations({
                 delete metadata.taskCreatedAt;
                 delete metadata.taskUpdatedAt;
                 delete metadata.errorDetails;
+                delete metadata.batchRootId;
+                delete metadata.batchChildIds;
+                delete metadata.isBatchRoot;
+                delete metadata.primaryImageId;
+                delete metadata.imageBatchExpanded;
+                delete metadata.batchUsesReferenceImages;
                 metadata.status = metadata.content ? NODE_STATUS_SUCCESS : NODE_STATUS_IDLE;
                 metadata.versionOfNodeId = versionRootId;
                 metadata.versionLabel = versionLabel;
@@ -332,6 +338,17 @@ export function useCanvasNodeOperations({
             connections: connectionsRef.current.filter((connection) => copyIds.has(connection.fromNodeId) && copyIds.has(connection.toNodeId)).map((connection) => ({ ...connection })),
         };
         setHasCopiedNodes(true);
+        // 写入系统剪贴板标记，覆盖旧图片，避免 Ctrl+V 仍优先粘贴系统图片。
+        const marker = `open-ai-canvas-nodes:${Date.now()}:${copiedNodes.length}`;
+        try {
+            if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
+                void navigator.clipboard.write([new ClipboardItem({ "text/plain": new Blob([marker], { type: "text/plain" }) })]);
+            } else if (navigator.clipboard?.writeText) {
+                void navigator.clipboard.writeText(marker);
+            }
+        } catch {
+            // 忽略剪贴板权限失败，内部剪贴板仍可用。
+        }
     }, [connectionsRef, nodesRef]);
 
     const copySelectedNodes = useCallback(() => {
@@ -351,20 +368,60 @@ export function useCanvasNodeOperations({
         const dx = center.x - (bounds.left + bounds.right) / 2;
         const dy = center.y - (bounds.top + bounds.bottom) / 2;
         const idMap = new Map(clipboard.nodes.map((node, index) => [node.id, `${node.type}-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`]));
-        const nextNodes = clipboard.nodes.map((node) => ({
-            ...node,
-            id: idMap.get(node.id)!,
-            title: node.title.endsWith(" Copy") ? node.title : `${node.title} Copy`,
-            position: { x: node.position.x + dx, y: node.position.y + dy },
-            parentId: node.parentId ? idMap.get(node.parentId) : undefined,
-            metadata: node.type === CanvasNodeType.Drawing
-                ? { ...node.metadata, frame: node.metadata?.frame ? { ...node.metadata.frame } : undefined, drawingId: `${idMap.get(node.id)}-document`, drawingRevision: 0, drawingUpdatedAt: undefined, drawingShapeCount: 0, drawingPageCount: 1 }
-                : node.metadata ? { ...node.metadata, frame: node.metadata.frame ? { ...node.metadata.frame } : undefined } : undefined,
-        }));
+        const copiedSourceIds = new Set(clipboard.nodes.map((node) => node.id));
+        const nextNodes = clipboard.nodes.map((node) => {
+            const metadata = node.metadata ? { ...node.metadata, frame: node.metadata.frame ? { ...node.metadata.frame } : undefined } : undefined;
+            if (metadata) {
+                // 粘贴必须切断与源批次/任务的绑定，否则拖拽会通过 batchChildIds 带动旧结果。
+                delete metadata.taskId;
+                delete metadata.taskStatus;
+                delete metadata.taskProgress;
+                delete metadata.taskStage;
+                delete metadata.taskCreatedAt;
+                delete metadata.taskUpdatedAt;
+                delete metadata.errorDetails;
+                delete metadata.generationErrorCode;
+                delete metadata.failedPromptFingerprint;
+                delete metadata.batchRootId;
+                delete metadata.batchChildIds;
+                delete metadata.isBatchRoot;
+                delete metadata.primaryImageId;
+                delete metadata.imageBatchExpanded;
+                delete metadata.batchUsesReferenceImages;
+                delete metadata.versionOfNodeId;
+                delete metadata.versionLabel;
+                delete metadata.versionPrimary;
+                metadata.status = metadata.content ? NODE_STATUS_SUCCESS : NODE_STATUS_IDLE;
+            }
+            if (node.type === CanvasNodeType.Drawing && metadata) {
+                metadata.drawingId = `${idMap.get(node.id)}-document`;
+                metadata.drawingRevision = 0;
+                metadata.drawingUpdatedAt = undefined;
+                metadata.drawingShapeCount = 0;
+                metadata.drawingPageCount = 1;
+            }
+            return {
+                ...node,
+                id: idMap.get(node.id)!,
+                title: node.title.endsWith(" Copy") ? node.title : `${node.title} Copy`,
+                position: { x: node.position.x + dx, y: node.position.y + dy },
+                parentId: node.parentId ? idMap.get(node.parentId) : undefined,
+                metadata,
+            };
+        });
+        // 1) 剪贴板内部连线；2) 仍保留到画布上未复制参考节点的入边（只复制结果节点时常见）。
         const nextConnections = clipboard.connections.flatMap((connection, index) => {
             const fromNodeId = idMap.get(connection.fromNodeId);
             const toNodeId = idMap.get(connection.toNodeId);
             return fromNodeId && toNodeId ? [{ ...connection, id: `conn-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`, fromNodeId, toNodeId }] : [];
+        });
+        connectionsRef.current.forEach((connection) => {
+            if (!copiedSourceIds.has(connection.toNodeId) || copiedSourceIds.has(connection.fromNodeId)) return;
+            const toNodeId = idMap.get(connection.toNodeId);
+            if (!toNodeId) return;
+            // 参考节点仍在画布上时，粘贴结果应重新挂上同一入边。
+            if (!nodesRef.current.some((node) => node.id === connection.fromNodeId)) return;
+            nextConnections.push({ ...connection, id: nanoid(), toNodeId });
         });
         commitNodes([...nodesRef.current, ...nextNodes]);
         commitConnections([...connectionsRef.current, ...nextConnections]);

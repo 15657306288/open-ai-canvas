@@ -367,28 +367,65 @@ export function useCanvasUpload({
         }
     }, [message, nodesRef, persistMediaNode, selectInsertedNode, setNodes, startUploadStatus]);
 
-    const pasteSystemClipboard = useCallback(async (position?: Position) => {
-        if (!navigator.clipboard) return;
-        if (navigator.clipboard.read) {
-            const items = await navigator.clipboard.read();
-            const imageItem = items.find((item) => item.types.some((type) => type.startsWith("image/")));
-            if (imageItem) {
-                const imageType = imageItem.types.find((type) => type.startsWith("image/"));
-                if (!imageType) return;
-                const blob = await imageItem.getType(imageType);
-                const file = new File([blob], "clipboard-image.png", { type: imageType });
-                const selected = nodesRef.current.filter((node) => selectedNodeIdsRef.current.has(node.id));
-                if (selected.length === 1 && selected[0].type === CanvasNodeType.Image) {
-                    if (await replaceNodeMedia(selected[0].id, file)) message.success("已用剪切板图片替换，可撤销恢复");
-                    return;
+    const pasteSystemClipboard = useCallback(async (position?: Position, clipboardEvent?: ClipboardEvent | null) => {
+        const isNodeMarker = (value: string) => value.trim().startsWith("open-ai-canvas-nodes:");
+        const pasteImageFile = async (file: File) => {
+            const selected = nodesRef.current.filter((node) => selectedNodeIdsRef.current.has(node.id));
+            if (selected.length === 1 && selected[0].type === CanvasNodeType.Image) {
+                if (await replaceNodeMedia(selected[0].id, file)) message.success("已用剪切板图片替换，可撤销恢复");
+                return true;
+            }
+            const inserted = await createImageFileNode(file, position || getCanvasCenter());
+            if (inserted) message.success("已从剪切板添加图片");
+            return Boolean(inserted);
+        };
+
+        // 1) paste 事件里的图片文件（截图/资源管理器复制）优先。
+        const filesFromEvent = clipboardEvent
+            ? Array.from(clipboardEvent.clipboardData?.items || [])
+                .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+                .map((item) => item.getAsFile())
+                .filter((file): file is File => Boolean(file))
+            : [];
+        if (filesFromEvent.length) return pasteImageFile(filesFromEvent[0]);
+
+        // 2) 若系统文本是节点标记，说明最近一次复制是画布节点，不要再读旧图片。
+        const eventText = clipboardEvent?.clipboardData?.getData("text/plain") || "";
+        if (isNodeMarker(eventText)) return false;
+
+        // 3) 异步读系统剪贴板：有图片才导入；若文本是节点标记则让位给节点粘贴。
+        if (navigator.clipboard?.read) {
+            try {
+                const items = await navigator.clipboard.read();
+                const textItem = items.find((item) => item.types.includes("text/plain"));
+                if (textItem) {
+                    const textBlob = await textItem.getType("text/plain");
+                    const text = await textBlob.text();
+                    if (isNodeMarker(text)) return false;
                 }
-                const inserted = await createImageFileNode(file, position || getCanvasCenter());
-                if (inserted) message.success("已从剪切板添加图片");
-                return;
+                const imageItem = items.find((item) => item.types.some((type) => type.startsWith("image/")));
+                if (imageItem) {
+                    const imageType = imageItem.types.find((type) => type.startsWith("image/"));
+                    if (!imageType) return false;
+                    const blob = await imageItem.getType(imageType);
+                    return pasteImageFile(new File([blob], "clipboard-image.png", { type: imageType }));
+                }
+            } catch {
+                // 无权限时继续文本分支。
             }
         }
-        const text = await navigator.clipboard.readText();
-        if (createTextNodeFromClipboard(text, position)) message.success("已从剪切板添加文本");
+
+        try {
+            const text = eventText || (navigator.clipboard?.readText ? await navigator.clipboard.readText() : "");
+            if (isNodeMarker(text)) return false;
+            if (createTextNodeFromClipboard(text, position)) {
+                message.success("已从剪切板添加文本");
+                return true;
+            }
+        } catch {
+            // ignore
+        }
+        return false;
     }, [createImageFileNode, createTextNodeFromClipboard, getCanvasCenter, message, nodesRef, replaceNodeMedia, selectedNodeIdsRef]);
 
     const handleImageInputChange = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
