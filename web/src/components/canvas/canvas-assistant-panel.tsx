@@ -936,13 +936,25 @@ function AgentModelIcon({ model }: { model: string }) {
 }
 
 function resolveModelIcon(model: string) {
+    // 与 model-picker 保持同一套厂商图标规则。
     const name = model.toLowerCase();
     if (name.includes("claude") || name.includes("anthropic")) return "/icons/claude.svg";
-    if (name.includes("gemini") || name.includes("google")) return "/icons/gemini.svg";
-    if (name.includes("gpt") || name.includes("openai")) return "/icons/openai.svg";
+    if (
+        name.includes("gemini") ||
+        name.includes("google") ||
+        name.includes("nano banana") ||
+        name.includes("nanobanana") ||
+        name.includes("imagen") ||
+        name.includes("veo") ||
+        name.includes("omni flash") ||
+        name.includes("omni-flash")
+    ) {
+        return "/icons/gemini.svg";
+    }
+    if (name.includes("gpt") || name.includes("openai") || name.includes("dall-e") || name.includes("dalle")) return "/icons/openai.svg";
     if (name.includes("grok")) return "/icons/grok.svg";
     if (name.includes("deepseek")) return "/icons/deepseek.svg";
-    if (name.includes("glm")) return "/icons/glm.svg";
+    if (name.includes("glm") || name.includes("chatglm")) return "/icons/glm.svg";
     return "";
 }
 

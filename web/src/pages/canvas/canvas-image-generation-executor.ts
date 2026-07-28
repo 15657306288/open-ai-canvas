@@ -2,7 +2,7 @@ import { nanoid } from "nanoid";
 
 import { NODE_DEFAULT_SIZE } from "@/constant/canvas";
 import { imageMetadata } from "@/lib/canvas/canvas-generation-task-sync";
-import { fitNodeSize } from "@/lib/canvas/canvas-node-size";
+import { fitNodeSize, nodeSizeFromRatio } from "@/lib/canvas/canvas-node-size";
 import { prepareInPlaceMediaVersion } from "@/lib/canvas/canvas-media-versions";
 import { buildImageGenerationMetadata, getGenerationCount, isGenerationCanceled, runBackendCanvasGenerationTask } from "@/lib/canvas/canvas-project-generation";
 import { CONTENT_MODERATION_ERROR_CODE, generationFailureMetadata, type GenerationFailureMetadata } from "@/lib/generation-error";
@@ -45,12 +45,17 @@ export async function executeImageGeneration({
     const generationType = referenceImages.length ? ("edit" as const) : ("generation" as const);
     const generationMetadata = buildImageGenerationMetadata(generationType, generationConfig, count, referenceImages);
     const parentConfig = NODE_DEFAULT_SIZE[isConfigNode ? CanvasNodeType.Config : isImageNode ? CanvasNodeType.Image : CanvasNodeType.Text];
-    const imageConfig = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
+    const imageDefaults = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
+    // 生成中占位框按设置比例显示，避免 16:9 任务显示成默认 340x240。
+    const imageConfig = nodeSizeFromRatio(generationConfig.size || "auto", imageDefaults.width, imageDefaults.height) || imageDefaults;
     const parentPosition = sourceNode?.position || { x: 0, y: 0 };
     const rootId = isImageNode ? nodeId : nanoid();
     const childIds = count > 1 ? Array.from({ length: count }, () => nanoid()) : [];
     const targetIds = count > 1 ? childIds : [rootId];
     registerPendingNodeIds(isEmptyImageNode ? childIds : [rootId, ...childIds]);
+    // 空节点可直接按目标比例改尺寸；已有内容的原位重生保留原尺寸，避免布局跳动。
+    const rootWidth = isImageNode && !isEmptyImageNode ? sourceNode?.width || imageConfig.width : imageConfig.width;
+    const rootHeight = isImageNode && !isEmptyImageNode ? sourceNode?.height || imageConfig.height : imageConfig.height;
 
     const rootNode: CanvasNodeData = {
         id: rootId,
@@ -60,13 +65,14 @@ export async function executeImageGeneration({
             ? parentPosition
             : {
                   x: parentPosition.x + parentConfig.width + 96,
-                  y: parentPosition.y + parentConfig.height / 2 - imageConfig.height / 2,
+                  y: parentPosition.y + parentConfig.height / 2 - rootHeight / 2,
               },
-        width: isImageNode ? sourceNode?.width || imageConfig.width : imageConfig.width,
-        height: isImageNode ? sourceNode?.height || imageConfig.height : imageConfig.height,
+        width: rootWidth,
+        height: rootHeight,
         metadata: {
             prompt: effectivePrompt,
             status: NODE_STATUS_LOADING,
+            size: generationConfig.size,
             isBatchRoot: count > 1,
             batchChildIds: count > 1 ? childIds : undefined,
             batchUsesReferenceImages: referenceImages.length > 0,
@@ -87,7 +93,7 @@ export async function executeImageGeneration({
         },
         width: imageConfig.width,
         height: imageConfig.height,
-        metadata: { prompt: effectivePrompt, status: NODE_STATUS_LOADING, batchRootId: count > 1 ? rootId : undefined, ...generationMetadata, generationErrorCode: undefined, failedPromptFingerprint: undefined },
+        metadata: { prompt: effectivePrompt, status: NODE_STATUS_LOADING, size: generationConfig.size, batchRootId: count > 1 ? rootId : undefined, ...generationMetadata, generationErrorCode: undefined, failedPromptFingerprint: undefined },
     }));
     const batchConnections = [...(isImageNode ? [] : [{ id: nanoid(), fromNodeId: nodeId, toNodeId: rootId }]), ...childIds.map((childId) => ({ id: nanoid(), fromNodeId: rootId, toNodeId: childId }))];
 

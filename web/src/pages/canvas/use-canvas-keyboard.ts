@@ -23,7 +23,7 @@ type UseCanvasKeyboardOptions = {
     cancelSelectionBox: () => void;
     copySelectedNodes: () => void;
     pasteCopiedNodes: () => boolean;
-    pasteSystemClipboard: () => unknown;
+    pasteSystemClipboard: (position?: undefined, clipboardEvent?: ClipboardEvent | null) => Promise<boolean> | boolean;
     deleteNodes: (ids: Set<string>) => void;
     deleteConnection: (connectionId: string) => void;
     deselectCanvas: () => void;
@@ -105,8 +105,8 @@ export function useCanvasKeyboard({
                 return;
             }
             if (isModifierShortcut && !event.altKey && key === "v") {
-                event.preventDefault();
-                if (!pasteCopiedNodes()) void pasteSystemClipboard();
+                // 不在 keydown 直接粘贴节点：交给 paste 事件，优先系统剪贴板图片。
+                // 这里只做标记，真正逻辑在 paste 监听器里。
                 return;
             }
             if (event.key === "Delete" || event.key === "Backspace") {
@@ -122,7 +122,22 @@ export function useCanvasKeyboard({
             }
         };
 
+        const handlePaste = (event: ClipboardEvent) => {
+            const target = event.target instanceof Element ? event.target : null;
+            if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || target?.closest("[contenteditable='true'],[data-canvas-no-zoom]")) return;
+            // 系统剪贴板有图片时优先粘贴图片；否则再粘贴画布内部复制的节点。
+            event.preventDefault();
+            void (async () => {
+                const handled = await pasteSystemClipboard(undefined, event);
+                if (!handled) pasteCopiedNodes();
+            })();
+        };
+
         window.addEventListener("keydown", handleKeyDown, true);
-        return () => window.removeEventListener("keydown", handleKeyDown, true);
+        window.addEventListener("paste", handlePaste, true);
+        return () => {
+            window.removeEventListener("keydown", handleKeyDown, true);
+            window.removeEventListener("paste", handlePaste, true);
+        };
     }, [cancelSelectionBox, copySelectedNodes, deleteConnection, deleteNodes, deselectCanvas, fitCanvasContent, fitCanvasSelection, nodesRef, pasteCopiedNodes, pasteSystemClipboard, redoCanvas, saveCanvasProject, selectedConnectionId, selectedNodeIdsRef, setAnnotationNodeId, setContextMenu, setCropNodeId, setInfoNodeId, setMaskEditNodeId, setSelectedConnectionId, setSelectedNodeIds, setShortcutRequestNonce, undoCanvas, zoomToActualSize]);
 }

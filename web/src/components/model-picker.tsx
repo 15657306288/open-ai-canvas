@@ -136,13 +136,15 @@ function ModelPrice({ price, compact = false }: { price: { value: number; unit: 
 function modelMenuMeta(model: string, capability?: ModelCapability): { description: string; time?: string } {
     const name = modelOptionName(model).toLowerCase();
     if (capability === "image") {
+        if (name.includes("nano banana") || name.includes("nanobanana") || name.includes("imagen")) return { description: "Gemini 高质量图片生成，适合角色和商业成片" };
         if (name.includes("nano") || name.includes("pro")) return { description: "高质量图片生成，适合角色和商业成片" };
         if (name.includes("seedream")) return { description: "快速出图，适合批量探索风格" };
         if (name.includes("gpt") || name.includes("image")) return { description: "通用图片模型，提示词理解稳定" };
         return { description: "图片生成模型" };
     }
     if (capability === "video") {
-        if (name.includes("seedance") || name.includes("veo") || name.includes("sora")) return { description: "镜头生成与图生视频，适合成片流程", time: "3m" };
+        if (name.includes("veo") || name.includes("omni flash") || name.includes("omni-flash")) return { description: "Gemini 镜头生成与图生视频，适合成片流程", time: "3m" };
+        if (name.includes("seedance") || name.includes("sora")) return { description: "镜头生成与图生视频，适合成片流程", time: "3m" };
         return { description: "视频生成模型", time: "3m" };
     }
     if (capability === "audio") return { description: "语音、音效或音乐生成", time: "20s" };
@@ -157,13 +159,25 @@ export function ModelIcon({ model }: { model: string }) {
     return icon ? <img src={icon} alt="" className="size-3.5 shrink-0 dark:invert" /> : <Cpu className="size-3.5 shrink-0 opacity-70" />;
 }
 
-function resolveModelIcon(model: string) {
+export function resolveModelIcon(model: string) {
     const name = model.toLowerCase();
     if (name.includes("claude") || name.includes("anthropic")) return "/icons/claude.svg";
-    if (name.includes("gemini") || name.includes("google")) return "/icons/gemini.svg";
-    if (name.includes("gpt") || name.includes("openai")) return "/icons/openai.svg";
-    if (name.includes("grok") || name.includes("grok")) return "/icons/grok.svg";
-    if (name.includes("deepseek") || name.includes("deepseek")) return "/icons/deepseek.svg";
-    if (name.includes("glm") || name.includes("glm")) return "/icons/glm.svg";
+    // Flow2API 短名：Nano Banana / Imagen / Veo / Omni 均属 Google Gemini 系。
+    if (
+        name.includes("gemini") ||
+        name.includes("google") ||
+        name.includes("nano banana") ||
+        name.includes("nanobanana") ||
+        name.includes("imagen") ||
+        name.includes("veo") ||
+        name.includes("omni flash") ||
+        name.includes("omni-flash")
+    ) {
+        return "/icons/gemini.svg";
+    }
+    if (name.includes("gpt") || name.includes("openai") || name.includes("dall-e") || name.includes("dalle")) return "/icons/openai.svg";
+    if (name.includes("grok")) return "/icons/grok.svg";
+    if (name.includes("deepseek")) return "/icons/deepseek.svg";
+    if (name.includes("glm") || name.includes("chatglm")) return "/icons/glm.svg";
     return "";
 }

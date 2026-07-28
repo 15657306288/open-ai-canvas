@@ -977,8 +977,15 @@ function InfiniteCanvasPage() {
 
     const pasteAtPosition = useCallback(
         (position: Position) => {
-            if (pasteCopiedNodes(position)) return;
-            void pasteSystemClipboard(position).catch(() => message.warning("无法读取剪贴板内容"));
+            void (async () => {
+                try {
+                    // 右键粘贴同样优先系统剪贴板图片，再回退内部节点。
+                    const handled = await pasteSystemClipboard(position);
+                    if (!handled) pasteCopiedNodes(position);
+                } catch {
+                    if (!pasteCopiedNodes(position)) message.warning("无法读取剪贴板内容");
+                }
+            })();
         },
         [message, pasteCopiedNodes, pasteSystemClipboard],
     );
