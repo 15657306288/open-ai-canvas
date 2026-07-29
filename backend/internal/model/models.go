@@ -59,15 +59,19 @@ const (
 	ChannelScopeSystem ChannelScope = "system"
 	ChannelScopeUser   ChannelScope = "user"
 
-	ChannelInterfaceChatCompletion ChannelInterfaceType = "chat-completion"
-	ChannelInterfaceOpenAIResponse ChannelInterfaceType = "openai-response"
-	ChannelInterfaceOpenAIImage    ChannelInterfaceType = "openai-image"
-	ChannelInterfaceOpenAIAudio    ChannelInterfaceType = "openai-audio"
-	ChannelInterfaceNewAPIVideo    ChannelInterfaceType = "newapi"
-	ChannelInterfaceNewAPIChannel1 ChannelInterfaceType = "newapi-channel-1"
-	ChannelInterfaceNewAPIChannel2 ChannelInterfaceType = "newapi-channel-2"
-	ChannelInterfaceXAIVideo       ChannelInterfaceType = "xai-video"
-	ChannelInterfaceGeminiVeo      ChannelInterfaceType = "gemini-veo"
+	ChannelInterfaceChatCompletion        ChannelInterfaceType = "chat-completion"
+	ChannelInterfaceOpenAIResponse        ChannelInterfaceType = "openai-response"
+	ChannelInterfaceOpenAIImage           ChannelInterfaceType = "openai-image"
+	ChannelInterfaceVolcengineArkImage    ChannelInterfaceType = "volcengine-ark-image"
+	ChannelInterfaceVolcengineJiMengImage ChannelInterfaceType = "volcengine-jimeng-image"
+	ChannelInterfaceOpenAIAudio           ChannelInterfaceType = "openai-audio"
+	ChannelInterfaceNewAPIVideo           ChannelInterfaceType = "newapi"
+	ChannelInterfaceNewAPIChannel1        ChannelInterfaceType = "newapi-channel-1"
+	ChannelInterfaceNewAPIChannel2        ChannelInterfaceType = "newapi-channel-2"
+	ChannelInterfaceXAIVideo              ChannelInterfaceType = "xai-video"
+	ChannelInterfaceVolcengineArkVideo    ChannelInterfaceType = "volcengine-ark-video"
+	ChannelInterfaceVolcengineJiMengVideo ChannelInterfaceType = "volcengine-jimeng-video"
+	ChannelInterfaceGeminiVeo             ChannelInterfaceType = "gemini-veo"
 
 	ApiCallStatusSucceeded ApiCallStatus = "succeeded"
 	ApiCallStatusFailed    ApiCallStatus = "failed"
@@ -195,20 +199,20 @@ type EmailVerificationCode struct {
 }
 
 type ModelChannel struct {
-	ID               string               `json:"id" gorm:"primaryKey;size:36"`
-	UserID           string               `json:"userId" gorm:"index;size:36"`
-	Scope            ChannelScope         `json:"scope" gorm:"index;size:24"`
-	Enabled          bool                 `json:"enabled" gorm:"index"`
-	Name             string               `json:"name" gorm:"size:80"`
-	BaseURL          string               `json:"baseUrl"`
-	APIKey           string               `json:"-"`
-	APIFormat        string               `json:"apiFormat" gorm:"size:24"`
-	InterfaceType    ChannelInterfaceType `json:"interfaceType" gorm:"size:32"`
-	ConcurrencyLimit int                  `json:"concurrencyLimit"`
-	ModelsJSON       string               `json:"modelsJson" gorm:"type:text"`
-	CreatedAt        time.Time            `json:"createdAt"`
-	UpdatedAt        time.Time            `json:"updatedAt"`
-	DeletedAt        gorm.DeletedAt       `json:"-" gorm:"index"`
+	ID               string         `json:"id" gorm:"primaryKey;size:36"`
+	UserID           string         `json:"userId" gorm:"index;size:36"`
+	Scope            ChannelScope   `json:"scope" gorm:"index;size:24"`
+	Enabled          bool           `json:"enabled" gorm:"index"`
+	Name             string         `json:"name" gorm:"size:80"`
+	BaseURL          string         `json:"baseUrl"`
+	APIKey           string         `json:"-"`
+	SecretKey        string         `json:"-"`
+	APIFormat        string         `json:"apiFormat" gorm:"size:24"`
+	ConcurrencyLimit int            `json:"concurrencyLimit"`
+	ModelsJSON       string         `json:"modelsJson" gorm:"type:text"`
+	CreatedAt        time.Time      `json:"createdAt"`
+	UpdatedAt        time.Time      `json:"updatedAt"`
+	DeletedAt        gorm.DeletedAt `json:"-" gorm:"index"`
 }
 
 type ChannelModel struct {
@@ -526,12 +530,12 @@ type VoiceProfile struct {
 }
 
 type CharacterVoiceBinding struct {
-	ID               string    `json:"id" gorm:"primaryKey;size:36"`
-	AssetVersionID   string    `json:"assetVersionId" gorm:"uniqueIndex;size:36"`
-	VoiceProfileID   string    `json:"voiceProfileId" gorm:"index;size:36"`
-	Instructions     string    `json:"instructions" gorm:"type:text"`
-	CreatedAt        time.Time `json:"createdAt"`
-	UpdatedAt        time.Time `json:"updatedAt"`
+	ID             string    `json:"id" gorm:"primaryKey;size:36"`
+	AssetVersionID string    `json:"assetVersionId" gorm:"uniqueIndex;size:36"`
+	VoiceProfileID string    `json:"voiceProfileId" gorm:"index;size:36"`
+	Instructions   string    `json:"instructions" gorm:"type:text"`
+	CreatedAt      time.Time `json:"createdAt"`
+	UpdatedAt      time.Time `json:"updatedAt"`
 }
 
 // Project 是短剧领域聚合根；CanvasProject 仍代表可独立创作的画布文档。

@@ -64,8 +64,8 @@ export type ChannelModel = {
     channelId: string;
     modelKey: string;
     displayName: string;
-    capability: "text" | "image" | "video" | "audio";
-    protocol: import("@/lib/model-protocols").ModelProtocol;
+    capability: "text" | "image" | "video" | "audio" | "";
+    protocol?: import("@/lib/model-protocols").ModelProtocol;
     billingMode: "fixed_request" | "per_second";
     unitPriceMicrocredits: number;
     priceConfigured: boolean;

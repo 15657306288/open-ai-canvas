@@ -65,6 +65,9 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
     if (requestConfig.interfaceType === "gemini-veo") {
         return createGeminiVeoTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
     }
+    if (requestConfig.interfaceType === "volcengine-ark-video") {
+        return createSeedanceTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
+    }
     if (isSeedanceVideoConfig(requestConfig)) {
         return createSeedanceTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
     }
@@ -299,13 +302,20 @@ async function pollOpenAIVideoTask(config: ResolvedAiConfig, task: VideoGenerati
     }
 }
 
-async function createSeedanceTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
+async function createSeedanceTask(config: ResolvedAiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
     assertSeedanceVideoReferences(videoReferences);
     assertSeedanceAudioReferences(audioReferences);
-    const payload = isArkPlanBaseUrl(config.baseUrl) ? await buildSeedanceAgentPlanPayload(config, model, prompt, references, videoReferences, audioReferences) : await buildSeedanceVideosPayload(config, model, prompt, references, videoReferences, audioReferences);
+    const isVolcengineArk = config.interfaceType === "volcengine-ark-video";
+    const payload =
+        isVolcengineArk || isArkPlanBaseUrl(config.baseUrl)
+            ? await buildSeedanceAgentPlanPayload(config, model, prompt, references, videoReferences, audioReferences)
+            : await buildSeedanceVideosPayload(config, model, prompt, references, videoReferences, audioReferences);
 
     try {
-        const created = unwrapSeedanceTask((await axios.post<ApiEnvelope<SeedanceTask>>(seedanceApiUrl(config), payload, { headers: aiHeaders(config, "application/json"), signal: options?.signal })).data);
+        const raw = isVolcengineArk
+            ? await channelPost<ApiEnvelope<SeedanceTask>>(config, seedanceApiUrl(config), payload, options)
+            : (await axios.post<ApiEnvelope<SeedanceTask>>(seedanceApiUrl(config), payload, { headers: aiHeaders(config, "application/json"), signal: options?.signal })).data;
+        const created = unwrapSeedanceTask(raw);
         const id = created.id || created.task_id;
         if (!id) throw new Error("Seedance 接口没有返回任务 ID");
         return { id, provider: "seedance", model };
@@ -314,9 +324,13 @@ async function createSeedanceTask(config: AiConfig, model: string, prompt: strin
     }
 }
 
-async function pollSeedanceTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
+async function pollSeedanceTask(config: ResolvedAiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
     try {
-        const state = unwrapSeedanceTask((await axios.get<ApiEnvelope<SeedanceTask>>(seedanceApiUrl(config, task.id), { headers: aiHeaders(config), signal: options?.signal })).data);
+        const raw =
+            config.interfaceType === "volcengine-ark-video"
+                ? await channelGet<ApiEnvelope<SeedanceTask>>(config, seedanceApiUrl(config, task.id), options)
+                : (await axios.get<ApiEnvelope<SeedanceTask>>(seedanceApiUrl(config, task.id), { headers: aiHeaders(config), signal: options?.signal })).data;
+        const state = unwrapSeedanceTask(raw);
         if (state.status === "succeeded" || state.status === "completed") {
             const url = state.video_url || state.content?.video_url;
             if (url) return { status: "completed", result: await videoResultFromUrl(url, options) };
@@ -354,16 +368,16 @@ function assertSeedanceAudioReferences(audioReferences: ReferenceAudio[]) {
     if (total > 15000) throw new Error("Seedance 参考音频总时长不能超过 15 秒");
 }
 
-function seedanceApiUrl(config: AiConfig, taskId?: string) {
-    if (isArkPlanBaseUrl(config.baseUrl)) return buildApiUrl(config.baseUrl, `/contents/generations/tasks${taskId ? `/${encodeURIComponent(taskId)}` : ""}`);
+function seedanceApiUrl(config: ResolvedAiConfig, taskId?: string) {
+    if (config.interfaceType === "volcengine-ark-video" || isArkPlanBaseUrl(config.baseUrl)) return buildApiUrl(config.baseUrl, `/contents/generations/tasks${taskId ? `/${encodeURIComponent(taskId)}` : ""}`);
     return buildApiUrl(config.baseUrl, `/videos${taskId ? `/${encodeURIComponent(taskId)}` : ""}`);
 }
 
-async function buildSeedanceAgentPlanPayload(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[]) {
-    if (audioReferences.length && !references.length && !videoReferences.length) {
+async function buildSeedanceAgentPlanPayload(config: ResolvedAiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[]) {
+    if (config.interfaceType !== "volcengine-ark-video" && audioReferences.length && !references.length && !videoReferences.length) {
         throw new Error("Seedance 参考音频不能单独使用，请同时添加参考图或参考视频");
     }
-    const content = await buildSeedanceContent(config, prompt, references, videoReferences, audioReferences);
+    const content = config.interfaceType === "volcengine-ark-video" ? await buildVolcengineArkContent(prompt, references, videoReferences, audioReferences) : await buildSeedanceContent(config, prompt, references, videoReferences, audioReferences);
     if (!content.length) throw new Error("请输入视频提示词，或连接参考图片/视频/音频");
     return {
         model: modelOptionName(model),
@@ -374,6 +388,27 @@ async function buildSeedanceAgentPlanPayload(config: AiConfig, model: string, pr
         generate_audio: boolConfig(config.videoGenerateAudio, true),
         watermark: boolConfig(config.videoWatermark, false),
     };
+}
+
+async function buildVolcengineArkContent(prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[]) {
+    const content: Array<Record<string, unknown>> = [];
+    if (prompt.trim()) content.push({ type: "text", text: prompt.trim() });
+    for (const image of references.slice(0, SEEDANCE_REFERENCE_LIMITS.images)) {
+        content.push({ type: "image_url", image_url: { url: await resolveVolcengineArkReferenceUrl(image.url || image.dataUrl, image.storageKey) }, role: "reference_image" });
+    }
+    for (const video of videoReferences.slice(0, SEEDANCE_REFERENCE_LIMITS.videos)) {
+        content.push({ type: "video_url", video_url: { url: await resolveVolcengineArkReferenceUrl(video.url, video.storageKey) }, role: "reference_video" });
+    }
+    for (const audio of audioReferences.slice(0, SEEDANCE_REFERENCE_LIMITS.audios)) {
+        content.push({ type: "audio_url", audio_url: { url: await resolveVolcengineArkReferenceUrl(audio.url, audio.storageKey) }, role: "reference_audio" });
+    }
+    return content;
+}
+
+async function resolveVolcengineArkReferenceUrl(value: string | undefined, storageKey?: string) {
+    if (storageKey?.startsWith("resource:")) return getResourceOSSUrl(storageKey);
+    if (isPublicMediaUrl(value || "") || String(value || "").startsWith("asset://")) return String(value);
+    throw new Error("火山方舟视频参考素材需要公网 URL 或 asset:// 素材 ID；请先将本地素材保存到 OSS");
 }
 
 async function buildSeedanceVideosPayload(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[]) {

@@ -105,6 +105,7 @@ export function backendProviderConfig(config: AiConfig) {
         interfaceType: requestConfig.interfaceType,
         baseUrl: requestConfig.baseUrl,
         apiKey: requestConfig.apiKey,
+        secretKey: requestConfig.secretKey,
         model: requestConfig.model,
         size: config.size,
         quality: config.quality,

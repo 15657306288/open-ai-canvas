@@ -78,7 +78,7 @@ type ChannelRequest struct {
 	Name                 string   `json:"name"`
 	BaseURL              string   `json:"baseUrl"`
 	APIKey               string   `json:"apiKey"`
-	InterfaceType        string   `json:"interfaceType"`
+	SecretKey            string   `json:"secretKey"`
 	ConcurrencyLimit     *int     `json:"concurrencyLimit"`
 	UseGlobalConcurrency *bool    `json:"useGlobalConcurrency"`
 	Models               []string `json:"models"`
@@ -86,21 +86,21 @@ type ChannelRequest struct {
 }
 
 type PublicModelChannel struct {
-	ID               string                     `json:"id"`
-	UserID           string                     `json:"userId"`
-	Scope            model.ChannelScope         `json:"scope"`
-	Enabled          bool                       `json:"enabled"`
-	Name             string                     `json:"name"`
-	BaseURL          string                     `json:"baseUrl"`
-	APIKey           string                     `json:"apiKey"`
-	APIFormat        string                     `json:"apiFormat"`
-	InterfaceType    model.ChannelInterfaceType `json:"interfaceType"`
-	ConcurrencyLimit int                        `json:"concurrencyLimit"`
-	Models           []string                   `json:"models"`
-	ModelCosts       []PublicChannelModelPrice  `json:"modelCosts"`
-	HasAPIKey        bool                       `json:"hasApiKey"`
-	CreatedAt        time.Time                  `json:"createdAt"`
-	UpdatedAt        time.Time                  `json:"updatedAt"`
+	ID               string                    `json:"id"`
+	UserID           string                    `json:"userId"`
+	Scope            model.ChannelScope        `json:"scope"`
+	Enabled          bool                      `json:"enabled"`
+	Name             string                    `json:"name"`
+	BaseURL          string                    `json:"baseUrl"`
+	APIKey           string                    `json:"apiKey"`
+	APIFormat        string                    `json:"apiFormat"`
+	ConcurrencyLimit int                       `json:"concurrencyLimit"`
+	Models           []string                  `json:"models"`
+	ModelCosts       []PublicChannelModelPrice `json:"modelCosts"`
+	HasAPIKey        bool                      `json:"hasApiKey"`
+	HasSecretKey     bool                      `json:"hasSecretKey"`
+	CreatedAt        time.Time                 `json:"createdAt"`
+	UpdatedAt        time.Time                 `json:"updatedAt"`
 }
 
 type PublicChannelModelPrice struct {
@@ -366,7 +366,7 @@ func (s *Service) AdminSystemChannelPage(actor *model.User, query AdminListQuery
 		return nil, err
 	}
 	page, limit := normalizeAdminPage(query.Page, query.Limit)
-	channels, total, err := s.repo.AdminSystemChannels(query.Keyword, query.Type, query.Status, limit, (page-1)*limit)
+	channels, total, err := s.repo.AdminSystemChannels(query.Keyword, query.Status, limit, (page-1)*limit)
 	if err != nil {
 		return nil, err
 	}
@@ -432,6 +432,9 @@ func (s *Service) UpdateSystemChannel(actor *model.User, id string, req ChannelR
 	next.CreatedAt = channel.CreatedAt
 	if req.APIKey == "" {
 		next.APIKey = channel.APIKey
+	}
+	if req.SecretKey == "" {
+		next.SecretKey = channel.SecretKey
 	}
 	if err := s.repo.Save(&next); err != nil {
 		return nil, err
@@ -581,15 +584,11 @@ func (s *Service) APICallLogs(actor *model.User, limit int) ([]model.ApiCallLog,
 func channelFromRequest(req ChannelRequest, channel model.ModelChannel) (model.ModelChannel, error) {
 	name := strings.TrimSpace(req.Name)
 	baseURL := strings.TrimSpace(req.BaseURL)
-	interfaceType := model.ChannelInterfaceType(strings.TrimSpace(req.InterfaceType))
 	if name == "" {
 		return channel, BadAuthRequest("请填写渠道名称")
 	}
 	if baseURL == "" {
 		return channel, BadAuthRequest("请填写 Base URL")
-	}
-	if !validChannelInterfaceType(interfaceType) {
-		return channel, BadAuthRequest("请选择有效的接口类型")
 	}
 	if _, err := ValidateOutboundURL(baseURL); err != nil {
 		return channel, err
@@ -601,12 +600,11 @@ func channelFromRequest(req ChannelRequest, channel model.ModelChannel) (model.M
 	if req.APIKey != "" {
 		channel.APIKey = req.APIKey
 	}
-	// Gemini Veo 使用 x-goog-api-key，其余系统协议使用 Bearer 鉴权。
-	channel.APIFormat = "openai"
-	if interfaceType == model.ChannelInterfaceGeminiVeo {
-		channel.APIFormat = "gemini"
+	if req.SecretKey != "" {
+		channel.SecretKey = req.SecretKey
 	}
-	channel.InterfaceType = interfaceType
+	// 系统渠道只保存地址与凭证；实际协议和鉴权方式由所选模型决定。
+	channel.APIFormat = "openai"
 	if req.UseGlobalConcurrency != nil && *req.UseGlobalConcurrency {
 		channel.ConcurrencyLimit = 0
 	} else if req.ConcurrencyLimit != nil {
@@ -634,38 +632,16 @@ func mergeChannelRequest(req ChannelRequest, channel model.ModelChannel) Channel
 	if req.Models == nil {
 		req.Models = channelModelNames(channel)
 	}
-	if strings.TrimSpace(req.InterfaceType) == "" {
-		req.InterfaceType = string(channel.InterfaceType)
-		if req.InterfaceType == "" {
-			req.InterfaceType = string(inferChannelInterfaceType(req.Models))
-		}
-	}
 	return req
 }
 
 func validChannelInterfaceType(value model.ChannelInterfaceType) bool {
 	switch value {
-	case model.ChannelInterfaceChatCompletion, model.ChannelInterfaceOpenAIResponse, model.ChannelInterfaceOpenAIImage, model.ChannelInterfaceOpenAIAudio, model.ChannelInterfaceNewAPIVideo, model.ChannelInterfaceNewAPIChannel1, model.ChannelInterfaceNewAPIChannel2, model.ChannelInterfaceXAIVideo, model.ChannelInterfaceGeminiVeo:
+	case model.ChannelInterfaceChatCompletion, model.ChannelInterfaceOpenAIResponse, model.ChannelInterfaceOpenAIImage, model.ChannelInterfaceVolcengineArkImage, model.ChannelInterfaceVolcengineJiMengImage, model.ChannelInterfaceOpenAIAudio, model.ChannelInterfaceNewAPIVideo, model.ChannelInterfaceNewAPIChannel1, model.ChannelInterfaceNewAPIChannel2, model.ChannelInterfaceXAIVideo, model.ChannelInterfaceVolcengineArkVideo, model.ChannelInterfaceVolcengineJiMengVideo, model.ChannelInterfaceGeminiVeo:
 		return true
 	default:
 		return false
 	}
-}
-
-func inferChannelInterfaceType(models []string) model.ChannelInterfaceType {
-	for _, name := range models {
-		value := strings.ToLower(name)
-		if strings.Contains(value, "video") || strings.Contains(value, "seedance") || strings.Contains(value, "sora") || strings.Contains(value, "veo") || strings.Contains(value, "kling") || strings.Contains(value, "wan") || strings.Contains(value, "hailuo") {
-			return model.ChannelInterfaceNewAPIVideo
-		}
-	}
-	for _, name := range models {
-		value := strings.ToLower(name)
-		if strings.Contains(value, "image") || strings.Contains(value, "seedream") || strings.Contains(value, "dall-e") || strings.Contains(value, "flux") || strings.Contains(value, "imagen") {
-			return model.ChannelInterfaceOpenAIImage
-		}
-	}
-	return model.ChannelInterfaceChatCompletion
 }
 
 func publicChannel(channel model.ModelChannel, admin bool, channelModels []model.ChannelModel) PublicModelChannel {
@@ -677,11 +653,7 @@ func publicChannel(channel model.ModelChannel, admin bool, channelModels []model
 		}
 		models = append(models, item.ModelKey)
 		if item.Enabled && item.PriceConfigured {
-			protocol := item.Protocol
-			if protocol == "" {
-				protocol = channel.InterfaceType
-			}
-			modelCosts = append(modelCosts, PublicChannelModelPrice{Model: item.ModelKey, DisplayName: item.DisplayName, Capability: item.Capability, Protocol: protocol, BillingMode: item.BillingMode, UnitPriceMicrocredits: item.UnitPriceMicrocredits})
+			modelCosts = append(modelCosts, PublicChannelModelPrice{Model: item.ModelKey, DisplayName: item.DisplayName, Capability: item.Capability, Protocol: item.Protocol, BillingMode: item.BillingMode, UnitPriceMicrocredits: item.UnitPriceMicrocredits})
 		}
 	}
 	if len(models) == 0 {
@@ -697,10 +669,6 @@ func publicChannel(channel model.ModelChannel, admin bool, channelModels []model
 	} else if admin {
 		apiKey = channel.APIKey
 	}
-	interfaceType := channel.InterfaceType
-	if !validChannelInterfaceType(interfaceType) {
-		interfaceType = inferChannelInterfaceType(models)
-	}
 	return PublicModelChannel{
 		ID:               channel.ID,
 		UserID:           channel.UserID,
@@ -710,11 +678,11 @@ func publicChannel(channel model.ModelChannel, admin bool, channelModels []model
 		BaseURL:          baseURL,
 		APIKey:           apiKey,
 		APIFormat:        channel.APIFormat,
-		InterfaceType:    interfaceType,
 		ConcurrencyLimit: channel.ConcurrencyLimit,
 		Models:           models,
 		ModelCosts:       modelCosts,
 		HasAPIKey:        strings.TrimSpace(channel.APIKey) != "",
+		HasSecretKey:     strings.TrimSpace(channel.SecretKey) != "",
 		CreatedAt:        channel.CreatedAt,
 		UpdatedAt:        channel.UpdatedAt,
 	}

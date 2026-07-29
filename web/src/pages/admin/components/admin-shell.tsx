@@ -1,10 +1,10 @@
 import { Tooltip } from "antd";
-import { BarChart3, BellRing, Coins, FileClock, HardDrive, Home, Infinity as InfinityIcon, Mail, MessageSquareText, PanelLeftClose, PanelLeftOpen, RadioTower, Settings2, ShieldCheck, TicketCheck, UsersRound } from "lucide-react";
+import { ArrowLeft, BarChart3, BellRing, Coins, FileClock, HardDrive, Home, Infinity as InfinityIcon, Mail, MessageSquareText, PanelLeftClose, PanelLeftOpen, RadioTower, Settings2, ShieldCheck, TicketCheck, UsersRound } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { Link, NavLink, Outlet } from "react-router";
 
 import { AppChangelogButton } from "@/components/layout/app-changelog-modal";
-import { PageHeader, WorkspacePage } from "@/components/layout/workspace-page";
+import { WorkspacePage } from "@/components/layout/workspace-page";
 import { WORKSPACE_SIDEBAR_STORAGE_KEY } from "@/components/layout/workspace-sidebar-state";
 import { cn } from "@/lib/utils";
 
@@ -95,11 +95,26 @@ export function AdminShell() {
     );
 }
 
-export function AdminPageFrame({ title, description, actions, children }: { title: string; description: string; actions?: ReactNode; children: ReactNode }) {
+export function AdminPageFrame({ title, description, actions, back, children }: { title: string; description: string; actions?: ReactNode; back?: { label: string; onClick: () => void }; children: ReactNode }) {
     return (
         <WorkspacePage>
             <div className="mx-auto w-full max-w-[1440px] pb-5">
-                <PageHeader title={title} description={description} actions={actions} />
+                <header className="flex min-h-[64px] flex-col gap-3 border-b border-border/75 pb-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                        {back ? (
+                            <Tooltip title={back.label}>
+                                <button type="button" className="app-workspace-icon-button size-9 shrink-0" aria-label={back.label} onClick={back.onClick}>
+                                    <ArrowLeft className="size-4" />
+                                </button>
+                            </Tooltip>
+                        ) : null}
+                        <div className="min-w-0">
+                            <h1 className="truncate text-xl font-semibold leading-7">{title}</h1>
+                            <p className="mt-0.5 truncate text-xs leading-5 text-foreground/52">{description}</p>
+                        </div>
+                    </div>
+                    {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
+                </header>
                 {children}
             </div>
         </WorkspacePage>

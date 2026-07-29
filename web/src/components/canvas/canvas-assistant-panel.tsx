@@ -1589,6 +1589,7 @@ function backendAgentProviderConfig(config: ReturnType<typeof resolveModelReques
         interfaceType: config.interfaceType,
         baseUrl: config.baseUrl,
         apiKey: config.apiKey,
+        secretKey: config.secretKey,
         model: config.model,
         size: config.size,
         quality: config.quality,

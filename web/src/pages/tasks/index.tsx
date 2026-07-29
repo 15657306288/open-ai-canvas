@@ -627,6 +627,7 @@ function backendProviderConfig(config: ReturnType<typeof resolveModelRequestConf
         interfaceType: config.interfaceType,
         baseUrl: config.baseUrl,
         apiKey: config.apiKey,
+        secretKey: config.secretKey,
         model: config.model,
         size: config.size,
         quality: config.quality,

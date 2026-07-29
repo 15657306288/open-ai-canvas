@@ -328,7 +328,7 @@ export function logout() {
     return request<{ ok: boolean }>(api.post("/auth/logout"));
 }
 
-export type AdminListParams = { keyword?: string; status?: string; role?: string; interfaceType?: string; page?: number; limit?: number };
+export type AdminListParams = { keyword?: string; status?: string; role?: string; page?: number; limit?: number };
 
 export function listAdminUsers(params: AdminListParams = {}) {
     return request<{ users: AdminUser[]; total: number; page: number; limit: number }>(api.get("/admin/users", { params }));
