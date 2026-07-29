@@ -197,6 +197,7 @@ func postJiMengJSON(ctx context.Context, config providerConfig, action string, b
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	ApplyDefaultOutboundHeaders(req)
 	credentials := base.Credentials{
 		AccessKeyID:     strings.TrimSpace(config.APIKey),
 		SecretAccessKey: strings.TrimSpace(config.SecretKey),

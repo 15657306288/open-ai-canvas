@@ -22,6 +22,9 @@ func TestCustomRelayForwardsOpenAIRequestWithoutBrowserHeaders(t *testing.T) {
 		if r.Header.Get("Authorization") != "Bearer "+apiKey {
 			t.Errorf("Authorization = %q", r.Header.Get("Authorization"))
 		}
+		if r.Header.Get("User-Agent") != service.DefaultOutboundUserAgent {
+			t.Errorf("User-Agent = %q", r.Header.Get("User-Agent"))
+		}
 		for _, name := range []string{"Cookie", "Origin", "Referer", "X-Canvas-Upstream-URL", "X-Forwarded-For"} {
 			if value := r.Header.Get(name); value != "" {
 				t.Errorf("upstream received %s = %q", name, value)

@@ -1593,6 +1593,7 @@ func doBinary(req *http.Request) ([]byte, string, error) {
 		recordProviderRequest(req, startedAt, 0, nil, err)
 		return nil, "", err
 	}
+	ApplyDefaultOutboundHeaders(req)
 	client := OutboundHTTPClient(requestTimeout)
 	resp, err := client.Do(req)
 	if err != nil {

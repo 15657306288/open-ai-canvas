@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 	"time"
 
@@ -27,6 +28,10 @@ type ChannelModelRequest struct {
 type AdminChannelModelFetchResult struct {
 	Models []string `json:"models"`
 	Added  int64    `json:"added"`
+}
+
+type AdminChannelModelTestResult struct {
+	DurationMs int64 `json:"durationMs"`
 }
 
 func (s *Service) EnsureSystemChannelModels() error {
@@ -107,23 +112,9 @@ func (s *Service) SaveAdminChannelModel(actor *model.User, channelID string, id 
 	if err != nil {
 		return nil, err
 	}
-	modelKey := strings.TrimPrefix(strings.TrimSpace(req.ModelKey), "models/")
-	if modelKey == "" {
-		return nil, BadAuthRequest("请填写模型标识")
-	}
-	capability := normalizeCapability(req.Capability)
-	if capability == "" {
-		return nil, BadAuthRequest("请选择模型能力")
-	}
-	protocol := model.ChannelInterfaceType(strings.TrimSpace(req.Protocol))
-	if !validChannelInterfaceType(protocol) {
-		return nil, BadAuthRequest("请选择有效的模型请求协议")
-	}
-	if (protocol == model.ChannelInterfaceVolcengineJiMengImage || protocol == model.ChannelInterfaceVolcengineJiMengVideo) && (strings.TrimSpace(channel.APIKey) == "" || strings.TrimSpace(channel.SecretKey) == "") {
-		return nil, BadAuthRequest("即梦官方协议需要先在渠道中配置 Access Key 和 Secret Key")
-	}
-	if expected := capabilityForProtocol(protocol); expected != "" && expected != capability {
-		return nil, BadAuthRequest("模型能力与请求协议不匹配")
+	modelKey, capability, protocol, err := normalizeChannelModelContract(channel, req)
+	if err != nil {
+		return nil, err
 	}
 	billingMode := strings.TrimSpace(req.BillingMode)
 	if billingMode == "" {
@@ -166,6 +157,109 @@ func (s *Service) SaveAdminChannelModel(actor *model.User, channelID string, id 
 		return nil, err
 	}
 	return item, nil
+}
+
+func (s *Service) TestAdminChannelModel(ctx context.Context, actor *model.User, channelID string, req ChannelModelRequest) (*AdminChannelModelTestResult, error) {
+	if err := s.RequireAdmin(actor); err != nil {
+		return nil, err
+	}
+	channel, err := s.repo.AdminSystemChannel(channelID)
+	if err != nil {
+		return nil, err
+	}
+	modelKey, capability, protocol, err := normalizeChannelModelContract(channel, req)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(channel.BaseURL) == "" || strings.TrimSpace(channel.APIKey) == "" {
+		return nil, BadAuthRequest("请先在渠道中配置 Base URL 和 API Key")
+	}
+
+	prompt := map[string]string{
+		"text":  "Reply with OK.",
+		"image": "A simple gray circle on a white background.",
+		"video": "A static gray circle on a white background.",
+		"audio": "Model test.",
+	}[capability]
+	videoSeconds := "6"
+	videoSecondsValue := 6
+	if protocol == model.ChannelInterfaceVolcengineJiMengVideo {
+		videoSeconds = "5"
+		videoSecondsValue = 5
+	}
+	input := canvasGenerationInput{
+		Mode:   capability,
+		Prompt: prompt,
+		Config: providerConfig{
+			ChannelID:          channel.ID,
+			APIFormat:          channel.APIFormat,
+			InterfaceType:      string(protocol),
+			BaseURL:            channel.BaseURL,
+			APIKey:             channel.APIKey,
+			SecretKey:          channel.SecretKey,
+			Model:              modelKey,
+			Size:               map[string]string{"image": "1024x1024", "video": "16:9"}[capability],
+			Quality:            "auto",
+			Count:              "1",
+			VideoSeconds:       videoSeconds,
+			VQuality:           "720",
+			VideoGenerateAudio: "false",
+			VideoWatermark:     "false",
+			AudioVoice:         "alloy",
+			AudioFormat:        "mp3",
+			AudioSpeed:         "1",
+		},
+		Metadata: map[string]interface{}{},
+	}
+
+	// 测试复用真实生成协议、运行时并发和熔断策略，但不创建用户任务或计费订单。
+	testCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
+	testCtx = context.WithValue(testCtx, providerAnalyticsKey{}, providerAnalyticsContext{
+		Service: s, UserID: actor.ID, ChannelID: channel.ID, Capability: capability,
+		Operation: "admin_model_test", Model: modelKey, VideoSeconds: videoSecondsValue,
+	})
+	startedAt := time.Now()
+	switch capability {
+	case "text":
+		_, err = runTextTask(testCtx, input)
+	case "image":
+		_, err = runImageTask(testCtx, input)
+	case "video":
+		_, err = runVideoTask(testCtx, input)
+	case "audio":
+		_, err = runAudioTask(testCtx, input)
+	}
+	if err != nil {
+		status := http.StatusBadGateway
+		if errors.Is(err, context.DeadlineExceeded) {
+			status = http.StatusGatewayTimeout
+		}
+		return nil, &AuthError{Status: status, Message: "模型测试失败：" + truncateRunes(err.Error(), 1000)}
+	}
+	return &AdminChannelModelTestResult{DurationMs: time.Since(startedAt).Milliseconds()}, nil
+}
+
+func normalizeChannelModelContract(channel *model.ModelChannel, req ChannelModelRequest) (string, string, model.ChannelInterfaceType, error) {
+	modelKey := strings.TrimPrefix(strings.TrimSpace(req.ModelKey), "models/")
+	if modelKey == "" {
+		return "", "", "", BadAuthRequest("请填写模型标识")
+	}
+	capability := normalizeCapability(req.Capability)
+	if capability == "" {
+		return "", "", "", BadAuthRequest("请选择模型能力")
+	}
+	protocol := model.ChannelInterfaceType(strings.TrimSpace(req.Protocol))
+	if !validChannelInterfaceType(protocol) {
+		return "", "", "", BadAuthRequest("请选择有效的模型请求协议")
+	}
+	if expected := capabilityForProtocol(protocol); expected != "" && expected != capability {
+		return "", "", "", BadAuthRequest("模型能力与请求协议不匹配")
+	}
+	if (protocol == model.ChannelInterfaceVolcengineJiMengImage || protocol == model.ChannelInterfaceVolcengineJiMengVideo) && (strings.TrimSpace(channel.APIKey) == "" || strings.TrimSpace(channel.SecretKey) == "") {
+		return "", "", "", BadAuthRequest("即梦官方协议需要先在渠道中配置 Access Key 和 Secret Key")
+	}
+	return modelKey, capability, protocol, nil
 }
 
 func (s *Service) DeleteAdminChannelModel(actor *model.User, channelID string, id string) error {

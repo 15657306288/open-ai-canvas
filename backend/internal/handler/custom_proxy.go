@@ -97,7 +97,7 @@ func proxyCustomRelayRequest(c *gin.Context, policy service.RuntimeRequestPolicy
 	} else {
 		upstreamReq.Header.Set("Accept", "application/json")
 	}
-	upstreamReq.Header.Set("User-Agent", "InfiniteCanvas/custom-channel-relay")
+	service.ApplyDefaultOutboundHeaders(upstreamReq)
 	if apiFormat == "gemini" {
 		upstreamReq.Header.Set("x-goog-api-key", apiKey)
 	} else {
