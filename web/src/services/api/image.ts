@@ -755,13 +755,14 @@ async function requestGeminiImagesOnce(config: AiConfig, prompt: string, referen
     for (const image of references) {
         parts.push(toGeminiImagePart(await imageToDataUrl(image)));
     }
+    const request = channelRequest(config, geminiApiUrl(config, "generateContent"), geminiHeaders(config));
     const response = await axios.post<GeminiPayload>(
-        geminiApiUrl(config, "generateContent"),
+        request.url,
         {
             ...toGeminiBody(config, [{ role: "user", content: prompt }], { generationConfig: { responseModalities: ["TEXT", "IMAGE"] } }),
             contents: [{ role: "user", parts }],
         },
-        { headers: geminiHeaders(config), signal: options?.signal },
+        { headers: request.headers, withCredentials: request.credentials === "include", signal: options?.signal },
     );
     return parseGeminiImagePayload(response.data);
 }
@@ -893,7 +894,8 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     if (mask) formData.set("mask", dataUrlToFile(mask));
 
     try {
-        const response = await axios.post<ImageApiResponse>(aiApiUrl(requestConfig, "/images/edits"), formData, { headers: aiHeaders(requestConfig), signal: options?.signal });
+        const request = channelRequest(requestConfig, aiApiUrl(requestConfig, "/images/edits"), aiHeaders(requestConfig));
+        const response = await axios.post<ImageApiResponse>(request.url, formData, { headers: request.headers, withCredentials: request.credentials === "include", signal: options?.signal });
         const images = parseImagePayload(response.data);
         return images;
     } catch (error) {
@@ -990,6 +992,7 @@ export async function fetchChannelModels(channel: ModelChannel, viaBackend = fal
                 baseUrl: channel.baseUrl,
                 apiKey: channel.apiKey,
                 apiFormat: channel.apiFormat,
+                headers: channel.headers,
             },
             { withCredentials: true },
         );
