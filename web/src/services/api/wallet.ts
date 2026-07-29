@@ -273,3 +273,7 @@ export function listAdminBillingOrders(params: AdminFinanceListParams = {}) {
 export function resolveAdminBillingOrder(id: string, input: { action: "settle" | "refund"; note: string }) {
     return request<{ order: BillingOrder }>(api.post(`/admin/billing-orders/${encodeURIComponent(id)}/resolve`, input));
 }
+
+export function resolveAdminBillingOrders(input: { ids: string[]; action: "settle" | "refund"; note: string }) {
+    return request<{ resolvedCount: number; failed: Array<{ id: string; message: string }> }>(api.post("/admin/billing-orders/batch-resolve", input));
+}

@@ -1,17 +1,23 @@
 import { useEffect, useState } from "react";
 import { App, Button, Form, Input, InputNumber, Modal, Select, Space, Table, Tag } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { CircleAlert, Coins, RefreshCw, Search, Settings2, UserRoundCog } from "lucide-react";
+import { BadgeCheck, CircleAlert, Coins, RefreshCw, Search, Settings2, Undo2, UserRoundCog } from "lucide-react";
 
 import { ListToolbar, TableSurface } from "@/components/layout/workspace-page";
 import { formatCredits } from "@/constant/credits";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { listAdminUsers, type AdminReferenceData, type LocalUser } from "@/services/api/auth";
-import { adjustAdminUserCredits, getAdminCreditPolicy, listAdminBillingOrders, resolveAdminBillingOrder, updateAdminCreditPolicy, type BillingOrder } from "@/services/api/wallet";
+import { adjustAdminUserCredits, getAdminCreditPolicy, listAdminBillingOrders, resolveAdminBillingOrder, resolveAdminBillingOrders, updateAdminCreditPolicy, type BillingOrder } from "@/services/api/wallet";
+
+import { AdminBatchBar } from "./admin-ui";
 
 type AdjustmentFormValues = { userId: string; amount: number; note: string };
 type ResolutionFormValues = { note: string };
 type PolicyFormValues = { signupBonus: number; checkinBonus: number; defaultMultiplier: number; modelMultipliers: string };
+type BillingResolutionAction = "settle" | "refund";
+type BillingResolutionTarget =
+    | { kind: "single"; order: BillingOrder; action: BillingResolutionAction }
+    | { kind: "batch"; orderIds: string[]; amountMicrocredits: number; action: BillingResolutionAction };
 
 export default function CreditOperationsPanel({ users }: { users: AdminReferenceData["users"] }) {
     const { message } = App.useApp();
@@ -27,7 +33,8 @@ export default function CreditOperationsPanel({ users }: { users: AdminReference
     const [total, setTotal] = useState(0);
     const [adjustmentUsers, setAdjustmentUsers] = useState<Array<AdminReferenceData["users"][number] | LocalUser>>(users);
     const [searchingUsers, setSearchingUsers] = useState(false);
-    const [resolvingOrder, setResolvingOrder] = useState<{ order: BillingOrder; action: "settle" | "refund" } | null>(null);
+    const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
+    const [resolutionTarget, setResolutionTarget] = useState<BillingResolutionTarget | null>(null);
     const [adjustmentForm] = Form.useForm<AdjustmentFormValues>();
     const [resolutionForm] = Form.useForm<ResolutionFormValues>();
     const [policyForm] = Form.useForm<PolicyFormValues>();
@@ -39,6 +46,7 @@ export default function CreditOperationsPanel({ users }: { users: AdminReference
             const result = await listAdminBillingOrders({ keyword: debouncedKeyword || undefined, status: orderStatus, page: targetPage, limit: targetPageSize });
             setOrders(result.orders);
             setTotal(result.total);
+            setSelectedOrderIds([]);
         } catch (error) {
             message.error(error instanceof Error ? error.message : "读取待核对计费失败");
         } finally {
@@ -127,20 +135,51 @@ export default function CreditOperationsPanel({ users }: { users: AdminReference
     };
 
     const resolveBilling = async () => {
-        if (!resolvingOrder) return;
+        if (!resolutionTarget) return;
         const values = await resolutionForm.validateFields();
+        const note = values.note.trim();
         setResolving(true);
         try {
-            await resolveAdminBillingOrder(resolvingOrder.order.id, { action: resolvingOrder.action, note: values.note.trim() });
-            setResolvingOrder(null);
+            if (resolutionTarget.kind === "single") {
+                await resolveAdminBillingOrder(resolutionTarget.order.id, { action: resolutionTarget.action, note });
+            } else {
+                const result = await resolveAdminBillingOrders({ ids: resolutionTarget.orderIds, action: resolutionTarget.action, note });
+                if (result.failed.length > 0) {
+                    const detail = result.failed[0]?.message ? `：${result.failed[0].message}` : "";
+                    if (result.resolvedCount > 0) message.warning(`已处理 ${result.resolvedCount} 条，${result.failed.length} 条失败${detail}`);
+                    else message.error(`所选 ${result.failed.length} 条订单均处理失败${detail}`);
+                } else {
+                    message.success(resolutionTarget.action === "settle" ? `已确认扣费 ${result.resolvedCount} 条` : `已退回积分 ${result.resolvedCount} 条`);
+                }
+            }
+            const resolvedAction = resolutionTarget.action;
+            const wasBatch = resolutionTarget.kind === "batch";
+            setResolutionTarget(null);
             resolutionForm.resetFields();
             await reload(page, pageSize);
-            message.success(resolvingOrder.action === "settle" ? "计费订单已结算" : "冻结积分已退款");
+            if (!wasBatch) message.success(resolvedAction === "settle" ? "计费订单已结算" : "冻结积分已退款");
         } catch (error) {
             message.error(error instanceof Error ? error.message : "处理计费订单失败");
         } finally {
             setResolving(false);
         }
+    };
+
+    const openSingleResolution = (order: BillingOrder, action: BillingResolutionAction) => {
+        setResolutionTarget({ kind: "single", order, action });
+        resolutionForm.resetFields();
+    };
+
+    const openBatchResolution = (action: BillingResolutionAction) => {
+        const selectedOrders = orders.filter((order) => selectedOrderIds.includes(order.id) && canResolveBillingOrder(order));
+        if (selectedOrders.length === 0) return;
+        setResolutionTarget({
+            kind: "batch",
+            orderIds: selectedOrders.map((order) => order.id),
+            amountMicrocredits: selectedOrders.reduce((sum, order) => sum + order.amountMicrocredits, 0),
+            action,
+        });
+        resolutionForm.resetFields();
     };
 
     const columns: ColumnsType<BillingOrder> = [
@@ -174,26 +213,20 @@ export default function CreditOperationsPanel({ users }: { users: AdminReference
             width: 180,
             fixed: "right",
             render: (_, order) =>
-                order.status === "settled" || order.status === "refunded" ? (
+                !canResolveBillingOrder(order) ? (
                     <span className="text-xs text-foreground/40">处理完成</span>
                 ) : (
                     <Space size={6}>
                         <Button
                             size="small"
-                            onClick={() => {
-                                setResolvingOrder({ order, action: "settle" });
-                                resolutionForm.resetFields();
-                            }}
+                            onClick={() => openSingleResolution(order, "settle")}
                         >
                             确认扣费
                         </Button>
                         <Button
                             size="small"
                             danger
-                            onClick={() => {
-                                setResolvingOrder({ order, action: "refund" });
-                                resolutionForm.resetFields();
-                            }}
+                            onClick={() => openSingleResolution(order, "refund")}
                         >
                             退回积分
                         </Button>
@@ -347,6 +380,14 @@ export default function CreditOperationsPanel({ users }: { users: AdminReference
                         ]}
                     />
                 </ListToolbar>
+                <AdminBatchBar count={selectedOrderIds.length} onClear={() => setSelectedOrderIds([])}>
+                    <Button size="small" type="primary" icon={<BadgeCheck className="size-3.5" />} onClick={() => openBatchResolution("settle")}>
+                        批量确认扣费
+                    </Button>
+                    <Button size="small" danger icon={<Undo2 className="size-3.5" />} onClick={() => openBatchResolution("refund")}>
+                        批量退回积分
+                    </Button>
+                </AdminBatchBar>
                 <TableSurface>
                     <Table
                         className="app-data-table"
@@ -355,6 +396,12 @@ export default function CreditOperationsPanel({ users }: { users: AdminReference
                         loading={loading}
                         columns={columns}
                         dataSource={orders}
+                        rowSelection={{
+                            selectedRowKeys: selectedOrderIds,
+                            preserveSelectedRowKeys: false,
+                            onChange: (keys) => setSelectedOrderIds(keys.map(String)),
+                            getCheckboxProps: (order) => ({ disabled: !canResolveBillingOrder(order), name: `${order.model} ${order.scene || order.capability}` }),
+                        }}
                         pagination={{
                             current: page,
                             pageSize,
@@ -372,15 +419,38 @@ export default function CreditOperationsPanel({ users }: { users: AdminReference
                 </TableSurface>
             </section>
 
-            <Modal title={resolvingOrder?.action === "settle" ? "确认扣除冻结积分" : "确认退回冻结积分"} open={Boolean(resolvingOrder)} onCancel={() => setResolvingOrder(null)} onOk={() => void resolveBilling()} confirmLoading={resolving} okButtonProps={{ danger: resolvingOrder?.action === "refund" }}>
+            <Modal
+                title={resolutionTarget?.action === "settle" ? (resolutionTarget.kind === "batch" ? "批量确认扣除冻结积分" : "确认扣除冻结积分") : (resolutionTarget?.kind === "batch" ? "批量确认退回冻结积分" : "确认退回冻结积分")}
+                open={Boolean(resolutionTarget)}
+                okText={resolutionTarget?.action === "settle" ? "确认扣费" : "退回积分"}
+                cancelText="取消"
+                onCancel={() => {
+                    if (resolving) return;
+                    setResolutionTarget(null);
+                    resolutionForm.resetFields();
+                }}
+                onOk={() => void resolveBilling()}
+                confirmLoading={resolving}
+                maskClosable={!resolving}
+                okButtonProps={{ danger: resolutionTarget?.action === "refund" }}
+            >
+                {resolutionTarget?.kind === "batch" ? (
+                    <div className="mb-4 rounded-md border border-border bg-muted/25 px-3 py-2.5 text-sm text-foreground/65">
+                        已选择 <span className="font-semibold text-foreground">{resolutionTarget.orderIds.length}</span> 条订单，涉及冻结积分 <span className="font-semibold tabular-nums text-foreground">{formatCredits(resolutionTarget.amountMicrocredits)}</span>。本次核对依据将写入每条订单的审计记录。
+                    </div>
+                ) : null}
                 <Form form={resolutionForm} layout="vertical" requiredMark={false}>
-                    <Form.Item name="note" label="核对依据" rules={[{ required: true, message: "请填写供应商账单、任务状态或处理依据" }]}>
+                    <Form.Item name="note" label="核对依据" rules={[{ required: true, whitespace: true, message: "请填写供应商账单、任务状态或处理依据" }]}>
                         <Input.TextArea rows={4} maxLength={500} placeholder="例如：供应商后台确认该请求未产生费用" />
                     </Form.Item>
                 </Form>
             </Modal>
         </div>
     );
+}
+
+function canResolveBillingOrder(order: BillingOrder) {
+    return order.status === "uncertain" || order.status === "running" || order.status === "reserved";
 }
 
 function formatTime(value?: string) {

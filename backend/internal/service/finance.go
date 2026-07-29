@@ -87,6 +87,22 @@ type ResolveBillingRequest struct {
 	Note   string `json:"note"`
 }
 
+type ResolveBillingBatchRequest struct {
+	IDs    []string `json:"ids"`
+	Action string   `json:"action"`
+	Note   string   `json:"note"`
+}
+
+type ResolveBillingBatchFailure struct {
+	ID      string `json:"id"`
+	Message string `json:"message"`
+}
+
+type ResolveBillingBatchResult struct {
+	ResolvedCount int                           `json:"resolvedCount"`
+	Failed        []ResolveBillingBatchFailure `json:"failed"`
+}
+
 func (s *Service) Wallet(user *model.User, entryType string, page int, limit int) (*WalletSummary, error) {
 	if user == nil {
 		return nil, Unauthorized("请先登录")
@@ -286,6 +302,58 @@ func (s *Service) ResolveBillingOrder(actor *model.User, id string, req ResolveB
 	if note == "" {
 		return nil, BadAuthRequest("请填写核对依据")
 	}
+	action := strings.TrimSpace(req.Action)
+	if action != "settle" && action != "refund" {
+		return nil, BadAuthRequest("请选择结算或退款")
+	}
+	return s.resolveBillingOrder(actor, strings.TrimSpace(id), action, note)
+}
+
+func (s *Service) ResolveBillingOrders(actor *model.User, req ResolveBillingBatchRequest) (*ResolveBillingBatchResult, error) {
+	if err := s.RequireAdmin(actor); err != nil {
+		return nil, err
+	}
+	note := strings.TrimSpace(req.Note)
+	if note == "" {
+		return nil, BadAuthRequest("请填写核对依据")
+	}
+	action := strings.TrimSpace(req.Action)
+	if action != "settle" && action != "refund" {
+		return nil, BadAuthRequest("请选择结算或退款")
+	}
+	seen := make(map[string]struct{}, len(req.IDs))
+	ids := make([]string, 0, len(req.IDs))
+	for _, rawID := range req.IDs {
+		id := strings.TrimSpace(rawID)
+		if id == "" {
+			return nil, BadAuthRequest("计费订单 ID 无效")
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return nil, BadAuthRequest("请选择要处理的计费订单")
+	}
+	if len(ids) > 100 {
+		return nil, BadAuthRequest("单次最多处理 100 条计费订单")
+	}
+
+	// 批量资金操作逐单提交并明确返回失败项，避免部分成功时给出整体成功的错误反馈。
+	result := &ResolveBillingBatchResult{Failed: make([]ResolveBillingBatchFailure, 0)}
+	for _, id := range ids {
+		if _, err := s.resolveBillingOrder(actor, id, action, note); err != nil {
+			result.Failed = append(result.Failed, ResolveBillingBatchFailure{ID: id, Message: err.Error()})
+			continue
+		}
+		result.ResolvedCount++
+	}
+	return result, nil
+}
+
+func (s *Service) resolveBillingOrder(actor *model.User, id string, action string, note string) (*model.BillingOrder, error) {
 	order, err := s.repo.BillingOrder(id)
 	if err != nil {
 		return nil, err
@@ -293,13 +361,11 @@ func (s *Service) ResolveBillingOrder(actor *model.User, id string, req ResolveB
 	if order.Status != model.BillingStatusUncertain && order.Status != model.BillingStatusRunning && order.Status != model.BillingStatusReserved {
 		return nil, BadAuthRequest("当前订单不需要人工核对")
 	}
-	switch strings.TrimSpace(req.Action) {
+	switch action {
 	case "settle":
 		err = s.SettleBilling(id, order.ProviderRequestID)
 	case "refund":
 		err = s.RefundBilling(id, note)
-	default:
-		return nil, BadAuthRequest("请选择结算或退款")
 	}
 	if err != nil {
 		return nil, err
@@ -307,7 +373,7 @@ func (s *Service) ResolveBillingOrder(actor *model.User, id string, req ResolveB
 	if err := s.repo.RecordBillingResolution(id, actor.ID, truncateRunes(note, 500)); err != nil {
 		return nil, err
 	}
-	if err := s.appendAdminAudit(actor, "billing.resolve", "user", order.UserID, "人工核对用户计费订单", map[string]any{"billingOrderId": id, "action": req.Action, "note": truncateRunes(note, 500)}); err != nil {
+	if err := s.appendAdminAudit(actor, "billing.resolve", "user", order.UserID, "人工核对用户计费订单", map[string]any{"billingOrderId": id, "action": action, "note": truncateRunes(note, 500)}); err != nil {
 		return nil, err
 	}
 	return s.repo.BillingOrder(id)
