@@ -58,6 +58,10 @@ func (s *Service) AdminChannelModels(actor *model.User, channelID string) ([]mod
 	return s.ensureChannelModels(channelID, true)
 }
 
+func (s *Service) SystemChannelModel(channelID string, modelKey string) (*model.ChannelModel, error) {
+	return s.repo.ChannelModelByKey(channelID, strings.TrimPrefix(strings.TrimSpace(modelKey), "models/"))
+}
+
 func (s *Service) FetchAdminChannelModels(ctx context.Context, actor *model.User, channelID string) (*AdminChannelModelFetchResult, error) {
 	if err := s.RequireAdmin(actor); err != nil {
 		return nil, err
@@ -86,7 +90,7 @@ func (s *Service) FetchAdminChannelModels(ctx context.Context, actor *model.User
 			continue
 		}
 		// 自动发现不能绕过定价边界；新模型由管理员定价后再手动启用。
-		missing = append(missing, model.ChannelModel{ID: newID(), ChannelID: channelID, ModelKey: name, DisplayName: name, Capability: capabilityForChannel(*channel), Protocol: channel.InterfaceType, BillingMode: "fixed_request", Enabled: false, PriceVersion: 1})
+		missing = append(missing, model.ChannelModel{ID: newID(), ChannelID: channelID, ModelKey: name, DisplayName: name, BillingMode: "fixed_request", Enabled: false, PriceVersion: 1})
 	}
 	added, err := s.repo.CreateMissingChannelModels(missing)
 	if err != nil {
@@ -109,17 +113,14 @@ func (s *Service) SaveAdminChannelModel(actor *model.User, channelID string, id 
 	}
 	capability := normalizeCapability(req.Capability)
 	if capability == "" {
-		capability = capabilityForChannel(*channel)
-	}
-	if capability == "" {
 		return nil, BadAuthRequest("请选择模型能力")
 	}
 	protocol := model.ChannelInterfaceType(strings.TrimSpace(req.Protocol))
-	if protocol == "" {
-		protocol = channel.InterfaceType
-	}
 	if !validChannelInterfaceType(protocol) {
 		return nil, BadAuthRequest("请选择有效的模型请求协议")
+	}
+	if (protocol == model.ChannelInterfaceVolcengineJiMengImage || protocol == model.ChannelInterfaceVolcengineJiMengVideo) && (strings.TrimSpace(channel.APIKey) == "" || strings.TrimSpace(channel.SecretKey) == "") {
+		return nil, BadAuthRequest("即梦官方协议需要先在渠道中配置 Access Key 和 Secret Key")
 	}
 	if expected := capabilityForProtocol(protocol); expected != "" && expected != capability {
 		return nil, BadAuthRequest("模型能力与请求协议不匹配")
@@ -228,7 +229,7 @@ func (s *Service) syncInitialChannelModels(channel *model.ModelChannel, names []
 			}
 			continue
 		}
-		item := model.ChannelModel{ID: newID(), ChannelID: channel.ID, ModelKey: name, DisplayName: name, Capability: capabilityForChannel(*channel), Protocol: channel.InterfaceType, BillingMode: "fixed_request", Enabled: true, PriceVersion: 1}
+		item := model.ChannelModel{ID: newID(), ChannelID: channel.ID, ModelKey: name, DisplayName: name, BillingMode: "fixed_request", Enabled: false, PriceVersion: 1}
 		if err := s.repo.SaveChannelModel(&item); err != nil {
 			return err
 		}
@@ -277,17 +278,13 @@ func (s *Service) syncChannelModelNames(channel *model.ModelChannel) error {
 	return s.repo.Save(channel)
 }
 
-func capabilityForChannel(channel model.ModelChannel) string {
-	return capabilityForProtocol(channel.InterfaceType)
-}
-
 func capabilityForProtocol(protocol model.ChannelInterfaceType) string {
 	switch protocol {
-	case model.ChannelInterfaceOpenAIImage:
+	case model.ChannelInterfaceOpenAIImage, model.ChannelInterfaceVolcengineArkImage, model.ChannelInterfaceVolcengineJiMengImage:
 		return "image"
 	case model.ChannelInterfaceOpenAIAudio:
 		return "audio"
-	case model.ChannelInterfaceNewAPIVideo, model.ChannelInterfaceNewAPIChannel1, model.ChannelInterfaceNewAPIChannel2, model.ChannelInterfaceXAIVideo, model.ChannelInterfaceGeminiVeo:
+	case model.ChannelInterfaceNewAPIVideo, model.ChannelInterfaceNewAPIChannel1, model.ChannelInterfaceNewAPIChannel2, model.ChannelInterfaceXAIVideo, model.ChannelInterfaceVolcengineArkVideo, model.ChannelInterfaceVolcengineJiMengVideo, model.ChannelInterfaceGeminiVeo:
 		return "video"
 	case model.ChannelInterfaceChatCompletion, model.ChannelInterfaceOpenAIResponse:
 		return "text"

@@ -28,6 +28,7 @@ var (
 	customGeminiRelayPath     = regexp.MustCompile(`(?:^|/)models/[^/:]+:(generateContent|streamGenerateContent|predictLongRunning)$`)
 	customVideoTaskPath       = regexp.MustCompile(`(?:^|/)video/generations/[^/]+$`)
 	customXAIVideoTaskPath    = regexp.MustCompile(`(?:^|/)videos/[^/]+$`)
+	customArkVideoTaskPath    = regexp.MustCompile(`(?:^|/)contents/generations/tasks/[^/]+$`)
 	customGeminiOperationPath = regexp.MustCompile(`(?:^|/)(?:models/[^/]+/)?operations/[^/]+$`)
 	openAIPostEndpoints       = map[string]bool{
 		"/responses": true, "/chat/completions": true, "/images/generations": true, "/images/edits": true,
@@ -62,7 +63,7 @@ func authorizeCustomRelay(method string, target *url.URL, apiFormat string, cont
 	if method == http.MethodGet {
 		allowed := requestPath == "/models" || strings.HasSuffix(requestPath, "/models")
 		if apiFormat == "openai" {
-			allowed = allowed || customVideoTaskPath.MatchString(requestPath) || customXAIVideoTaskPath.MatchString(requestPath)
+			allowed = allowed || customVideoTaskPath.MatchString(requestPath) || customXAIVideoTaskPath.MatchString(requestPath) || customArkVideoTaskPath.MatchString(requestPath)
 		} else {
 			allowed = allowed || customGeminiOperationPath.MatchString(requestPath)
 		}
@@ -79,7 +80,7 @@ func authorizeCustomRelay(method string, target *url.URL, apiFormat string, cont
 		return errors.New("自定义渠道不允许使用该请求方法")
 	}
 	if apiFormat == "openai" {
-		if len(query) != 0 || (!strings.HasSuffix(requestPath, "/responses") && !strings.HasSuffix(requestPath, "/chat/completions") && !strings.HasSuffix(requestPath, "/video/generations") && !strings.HasSuffix(requestPath, "/videos/generations")) {
+		if len(query) != 0 || (!strings.HasSuffix(requestPath, "/responses") && !strings.HasSuffix(requestPath, "/chat/completions") && !strings.HasSuffix(requestPath, "/images/generations") && !strings.HasSuffix(requestPath, "/video/generations") && !strings.HasSuffix(requestPath, "/videos/generations") && !strings.HasSuffix(requestPath, "/contents/generations/tasks")) {
 			return errors.New("自定义渠道不允许访问该上游接口")
 		}
 		return nil
@@ -138,7 +139,7 @@ func loadRuntimePolicy(c *gin.Context, svc *service.Service) (service.RuntimePol
 	return policy, true
 }
 
-func authorizeSystemProxy(channel *model.ModelChannel, method string, requestPath string, contentType string, body []byte) error {
+func authorizeSystemProxy(channel *model.ModelChannel, protocol model.ChannelInterfaceType, method string, requestPath string, contentType string, body []byte) error {
 	requestPath, err := normalizedProxyPath(requestPath)
 	if err != nil {
 		return err
@@ -146,7 +147,7 @@ func authorizeSystemProxy(channel *model.ModelChannel, method string, requestPat
 	if method == http.MethodGet && requestPath == "/models" {
 		return nil
 	}
-	if channel.APIFormat == "gemini" {
+	if protocol == model.ChannelInterfaceGeminiVeo {
 		matches := geminiGeneratePath.FindStringSubmatch(requestPath)
 		if method != http.MethodPost || len(matches) != 3 {
 			return errors.New("系统渠道不允许访问该上游接口")
@@ -160,7 +161,7 @@ func authorizeSystemProxy(channel *model.ModelChannel, method string, requestPat
 	if method != http.MethodPost || !openAIPostEndpoints[requestPath] {
 		return errors.New("系统渠道不允许访问该上游接口")
 	}
-	if channel.InterfaceType != "" && !interfaceAllowsProxyPath(channel.InterfaceType, requestPath) {
+	if protocol != "" && !interfaceAllowsProxyPath(protocol, requestPath) {
 		return errors.New("当前接口类型不允许访问该上游接口")
 	}
 	modelName := proxyRequestModel(contentType, body)
@@ -178,9 +179,11 @@ func interfaceAllowsProxyPath(interfaceType model.ChannelInterfaceType, requestP
 		return requestPath == "/responses"
 	case model.ChannelInterfaceOpenAIImage:
 		return requestPath == "/images/generations" || requestPath == "/images/edits"
+	case model.ChannelInterfaceVolcengineArkImage:
+		return requestPath == "/images/generations"
 	case model.ChannelInterfaceOpenAIAudio:
 		return requestPath == "/audio/speech"
-	case model.ChannelInterfaceNewAPIVideo, model.ChannelInterfaceNewAPIChannel1, model.ChannelInterfaceNewAPIChannel2, model.ChannelInterfaceXAIVideo, model.ChannelInterfaceGeminiVeo:
+	case model.ChannelInterfaceNewAPIVideo, model.ChannelInterfaceNewAPIChannel1, model.ChannelInterfaceNewAPIChannel2, model.ChannelInterfaceXAIVideo, model.ChannelInterfaceVolcengineArkVideo, model.ChannelInterfaceVolcengineJiMengImage, model.ChannelInterfaceVolcengineJiMengVideo, model.ChannelInterfaceGeminiVeo:
 		return false
 	default:
 		return true
@@ -233,6 +236,16 @@ func proxyRequestModel(contentType string, body []byte) string {
 	}
 	modelName, _ := payload["model"].(string)
 	return strings.TrimSpace(modelName)
+}
+
+func proxyRequestModelForPath(requestPath string, contentType string, body []byte) string {
+	if matches := geminiGeneratePath.FindStringSubmatch(requestPath); len(matches) == 3 {
+		modelName, err := url.PathUnescape(matches[1])
+		if err == nil {
+			return strings.TrimPrefix(strings.TrimSpace(modelName), "models/")
+		}
+	}
+	return proxyRequestModel(contentType, body)
 }
 
 func proxyRequestVideoSeconds(contentType string, body []byte) int64 {

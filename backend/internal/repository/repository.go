@@ -467,16 +467,13 @@ func (r *Repository) HistoricalSystemChannelReferences() ([]model.ModelChannel, 
 	return channels, err
 }
 
-func (r *Repository) AdminSystemChannels(keyword string, interfaceType string, status string, limit int, offset int) ([]model.ModelChannel, int64, error) {
+func (r *Repository) AdminSystemChannels(keyword string, status string, limit int, offset int) ([]model.ModelChannel, int64, error) {
 	var channels []model.ModelChannel
 	var total int64
 	query := r.db.Model(&model.ModelChannel{}).Where("scope = ?", model.ChannelScopeSystem)
 	if value := strings.TrimSpace(keyword); value != "" {
 		pattern := "%" + strings.ToLower(value) + "%"
 		query = query.Where("lower(name) LIKE ? OR lower(base_url) LIKE ?", pattern, pattern)
-	}
-	if value := strings.TrimSpace(interfaceType); value != "" && value != "all" {
-		query = query.Where("interface_type = ?", value)
 	}
 	if status == "enabled" {
 		query = query.Where("enabled = ?", true)
@@ -519,7 +516,7 @@ func (r *Repository) DeleteSystemChannel(id string) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		channelResult := tx.Model(&model.ModelChannel{}).
 			Where("id = ? AND scope = ?", id, model.ChannelScopeSystem).
-			Updates(map[string]any{"api_key": "", "enabled": false, "updated_at": now})
+			Updates(map[string]any{"api_key": "", "secret_key": "", "enabled": false, "updated_at": now})
 		if channelResult.Error != nil {
 			return channelResult.Error
 		}

@@ -61,6 +61,48 @@ func TestProviderHTTPErrorWarnsAboutUncertain524Billing(t *testing.T) {
 	}
 }
 
+func TestVolcengineArkImageBodyUsesJSONReferencesAndDownscalesSize(t *testing.T) {
+	body, err := volcengineArkImageBody(canvasGenerationInput{
+		Prompt: "combine the references",
+		Config: providerConfig{Model: "doubao-seedream-test", Size: "3840x2160", SystemPrompt: "keep the subject"},
+		ReferenceImages: []providerMedia{
+			{URL: "https://example.com/first.png"},
+			{DataURL: testReferenceImageDataURL},
+		},
+	})
+	if err != nil {
+		t.Fatalf("volcengineArkImageBody() error = %v", err)
+	}
+	images, ok := body["image"].([]string)
+	if !ok || len(images) != 2 || images[0] != "https://example.com/first.png" || images[1] != testReferenceImageDataURL {
+		t.Fatalf("image = %#v", body["image"])
+	}
+	if body["prompt"] != "keep the subject\n\ncombine the references" {
+		t.Fatalf("prompt = %q", body["prompt"])
+	}
+	size, _ := body["size"].(string)
+	parts := strings.Split(size, "x")
+	if len(parts) != 2 {
+		t.Fatalf("size = %q", size)
+	}
+	width, _ := strconv.Atoi(parts[0])
+	height, _ := strconv.Atoi(parts[1])
+	if width%2 != 0 || height%2 != 0 || int64(width)*int64(height) > volcengineArkImageMaxPixels {
+		t.Fatalf("downscaled size = %q", size)
+	}
+}
+
+func TestVolcengineArkImageRejectsMaskBeforeRequest(t *testing.T) {
+	_, err := runImageTask(context.Background(), canvasGenerationInput{
+		Prompt: "edit only the masked area",
+		Config: providerConfig{InterfaceType: "volcengine-ark-image"},
+		Mask:   &providerMedia{DataURL: testReferenceImageDataURL},
+	})
+	if err == nil || !strings.Contains(err.Error(), "不支持蒙版") {
+		t.Fatalf("runImageTask() error = %v", err)
+	}
+}
+
 func TestDoBinaryRejectsOversizedProviderResponse(t *testing.T) {
 	t.Setenv("CANVAS_ALLOW_PRIVATE_UPSTREAMS", "true")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -573,6 +615,58 @@ func TestArkPlanConfigStaysSeparateFromSeedanceVideosEndpoint(t *testing.T) {
 	}
 	if !isSeedanceVideoConfig(config) {
 		t.Fatal("isSeedanceVideoConfig() = false, want true")
+	}
+}
+
+func TestVolcengineArkVideoProtocolUsesContentTaskAndDownloadsResult(t *testing.T) {
+	t.Setenv("CANVAS_ALLOW_PRIVATE_UPSTREAMS", "true")
+	paths := make([]string, 0, 3)
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.Method+" "+r.URL.Path)
+		switch r.Method + " " + r.URL.Path {
+		case "POST /api/v3/contents/generations/tasks":
+			var body map[string]interface{}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			content, _ := body["content"].([]interface{})
+			if len(content) != 2 {
+				t.Errorf("body = %#v", body)
+				return
+			}
+			imageContent, _ := content[1].(map[string]interface{})
+			if body["model"] != "doubao-seedance-test" || imageContent["role"] != "reference_image" {
+				t.Errorf("body = %#v", body)
+			}
+			_, _ = w.Write([]byte(`{"id":"ark-task-1","status":"running"}`))
+		case "GET /api/v3/contents/generations/tasks/ark-task-1":
+			_, _ = w.Write([]byte(`{"id":"ark-task-1","status":"succeeded","content":{"video_url":"` + server.URL + `/result.mp4"}}`))
+		case "GET /result.mp4":
+			w.Header().Set("Content-Type", "video/mp4")
+			_, _ = w.Write([]byte("video"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	result, err := runVideoTask(context.Background(), canvasGenerationInput{
+		Prompt:          "make it move",
+		Config:          providerConfig{BaseURL: server.URL + "/api/v3", APIKey: "test-key", Model: "doubao-seedance-test", InterfaceType: "volcengine-ark-video"},
+		ReferenceImages: []providerMedia{{ID: "start", URL: server.URL + "/reference.png"}},
+		Metadata:        map[string]interface{}{"videoStartFrameNodeId": "start"},
+	})
+	if err != nil {
+		t.Fatalf("runVideoTask() error = %v", err)
+	}
+	video := result["video"].(map[string]interface{})
+	if video["dataUrl"] != "data:video/mp4;base64,dmlkZW8=" {
+		t.Fatalf("video = %#v", video)
+	}
+	want := "POST /api/v3/contents/generations/tasks,GET /api/v3/contents/generations/tasks/ark-task-1,GET /result.mp4"
+	if got := strings.Join(paths, ","); got != want {
+		t.Fatalf("paths = %q, want %q", got, want)
 	}
 }
 

@@ -7,24 +7,20 @@ import { useSearchParams } from "react-router";
 import { ListToolbar, TableSurface } from "@/components/layout/workspace-page";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { refreshSystemChannels } from "@/lib/user-session";
-import { MODEL_PROTOCOL_OPTIONS, modelProtocolLabel, normalizeModelProtocol } from "@/lib/model-protocols";
 import { createAdminChannel, deleteAdminChannel, listAdminChannels, updateAdminChannel } from "@/services/api/auth";
-import { defaultBaseUrlForChannelInterface, type ChannelInterfaceType, type ModelChannel } from "@/stores/use-config-store";
+import { type ModelChannel } from "@/stores/use-config-store";
 import { useAdminContext } from "../admin-context";
 import { AdminPageFrame } from "../components/admin-shell";
 import { AdminRowActions, AdminTableEmpty, AdminTableSkeleton, configuredSecretText } from "../components/admin-ui";
 import { ChannelModelManager } from "../components/channel-model-manager";
 
-type ChannelFormValues = { name: string; baseUrl: string; apiKey?: string; interfaceType: ChannelInterfaceType; useGlobalConcurrency?: boolean; concurrencyLimit?: number; enabled?: boolean };
-
-const interfaceTypeOptions = MODEL_PROTOCOL_OPTIONS;
+type ChannelFormValues = { name: string; baseUrl: string; apiKey?: string; secretKey?: string; useGlobalConcurrency?: boolean; concurrencyLimit?: number; enabled?: boolean };
 
 export default function ChannelsPage() {
     const { message, modal } = App.useApp();
     const { reloadReferences } = useAdminContext();
     const [searchParams, setSearchParams] = useSearchParams();
     const keyword = searchParams.get("filter") || "";
-    const interfaceType = normalizeInterface(searchParams.get("interfaceType"));
     const status = normalizeStatus(searchParams.get("status"));
     const page = positiveInt(searchParams.get("page"), 1);
     const pageSize = normalizePageSize(searchParams.get("pageSize"));
@@ -39,12 +35,12 @@ export default function ChannelsPage() {
     const requestSequence = useRef(0);
     const [form] = Form.useForm<ChannelFormValues>();
     const useGlobalConcurrency = Form.useWatch("useGlobalConcurrency", form) !== false;
-    const hasFilters = Boolean(keyword || interfaceType !== "all" || status !== "all");
+    const hasFilters = Boolean(keyword || status !== "all");
 
     const updateUrl = (patch: Record<string, string | number>, replace = false) => {
         const next = new URLSearchParams(searchParams);
         Object.entries(patch).forEach(([key, value]) => {
-            const isDefault = (key === "filter" && value === "") || (key === "interfaceType" && value === "all") || (key === "status" && value === "all") || (key === "page" && value === 1) || (key === "pageSize" && value === 20);
+            const isDefault = (key === "filter" && value === "") || (key === "status" && value === "all") || (key === "page" && value === 1) || (key === "pageSize" && value === 20);
             if (isDefault) next.delete(key);
             else next.set(key, String(value));
         });
@@ -55,7 +51,7 @@ export default function ChannelsPage() {
         const sequence = ++requestSequence.current;
         setLoading(true);
         try {
-            const result = await listAdminChannels({ keyword: debouncedKeyword || undefined, interfaceType: interfaceType === "all" ? undefined : interfaceType, status: status === "all" ? undefined : status, page, limit: pageSize });
+            const result = await listAdminChannels({ keyword: debouncedKeyword || undefined, status: status === "all" ? undefined : status, page, limit: pageSize });
             if (sequence !== requestSequence.current) return;
             setChannels(result.channels);
             setTotal(result.total);
@@ -69,7 +65,7 @@ export default function ChannelsPage() {
 
     useEffect(() => {
         void reload();
-    }, [debouncedKeyword, interfaceType, status, page, pageSize]);
+    }, [debouncedKeyword, status, page, pageSize]);
 
     const syncChannels = async () => {
         await reloadReferences();
@@ -83,7 +79,7 @@ export default function ChannelsPage() {
     const openDrawer = (channel?: ModelChannel) => {
         setEditingChannel(channel || null);
         form.resetFields();
-        form.setFieldsValue(channel ? { name: channel.name, baseUrl: channel.baseUrl, apiKey: "", interfaceType: channel.interfaceType || "newapi", useGlobalConcurrency: !channel.concurrencyLimit, concurrencyLimit: channel.concurrencyLimit || undefined, enabled: channel.enabled !== false } : { name: "", baseUrl: "", apiKey: "", interfaceType: "newapi", useGlobalConcurrency: true, concurrencyLimit: undefined, enabled: true });
+        form.setFieldsValue(channel ? { name: channel.name, baseUrl: channel.baseUrl, apiKey: "", secretKey: "", useGlobalConcurrency: !channel.concurrencyLimit, concurrencyLimit: channel.concurrencyLimit || undefined, enabled: channel.enabled !== false } : { name: "", baseUrl: "", apiKey: "", secretKey: "", useGlobalConcurrency: true, concurrencyLimit: undefined, enabled: true });
         setDrawerOpen(true);
     };
 
@@ -99,12 +95,12 @@ export default function ChannelsPage() {
     const save = async () => {
         const values = await form.validateFields();
         if (!editingChannel && !values.apiKey?.trim()) {
-            message.error("请填写 API Key");
+            message.error("请填写 API Key 或 Access Key");
             return;
         }
         setSaving(true);
         try {
-            const payload = { name: values.name.trim(), baseUrl: values.baseUrl.trim(), apiKey: values.apiKey?.trim() || "", interfaceType: values.interfaceType, useGlobalConcurrency: values.useGlobalConcurrency !== false, concurrencyLimit: values.useGlobalConcurrency === false ? values.concurrencyLimit : undefined, enabled: values.enabled !== false };
+            const payload = { name: values.name.trim(), baseUrl: values.baseUrl.trim(), apiKey: values.apiKey?.trim() || "", secretKey: values.secretKey?.trim() || "", useGlobalConcurrency: values.useGlobalConcurrency !== false, concurrencyLimit: values.useGlobalConcurrency === false ? values.concurrencyLimit : undefined, enabled: values.enabled !== false };
             await (editingChannel ? updateAdminChannel(editingChannel.id, payload) : createAdminChannel(payload));
             await syncChannels();
             setDrawerOpen(false);
@@ -142,34 +138,32 @@ export default function ChannelsPage() {
 
     const columns: ColumnsType<ModelChannel> = [
         { title: "渠道", dataIndex: "name", render: (_, channel) => <div><div className="font-medium">{channel.name}</div><div className="max-w-lg truncate text-xs text-foreground/45">{channel.baseUrl}</div></div> },
-        { title: "默认协议", dataIndex: "interfaceType", width: 220, render: (value: ChannelInterfaceType) => <Tag variant="filled" color={value === "newapi" ? "orange" : value === "newapi-channel-1" ? "green" : value === "newapi-channel-2" ? "purple" : value === "xai-video" ? "cyan" : "blue"}>{modelProtocolLabel(value)}</Tag> },
         { title: "模型", dataIndex: "models", width: 100, render: (models: string[]) => `${models?.length || 0} 个` },
         { title: "最大并发", dataIndex: "concurrencyLimit", width: 120, render: (value: number) => value > 0 ? value : <span className="text-foreground/45">跟随系统</span> },
-        { title: "密钥", dataIndex: "hasApiKey", width: 100, render: (configured) => <Tag variant="filled" color={configured ? "success" : "default"}>{configured ? "已配置" : "未配置"}</Tag> },
+        { title: "凭证", width: 130, render: (_, channel) => <Tag variant="filled" color={channel.hasApiKey ? "success" : "default"}>{channel.hasApiKey ? (channel.hasSecretKey ? "AK/SK 已配置" : "API Key 已配置") : "未配置"}</Tag> },
         { title: "状态", dataIndex: "enabled", width: 100, render: (enabled) => <Tag variant="filled" color={enabled !== false ? "success" : "default"}>{enabled !== false ? "已启用" : "已停用"}</Tag> },
         { title: "操作", width: 160, fixed: "right", align: "right", render: (_, channel) => <AdminRowActions primary={{ label: "模型管理", onClick: () => setManagingChannel(channel) }} actions={[{ key: "edit", label: "编辑渠道", icon: <Pencil className="size-3.5" />, onClick: () => openDrawer(channel) }, { key: "toggle", label: channel.enabled !== false ? "停用渠道" : "启用渠道", icon: <Power className="size-3.5" />, danger: channel.enabled !== false, confirm: { title: channel.enabled !== false ? "停用这个系统渠道？" : "启用这个系统渠道？", description: channel.enabled !== false ? "停用后新任务不会再使用该渠道，但仍会保留在列表中，可随时重新启用。" : "启用后，配置完整的模型会重新进入系统可用模型集合。", okText: channel.enabled !== false ? "确认停用" : "确认启用" }, onClick: () => toggleChannel(channel) }, { key: "delete", label: "删除渠道", icon: <Trash2 className="size-3.5" />, danger: true, confirm: { title: "删除这个系统渠道？", description: "删除后渠道及所属模型将不再显示，API Key 会被清除，历史账单和调用记录继续保留。该操作不能在页面恢复。", okText: "确认删除" }, onClick: () => removeChannel(channel) }]} /> },
     ];
 
     if (managingChannel) {
-        return <AdminPageFrame title="系统渠道" description={`${managingChannel.name} · 模型与售价`}><ChannelModelManager channel={managingChannel} onClose={() => setManagingChannel(null)} onChanged={async () => { await syncChannels(); await reload(); }} /></AdminPageFrame>;
+        return <ChannelModelManager channel={managingChannel} onClose={() => setManagingChannel(null)} onChanged={async () => { await syncChannels(); await reload(); }} />;
     }
 
     return (
         <AdminPageFrame title="系统渠道" description="渠道、模型与售价" actions={<Button type="primary" icon={<Plus className="size-4" />} onClick={() => openDrawer()}>新增系统渠道</Button>}>
-            <ListToolbar active={hasFilters} onReset={() => updateUrl({ filter: "", interfaceType: "all", status: "all", page: 1 })}>
+            <ListToolbar active={hasFilters} onReset={() => updateUrl({ filter: "", status: "all", page: 1 })}>
                 <Input id="admin-channel-search" aria-label="搜索系统渠道" autoComplete="off" allowClear className="app-list-search" prefix={<Search className="size-4 text-foreground/40" />} value={keyword} placeholder="搜索渠道名称或地址" onChange={(event) => updateUrl({ filter: event.target.value, page: 1 }, true)} />
-                <Select className="w-40" value={interfaceType} onChange={(value) => updateUrl({ interfaceType: value, page: 1 })} options={[{ label: "全部协议", value: "all" }, ...interfaceTypeOptions.flatMap((group) => group.options)]} />
                 <Select className="w-32" value={status} onChange={(value) => updateUrl({ status: value, page: 1 })} options={[{ label: "全部状态", value: "all" }, { label: "已启用", value: "enabled" }, { label: "已停用", value: "disabled" }]} />
             </ListToolbar>
             <TableSurface>
-                {loading && channels.length === 0 ? <AdminTableSkeleton rows={8} columns={7} /> : <Table className="app-data-table" size="middle" rowKey="id" loading={loading} columns={columns} dataSource={channels} locale={{ emptyText: <AdminTableEmpty filtered={hasFilters} title={hasFilters ? undefined : "还没有系统渠道"} description={hasFilters ? undefined : "创建渠道并配置模型后，普通用户即可使用系统模型。"} action={hasFilters ? undefined : <Button type="primary" icon={<Plus className="size-4" />} onClick={() => openDrawer()}>新增系统渠道</Button>} /> }} pagination={{ current: page, pageSize, total, showSizeChanger: true, pageSizeOptions: [20, 50, 100], showTotal: (value, range) => `${range[0]}-${range[1]} / 共 ${value} 条`, onChange: (nextPage, nextSize) => updateUrl({ page: nextSize !== pageSize ? 1 : nextPage, pageSize: nextSize }) }} scroll={{ x: 970 }} />}
+                {loading && channels.length === 0 ? <AdminTableSkeleton rows={8} columns={6} /> : <Table className="app-data-table" size="middle" rowKey="id" loading={loading} columns={columns} dataSource={channels} locale={{ emptyText: <AdminTableEmpty filtered={hasFilters} title={hasFilters ? undefined : "还没有系统渠道"} description={hasFilters ? undefined : "创建渠道并配置模型后，普通用户即可使用系统模型。"} action={hasFilters ? undefined : <Button type="primary" icon={<Plus className="size-4" />} onClick={() => openDrawer()}>新增系统渠道</Button>} /> }} pagination={{ current: page, pageSize, total, showSizeChanger: true, pageSizeOptions: [20, 50, 100], showTotal: (value, range) => `${range[0]}-${range[1]} / 共 ${value} 条`, onChange: (nextPage, nextSize) => updateUrl({ page: nextSize !== pageSize ? 1 : nextPage, pageSize: nextSize }) }} scroll={{ x: 820 }} />}
             </TableSurface>
             <Drawer title={editingChannel ? "编辑系统渠道" : "新增系统渠道"} open={drawerOpen} size="min(560px, 100vw)" onClose={closeDrawer} maskClosable={!saving} destroyOnHidden extra={<Button type="primary" loading={saving} onClick={() => void save()}>保存</Button>}>
                 <Form form={form} layout="vertical" requiredMark={false}>
                     <Form.Item name="name" label="渠道名称" rules={[{ required: true, message: "请填写渠道名称" }]}><Input placeholder="例如：OpenAI 官方渠道" /></Form.Item>
-                    <Form.Item name="interfaceType" label="默认模型协议" rules={[{ required: true, message: "请选择默认模型协议" }]} extra="仅用于新增或拉取模型时预填；每个模型可在模型管理中选择自己的实际请求协议。"><Select options={interfaceTypeOptions} onChange={(value: ChannelInterfaceType) => { const current = String(form.getFieldValue("baseUrl") || "").trim(); const officialDefaults = [defaultBaseUrlForChannelInterface(), defaultBaseUrlForChannelInterface("gemini-veo")]; if (!current || officialDefaults.includes(current)) form.setFieldValue("baseUrl", defaultBaseUrlForChannelInterface(value)); }} /></Form.Item>
                     <Form.Item name="baseUrl" label="Base URL" rules={[{ required: true, message: "请填写 Base URL" }]}><Input placeholder="填写渠道 Base URL" /></Form.Item>
-                    <Form.Item name="apiKey" label={editingChannel ? `API Key（${configuredSecretText}）` : "API Key"} rules={editingChannel ? [] : [{ required: true, message: "请填写 API Key" }]}><Input.Password autoComplete="new-password" placeholder={editingChannel ? "留空保留原密钥" : "系统渠道密钥"} /></Form.Item>
+                    <Form.Item name="apiKey" label={editingChannel ? `API Key / Access Key（${configuredSecretText}）` : "API Key / Access Key"} rules={editingChannel ? [] : [{ required: true, message: "请填写 API Key 或 Access Key" }]} extra="OpenAI 兼容协议填写 API Key；即梦官方协议填写 IAM Access Key。"><Input.Password autoComplete="new-password" placeholder={editingChannel ? "留空保留原凭证" : "API Key 或 Access Key"} /></Form.Item>
+                    <Form.Item name="secretKey" label={editingChannel ? `Secret Key（${channelSecretText(editingChannel)}）` : "Secret Key（可选）"} extra="仅即梦官方等 AK/SK 签名协议需要；其他渠道留空。"><Input.Password autoComplete="new-password" placeholder={editingChannel ? "留空保留原 Secret Key" : "IAM Secret Key"} /></Form.Item>
                     <Form.Item name="useGlobalConcurrency" label="跟随系统并发配置" valuePropName="checked"><Switch /></Form.Item>
                     <Form.Item name="concurrencyLimit" label="渠道最大并发数" extra="后台任务和系统代理请求共享该渠道上限；槽位暂满时请求会等待。" rules={useGlobalConcurrency ? [] : [{ required: true, message: "请填写渠道最大并发数" }, { type: "number", min: 1, max: 999, message: "请输入 1-999 的整数" }]}><InputNumber className="w-full" min={1} max={999} precision={0} disabled={useGlobalConcurrency} placeholder={useGlobalConcurrency ? "使用系统默认值" : "1-999"} /></Form.Item>
                     <Form.Item name="enabled" label="启用" valuePropName="checked"><Switch /></Form.Item>
@@ -182,4 +176,4 @@ export default function ChannelsPage() {
 function positiveInt(value: string | null, fallback: number) { const parsed = Number(value); return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback; }
 function normalizePageSize(value: string | null) { const parsed = positiveInt(value, 20); return [20, 50, 100].includes(parsed) ? parsed : 20; }
 function normalizeStatus(value: string | null): "all" | "enabled" | "disabled" { return value === "enabled" || value === "disabled" ? value : "all"; }
-function normalizeInterface(value: string | null): "all" | ChannelInterfaceType { return normalizeModelProtocol(value) || "all"; }
+function channelSecretText(channel: ModelChannel) { return channel.hasSecretKey ? "已配置，留空不修改" : "未配置"; }

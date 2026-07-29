@@ -396,6 +396,9 @@ func (s *Service) newBillingOrder(userID string, taskID string, idempotencyKey s
 	if !item.PriceConfigured {
 		return nil, BadAuthRequest("当前模型尚未配置用户积分价格")
 	}
+	if item.Protocol == model.ChannelInterfaceVolcengineJiMengVideo && requestedQuantity != 5 && requestedQuantity != 10 {
+		return nil, BadAuthRequest("即梦视频仅支持 5 秒或 10 秒，请调整视频时长")
+	}
 	quantity := int64(1)
 	switch item.BillingMode {
 	case "fixed_request":

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"mime"
 	"mime/multipart"
 	"net/http"
@@ -37,6 +38,7 @@ type providerConfig struct {
 	InterfaceType         string `json:"interfaceType"`
 	BaseURL               string `json:"baseUrl"`
 	APIKey                string `json:"apiKey"`
+	SecretKey             string `json:"secretKey"`
 	Model                 string `json:"model"`
 	Size                  string `json:"size"`
 	Quality               string `json:"quality"`
@@ -167,8 +169,11 @@ func (s *Service) processCanvasGenerationTask(ctx context.Context, userID string
 	if err := validateGenerationInterface(input.Mode, input.Config.InterfaceType); err != nil {
 		return nil, err
 	}
+	if isVolcengineJiMengProtocol(input.Config.InterfaceType) && strings.TrimSpace(input.Config.SecretKey) == "" {
+		return nil, errors.New("即梦官方 API 缺少 Secret Key")
+	}
 	if resumedProviderRequestID(ctx) == "" {
-		requirePublicURL := input.Config.InterfaceType == "newapi-channel-1" || input.Config.InterfaceType == "newapi-channel-2"
+		requirePublicURL := input.Config.InterfaceType == "newapi-channel-1" || input.Config.InterfaceType == "newapi-channel-2" || input.Config.InterfaceType == string(model.ChannelInterfaceVolcengineArkVideo)
 		if err := s.hydrateGenerationMedia(userID, &input, requirePublicURL); err != nil {
 			return nil, err
 		}
@@ -300,10 +305,11 @@ func (s *Service) resolveProviderConfig(config providerConfig) (providerConfig, 
 	}
 	config.ChannelID = channel.ID
 	config.APIFormat = channel.APIFormat
-	config.InterfaceType = string(channel.InterfaceType)
-	if channelModel, modelErr := s.repo.ChannelModelByKey(channel.ID, modelName); modelErr == nil && channelModel.Protocol != "" {
-		config.InterfaceType = string(channelModel.Protocol)
+	channelModel, modelErr := s.repo.ChannelModelByKey(channel.ID, modelName)
+	if modelErr != nil || channelModel.Protocol == "" {
+		return providerConfig{}, errors.New("当前模型尚未配置请求协议")
 	}
+	config.InterfaceType = string(channelModel.Protocol)
 	// 模型协议是实际请求契约；混合渠道中鉴权格式也必须随模型协议切换。
 	if config.InterfaceType == string(model.ChannelInterfaceGeminiVeo) {
 		config.APIFormat = "gemini"
@@ -312,6 +318,7 @@ func (s *Service) resolveProviderConfig(config providerConfig) (providerConfig, 
 	}
 	config.BaseURL = channel.BaseURL
 	config.APIKey = channel.APIKey
+	config.SecretKey = channel.SecretKey
 	config.Model = modelName
 	return config, nil
 }
@@ -343,6 +350,12 @@ func systemChannelIDFromBaseURL(baseURL string) string {
 }
 
 func runImageTask(ctx context.Context, input canvasGenerationInput) (map[string]interface{}, error) {
+	if input.Config.InterfaceType == string(model.ChannelInterfaceVolcengineJiMengImage) {
+		return runVolcengineJiMengImageTask(ctx, input)
+	}
+	if input.Config.InterfaceType == string(model.ChannelInterfaceVolcengineArkImage) {
+		return runVolcengineArkImageTask(ctx, input)
+	}
 	var payload imageResponse
 	if input.Mask != nil {
 		// 蒙版编辑是强校验写路径：协议能力不明确时必须失败，不能静默退化为整图重绘。
@@ -412,6 +425,82 @@ func runImageTask(ctx context.Context, input canvasGenerationInput) (map[string]
 		return nil, err
 	}
 	return map[string]interface{}{"mode": "image", "images": images}, nil
+}
+
+const volcengineArkImageMaxPixels = 4624220
+
+func runVolcengineArkImageTask(ctx context.Context, input canvasGenerationInput) (map[string]interface{}, error) {
+	if input.Mask != nil {
+		return nil, errors.New("火山方舟图片协议不支持蒙版编辑，请移除蒙版后重试")
+	}
+	body, err := volcengineArkImageBody(input)
+	if err != nil {
+		return nil, err
+	}
+	var payload imageResponse
+	if err := postJSON(ctx, input.Config, "/images/generations", body, &payload); err != nil {
+		return nil, err
+	}
+	images, err := imageDataURLs(payload)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{"mode": "image", "images": images}, nil
+}
+
+func volcengineArkImageBody(input canvasGenerationInput) (map[string]interface{}, error) {
+	body := map[string]interface{}{
+		"model":  input.Config.Model,
+		"prompt": withSystemPrompt(input.Config, input.Prompt),
+		"n":      1,
+	}
+	if size := normalizeVolcengineArkImageSize(input.Config.Size); size != "" {
+		body["size"] = size
+	}
+	if len(input.ReferenceImages) == 0 {
+		return body, nil
+	}
+	images := make([]string, 0, len(input.ReferenceImages))
+	for _, image := range input.ReferenceImages {
+		url, err := openAIImageInputURL(image)
+		if err != nil {
+			return nil, err
+		}
+		images = append(images, url)
+	}
+	if len(images) == 1 {
+		body["image"] = images[0]
+	} else {
+		body["image"] = images
+	}
+	return body, nil
+}
+
+func normalizeVolcengineArkImageSize(value string) string {
+	size := normalizePixelSize(value)
+	parts := strings.Split(strings.ToLower(size), "x")
+	if len(parts) != 2 {
+		return size
+	}
+	width, widthErr := strconv.Atoi(parts[0])
+	height, heightErr := strconv.Atoi(parts[1])
+	if widthErr != nil || heightErr != nil || width <= 0 || height <= 0 {
+		return size
+	}
+	if int64(width)*int64(height) <= volcengineArkImageMaxPixels {
+		return size
+	}
+	scale := math.Sqrt(float64(volcengineArkImageMaxPixels) / (float64(width) * float64(height)))
+	width = int(math.Floor(float64(width)*scale/2)) * 2
+	height = int(math.Floor(float64(height)*scale/2)) * 2
+	for width > 2 && height > 2 && int64(width)*int64(height) > volcengineArkImageMaxPixels {
+		if width >= height {
+			width -= 2
+		} else {
+			height -= 2
+		}
+	}
+	return strconv.Itoa(width) + "x" + strconv.Itoa(height)
 }
 
 func runTextTask(ctx context.Context, input canvasGenerationInput) (map[string]interface{}, error) {
@@ -596,6 +685,9 @@ func runAudioTask(ctx context.Context, input canvasGenerationInput) (map[string]
 }
 
 func runVideoTask(ctx context.Context, input canvasGenerationInput) (map[string]interface{}, error) {
+	if input.Config.InterfaceType == string(model.ChannelInterfaceVolcengineJiMengVideo) {
+		return runVolcengineJiMengVideoTask(ctx, input)
+	}
 	if input.Config.InterfaceType == "gemini-veo" {
 		return runGeminiVeoVideoTask(ctx, input)
 	}
@@ -604,6 +696,9 @@ func runVideoTask(ctx context.Context, input canvasGenerationInput) (map[string]
 	}
 	if input.Config.InterfaceType == "newapi-channel-1" {
 		return runNewAPIChannel1VideoTask(ctx, input)
+	}
+	if input.Config.InterfaceType == string(model.ChannelInterfaceVolcengineArkVideo) {
+		return runSeedanceAgentPlanVideoTask(ctx, input)
 	}
 	if isArkPlanVideoConfig(input.Config) {
 		return runSeedanceAgentPlanVideoTask(ctx, input)
@@ -1173,8 +1268,8 @@ func validateGenerationInterface(mode string, interfaceType string) error {
 	}
 	allowed := map[string]map[string]bool{
 		"text":  {"chat-completion": true, "openai-response": true},
-		"image": {"openai-image": true},
-		"video": {"newapi": true, "newapi-channel-1": true, "newapi-channel-2": true, "xai-video": true, "gemini-veo": true},
+		"image": {"openai-image": true, "volcengine-ark-image": true, "volcengine-jimeng-image": true},
+		"video": {"newapi": true, "newapi-channel-1": true, "newapi-channel-2": true, "xai-video": true, "volcengine-ark-video": true, "volcengine-jimeng-video": true, "gemini-veo": true},
 		"audio": {"openai-audio": true},
 	}
 	if allowed[mode] != nil && !allowed[mode][interfaceType] {
@@ -1294,12 +1389,23 @@ func runSeedanceVideosTask(ctx context.Context, input canvasGenerationInput) (ma
 }
 
 func runSeedanceAgentPlanVideoTask(ctx context.Context, input canvasGenerationInput) (map[string]interface{}, error) {
+	providerName := "Seedance"
+	if input.Config.InterfaceType == string(model.ChannelInterfaceVolcengineArkVideo) {
+		providerName = "火山方舟"
+	}
 	id := resumedProviderRequestID(ctx)
 	var created map[string]interface{}
 	if id == "" {
 		content, err := seedanceContent(input)
 		if err != nil {
 			return nil, err
+		}
+		if input.Config.InterfaceType == string(model.ChannelInterfaceVolcengineArkVideo) {
+			for _, item := range content {
+				if item["type"] == "image_url" {
+					item["role"] = "reference_image"
+				}
+			}
 		}
 		body := map[string]interface{}{
 			"model":          input.Config.Model,
@@ -1319,7 +1425,7 @@ func runSeedanceAgentPlanVideoTask(ctx context.Context, input canvasGenerationIn
 		id = stringField(created, "id")
 	}
 	if id == "" {
-		return nil, errors.New("Seedance 接口没有返回任务 ID")
+		return nil, fmt.Errorf("%s接口没有返回任务 ID", providerName)
 	}
 	for deadline := providerPollingDeadline(ctx); time.Now().Before(deadline); {
 		var state map[string]interface{}
@@ -1334,7 +1440,7 @@ func runSeedanceAgentPlanVideoTask(ctx context.Context, input canvasGenerationIn
 			content, _ := state["content"].(map[string]interface{})
 			videoURL := stringField(content, "video_url")
 			if videoURL == "" {
-				return nil, errors.New("Seedance 任务成功但没有返回视频 URL")
+				return nil, fmt.Errorf("%s任务成功但没有返回视频 URL", providerName)
 			}
 			data, mimeType, err := getExternalBinary(withProviderRequestKind(ctx, "download"), videoURL)
 			if err != nil {
@@ -1343,13 +1449,13 @@ func runSeedanceAgentPlanVideoTask(ctx context.Context, input canvasGenerationIn
 			return map[string]interface{}{"mode": "video", "video": map[string]interface{}{"dataUrl": dataURL(mimeType, data), "mimeType": mimeType}}, nil
 		}
 		if status == "failed" || status == "cancelled" || status == "expired" {
-			return nil, errors.New("Seedance 视频生成失败")
+			return nil, fmt.Errorf("%s视频生成失败", providerName)
 		}
 		if err := sleepContext(ctx, 5*time.Second); err != nil {
 			return nil, err
 		}
 	}
-	return nil, errors.New("Seedance 视频生成超时")
+	return nil, fmt.Errorf("%s视频生成超时", providerName)
 }
 
 func postJSON(ctx context.Context, config providerConfig, path string, body interface{}, target interface{}) error {

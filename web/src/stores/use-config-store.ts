@@ -15,12 +15,14 @@ export type ModelChannel = {
     name: string;
     baseUrl: string;
     apiKey: string;
+    secretKey?: string;
     apiFormat: ApiCallFormat;
     interfaceType?: ChannelInterfaceType;
     models: string[];
     scope?: "system" | "user";
     enabled?: boolean;
     hasApiKey?: boolean;
+    hasSecretKey?: boolean;
     concurrencyLimit?: number;
     modelCosts?: Array<{
         model: string;
@@ -295,12 +297,14 @@ export function createModelChannel(channel?: Partial<ModelChannel>): ModelChanne
         name: channel?.name?.trim() || "新渠道",
         baseUrl: providedBaseUrl || (interfaceType ? defaultBaseUrlForChannelInterface(interfaceType) : defaultBaseUrlForApiFormat(apiFormat)),
         apiKey: channel?.apiKey || "",
+        secretKey: channel?.secretKey || "",
         apiFormat,
         interfaceType,
         models: uniqueRawModels(channel?.models || []),
         scope: channel?.scope === "system" ? "system" : "user",
         enabled: channel?.enabled !== false,
         hasApiKey: channel?.hasApiKey,
+        hasSecretKey: channel?.hasSecretKey,
         modelCosts: channel?.modelCosts?.map((item) => ({ ...item, protocol: normalizeModelProtocol(item.protocol) })),
     };
 }
@@ -383,6 +387,7 @@ export function resolveModelRequestConfig(config: AiConfig, value: string) {
         model,
         baseUrl: channel.baseUrl,
         apiKey: channel.apiKey,
+        secretKey: channel.secretKey,
         apiFormat: interfaceType ? (interfaceType === "gemini-veo" ? "gemini" as const : "openai" as const) : channel.apiFormat,
         interfaceType,
         channelId: channel.scope === "system" ? channel.id : "",
@@ -432,6 +437,8 @@ export function defaultBaseUrlForApiFormat(apiFormat: ApiCallFormat) {
 
 export function defaultBaseUrlForChannelInterface(interfaceType?: ChannelInterfaceType) {
     if (interfaceType === "gemini-veo") return GEMINI_BASE_URL;
+    if (interfaceType === "volcengine-ark-image" || interfaceType === "volcengine-ark-video") return "https://ark.cn-beijing.volces.com/api/v3";
+    if (interfaceType === "volcengine-jimeng-image" || interfaceType === "volcengine-jimeng-video") return "https://visual.volcengineapi.com";
     if (interfaceType === "newapi" || interfaceType === "newapi-channel-1" || interfaceType === "newapi-channel-2" || interfaceType === "xai-video") return "";
     return OPENAI_BASE_URL;
 }

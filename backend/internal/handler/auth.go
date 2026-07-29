@@ -302,7 +302,7 @@ func RegisterAdminRoutes(r *gin.RouterGroup, svc *service.Service) {
 		}
 		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
-		channels, err := svc.AdminSystemChannelPage(user, service.AdminListQuery{Keyword: c.Query("keyword"), Type: c.Query("interfaceType"), Status: c.Query("status"), Page: page, Limit: limit})
+		channels, err := svc.AdminSystemChannelPage(user, service.AdminListQuery{Keyword: c.Query("keyword"), Status: c.Query("status"), Page: page, Limit: limit})
 		if err != nil {
 			failService(c, err)
 			return
@@ -629,11 +629,22 @@ func proxySystemRequest(c *gin.Context, svc *service.Service, user *model.User, 
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	if err := authorizeSystemProxy(channel, c.Request.Method, path, c.GetHeader("Content-Type"), body); err != nil {
+	modelName := proxyRequestModelForPath(path, c.GetHeader("Content-Type"), body)
+	protocol := model.ChannelInterfaceType("")
+	capability := "text"
+	if !(c.Request.Method == http.MethodGet && path == "/models") {
+		channelModel, modelErr := svc.SystemChannelModel(channel.ID, modelName)
+		if modelErr != nil || channelModel.Protocol == "" {
+			fail(c, http.StatusForbidden, errors.New("当前系统渠道未授权该模型或模型协议尚未配置"))
+			return
+		}
+		protocol = channelModel.Protocol
+		capability = channelModel.Capability
+	}
+	if err := authorizeSystemProxy(channel, protocol, c.Request.Method, path, c.GetHeader("Content-Type"), body); err != nil {
 		fail(c, http.StatusForbidden, err)
 		return
 	}
-	modelName := proxyRequestModel(c.GetHeader("Content-Type"), body)
 	billingOrderID := ""
 	query := c.Request.URL.Query()
 	for _, key := range []string{"key", "api_key", "access_token", "token"} {
@@ -651,7 +662,7 @@ func proxySystemRequest(c *gin.Context, svc *service.Service, user *model.User, 
 	// 同步代理与后台任务必须共享渠道槽位，否则两条入口会共同超过供应商并发上限。
 	releaseChannel, concurrencyLimit, err := svc.AcquireChannelSlot(c.Request.Context(), channel.ID, "", 36*time.Minute)
 	if err != nil {
-		log := apiCallLog(user, channel, billingOrderID, c.Request.Method, path, target, body, c.GetHeader("Content-Type"), model.ApiCallStatusFailed, 0, time.Since(startedAt), err.Error(), concurrencyLimit)
+		log := apiCallLog(user, channel, billingOrderID, capability, protocol, c.Request.Method, path, target, body, c.GetHeader("Content-Type"), model.ApiCallStatusFailed, 0, time.Since(startedAt), err.Error(), concurrencyLimit)
 		log.ErrorCode, log.Error = service.ChannelSlotFailureDetails(err)
 		logSystemProxyCall(svc, log, nil)
 		fail(c, http.StatusServiceUnavailable, err)
@@ -659,15 +670,6 @@ func proxySystemRequest(c *gin.Context, svc *service.Service, user *model.User, 
 	}
 	defer releaseChannel()
 	if c.Request.Method == http.MethodPost {
-		capability := "text"
-		switch channel.InterfaceType {
-		case model.ChannelInterfaceOpenAIImage:
-			capability = "image"
-		case model.ChannelInterfaceOpenAIAudio:
-			capability = "audio"
-		case model.ChannelInterfaceNewAPIVideo, model.ChannelInterfaceNewAPIChannel1, model.ChannelInterfaceNewAPIChannel2, model.ChannelInterfaceXAIVideo, model.ChannelInterfaceGeminiVeo:
-			capability = "video"
-		}
 		order, err := svc.ReserveProxyBilling(user.ID, channel.ID, strings.TrimPrefix(modelName, "models/"), capability, c.GetHeader("X-Canvas-Scene"), c.GetHeader("X-Idempotency-Key"), proxyRequestVideoSeconds(c.GetHeader("Content-Type"), body))
 		if err != nil {
 			failService(c, err)
@@ -692,7 +694,7 @@ func proxySystemRequest(c *gin.Context, svc *service.Service, user *model.User, 
 	if accept := c.GetHeader("Accept"); accept != "" {
 		upstreamReq.Header.Set("Accept", accept)
 	}
-	if channel.APIFormat == "gemini" {
+	if protocol == model.ChannelInterfaceGeminiVeo {
 		upstreamReq.Header.Set("x-goog-api-key", channel.APIKey)
 	} else {
 		upstreamReq.Header.Set("Authorization", "Bearer "+channel.APIKey)
@@ -706,7 +708,7 @@ func proxySystemRequest(c *gin.Context, svc *service.Service, user *model.User, 
 		status = model.ApiCallStatusFailed
 		errorText = err.Error()
 		_ = svc.MarkBillingUncertain(billingOrderID, "系统渠道连接中断，费用状态待核对")
-		logSystemProxyCall(svc, apiCallLog(user, channel, billingOrderID, c.Request.Method, path, target, body, c.GetHeader("Content-Type"), status, statusCode, time.Since(startedAt), errorText, concurrencyLimit), nil)
+		logSystemProxyCall(svc, apiCallLog(user, channel, billingOrderID, capability, protocol, c.Request.Method, path, target, body, c.GetHeader("Content-Type"), status, statusCode, time.Since(startedAt), errorText, concurrencyLimit), nil)
 		fail(c, http.StatusBadGateway, errors.New("系统渠道连接失败"))
 		return
 	}
@@ -721,7 +723,7 @@ func proxySystemRequest(c *gin.Context, svc *service.Service, user *model.User, 
 		status = model.ApiCallStatusFailed
 		errorText = readErr.Error()
 		_ = svc.MarkBillingUncertain(billingOrderID, "系统渠道响应读取失败，费用状态待核对")
-		logSystemProxyCall(svc, apiCallLog(user, channel, billingOrderID, c.Request.Method, path, target, body, c.GetHeader("Content-Type"), status, statusCode, time.Since(startedAt), errorText, concurrencyLimit), nil)
+		logSystemProxyCall(svc, apiCallLog(user, channel, billingOrderID, capability, protocol, c.Request.Method, path, target, body, c.GetHeader("Content-Type"), status, statusCode, time.Since(startedAt), errorText, concurrencyLimit), nil)
 		fail(c, http.StatusBadGateway, errors.New("系统渠道响应读取失败"))
 		return
 	}
@@ -739,7 +741,7 @@ func proxySystemRequest(c *gin.Context, svc *service.Service, user *model.User, 
 	} else {
 		_ = svc.RefundBilling(billingOrderID, "上游明确返回失败")
 	}
-	logSystemProxyCall(svc, apiCallLog(user, channel, billingOrderID, c.Request.Method, path, target, body, c.GetHeader("Content-Type"), status, statusCode, time.Since(startedAt), errorText, concurrencyLimit), responseBody)
+	logSystemProxyCall(svc, apiCallLog(user, channel, billingOrderID, capability, protocol, c.Request.Method, path, target, body, c.GetHeader("Content-Type"), status, statusCode, time.Since(startedAt), errorText, concurrencyLimit), responseBody)
 	for _, key := range []string{"Content-Type", "Cache-Control", "Content-Disposition"} {
 		if value := resp.Header.Get(key); value != "" {
 			c.Header(key, value)
@@ -749,17 +751,12 @@ func proxySystemRequest(c *gin.Context, svc *service.Service, user *model.User, 
 	c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), responseBody)
 }
 
-func apiCallLog(user *model.User, channel *model.ModelChannel, billingOrderID string, method string, path string, target string, body []byte, contentType string, status model.ApiCallStatus, statusCode int, duration time.Duration, errorText string, concurrencyLimit int) model.ApiCallLog {
-	capability := "text"
-	switch channel.InterfaceType {
-	case model.ChannelInterfaceOpenAIImage:
-		capability = "image"
-	case model.ChannelInterfaceOpenAIAudio:
-		capability = "audio"
-	case model.ChannelInterfaceNewAPIVideo, model.ChannelInterfaceNewAPIChannel1, model.ChannelInterfaceNewAPIChannel2, model.ChannelInterfaceXAIVideo, model.ChannelInterfaceGeminiVeo:
-		capability = "video"
-	}
+func apiCallLog(user *model.User, channel *model.ModelChannel, billingOrderID string, capability string, protocol model.ChannelInterfaceType, method string, path string, target string, body []byte, contentType string, status model.ApiCallStatus, statusCode int, duration time.Duration, errorText string, concurrencyLimit int) model.ApiCallLog {
 	requestKind := "create"
+	apiFormat := "openai"
+	if protocol == model.ChannelInterfaceGeminiVeo {
+		apiFormat = "gemini"
+	}
 	if method == http.MethodGet {
 		requestKind = "poll"
 		if strings.HasSuffix(strings.TrimRight(path, "/"), "/content") {
@@ -774,7 +771,7 @@ func apiCallLog(user *model.User, channel *model.ModelChannel, billingOrderID st
 		Capability:         capability,
 		RequestKind:        requestKind,
 		Billable:           method == http.MethodPost,
-		APIFormat:          channel.APIFormat,
+		APIFormat:          apiFormat,
 		Method:             method,
 		Path:               path,
 		Model:              readPayloadModel(body),

@@ -13,7 +13,7 @@ import (
 func TestAuthorizeSystemProxyAllowsConfiguredGenerationModel(t *testing.T) {
 	channel := &model.ModelChannel{APIFormat: "openai", ModelsJSON: `["gpt-image-1"]`}
 	body := []byte(`{"model":"gpt-image-1","prompt":"test"}`)
-	if err := authorizeSystemProxy(channel, http.MethodPost, "/images/generations", "application/json", body); err != nil {
+	if err := authorizeSystemProxy(channel, model.ChannelInterfaceOpenAIImage, http.MethodPost, "/images/generations", "application/json", body); err != nil {
 		t.Fatalf("authorizeSystemProxy() error = %v", err)
 	}
 }
@@ -32,6 +32,9 @@ func TestAuthorizeCustomRelayAllowsModelsAndAgentEndpoints(t *testing.T) {
 		{method: http.MethodGet, target: "https://api.example.com/v1/video/generations/task-1", apiFormat: "openai"},
 		{method: http.MethodPost, target: "https://api.x.ai/v1/videos/generations", apiFormat: "openai", contentType: "application/json"},
 		{method: http.MethodGet, target: "https://api.x.ai/v1/videos/request-1", apiFormat: "openai"},
+		{method: http.MethodPost, target: "https://ark.cn-beijing.volces.com/api/v3/images/generations", apiFormat: "openai", contentType: "application/json"},
+		{method: http.MethodPost, target: "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks", apiFormat: "openai", contentType: "application/json"},
+		{method: http.MethodGet, target: "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/task-1", apiFormat: "openai"},
 		{method: http.MethodPost, target: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse", apiFormat: "gemini", contentType: "application/json"},
 		{method: http.MethodPost, target: "https://generativelanguage.googleapis.com/v1beta/models/veo-3.0-generate-preview:predictLongRunning", apiFormat: "gemini", contentType: "application/json"},
 		{method: http.MethodGet, target: "https://generativelanguage.googleapis.com/v1beta/operations/operation-1", apiFormat: "gemini"},
@@ -74,10 +77,10 @@ func TestAuthorizeCustomRelayRejectsArbitraryRequestsAndCredentialQueries(t *tes
 
 func TestAuthorizeSystemProxyRejectsArbitraryPathAndModel(t *testing.T) {
 	channel := &model.ModelChannel{APIFormat: "openai", ModelsJSON: `["gpt-image-1"]`}
-	if err := authorizeSystemProxy(channel, http.MethodDelete, "/account", "application/json", nil); err == nil {
+	if err := authorizeSystemProxy(channel, model.ChannelInterfaceOpenAIImage, http.MethodDelete, "/account", "application/json", nil); err == nil {
 		t.Fatal("expected arbitrary path to be rejected")
 	}
-	if err := authorizeSystemProxy(channel, http.MethodPost, "/images/generations", "application/json", []byte(`{"model":"unapproved"}`)); err == nil {
+	if err := authorizeSystemProxy(channel, model.ChannelInterfaceOpenAIImage, http.MethodPost, "/images/generations", "application/json", []byte(`{"model":"unapproved"}`)); err == nil {
 		t.Fatal("expected unapproved model to be rejected")
 	}
 }
@@ -92,22 +95,33 @@ func TestProxyRequestModelReadsMultipartField(t *testing.T) {
 	}
 }
 
-func TestAuthorizeSystemProxyRestrictsConfiguredInterfaceType(t *testing.T) {
+func TestAuthorizeSystemProxyRestrictsModelProtocol(t *testing.T) {
 	body := []byte(`{"model":"gpt-4.1"}`)
-	channel := &model.ModelChannel{APIFormat: "openai", InterfaceType: model.ChannelInterfaceChatCompletion, ModelsJSON: `["gpt-4.1"]`}
-	if err := authorizeSystemProxy(channel, http.MethodPost, "/chat/completions", "application/json", body); err != nil {
+	channel := &model.ModelChannel{APIFormat: "openai", ModelsJSON: `["gpt-4.1"]`}
+	if err := authorizeSystemProxy(channel, model.ChannelInterfaceChatCompletion, http.MethodPost, "/chat/completions", "application/json", body); err != nil {
 		t.Fatalf("authorizeSystemProxy() error = %v", err)
 	}
-	if err := authorizeSystemProxy(channel, http.MethodPost, "/responses", "application/json", body); err == nil {
+	if err := authorizeSystemProxy(channel, model.ChannelInterfaceChatCompletion, http.MethodPost, "/responses", "application/json", body); err == nil {
 		t.Fatal("authorizeSystemProxy() error = nil for mismatched interface")
+	}
+}
+
+func TestAuthorizeSystemProxyVolcengineArkImageOnlyAllowsGenerations(t *testing.T) {
+	body := []byte(`{"model":"doubao-seedream-test"}`)
+	channel := &model.ModelChannel{APIFormat: "openai", ModelsJSON: `["doubao-seedream-test"]`}
+	if err := authorizeSystemProxy(channel, model.ChannelInterfaceVolcengineArkImage, http.MethodPost, "/images/generations", "application/json", body); err != nil {
+		t.Fatalf("authorizeSystemProxy() error = %v", err)
+	}
+	if err := authorizeSystemProxy(channel, model.ChannelInterfaceVolcengineArkImage, http.MethodPost, "/images/edits", "application/json", body); err == nil {
+		t.Fatal("authorizeSystemProxy() error = nil for unsupported Ark image edits path")
 	}
 }
 
 func TestAuthorizeSystemProxyBlocksBackendOnlyVideoInterfaces(t *testing.T) {
 	body := []byte(`{"model":"grok-image-video"}`)
-	for _, interfaceType := range []model.ChannelInterfaceType{model.ChannelInterfaceNewAPIChannel2, model.ChannelInterfaceXAIVideo} {
-		channel := &model.ModelChannel{APIFormat: "openai", InterfaceType: interfaceType, ModelsJSON: `["grok-image-video"]`}
-		if err := authorizeSystemProxy(channel, http.MethodPost, "/video/generations", "application/json", body); err == nil {
+	for _, interfaceType := range []model.ChannelInterfaceType{model.ChannelInterfaceNewAPIChannel2, model.ChannelInterfaceXAIVideo, model.ChannelInterfaceVolcengineJiMengImage, model.ChannelInterfaceVolcengineJiMengVideo} {
+		channel := &model.ModelChannel{APIFormat: "openai", ModelsJSON: `["grok-image-video"]`}
+		if err := authorizeSystemProxy(channel, interfaceType, http.MethodPost, "/video/generations", "application/json", body); err == nil {
 			t.Fatalf("authorizeSystemProxy() error = nil for backend-only interface %q", interfaceType)
 		}
 	}

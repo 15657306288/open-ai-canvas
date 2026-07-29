@@ -121,6 +121,7 @@ const IMAGE_MAX_PIXELS = 8294400;
 const IMAGE_MAX_EDGE = 3840;
 const IMAGE_MAX_RATIO = 3;
 const IMAGE_OUTPUT_FORMAT = "png";
+const VOLCENGINE_ARK_IMAGE_MAX_PIXELS = 4624220;
 
 function normalizeQuality(quality: string) {
     const value = quality.trim().toLowerCase();
@@ -190,6 +191,20 @@ function resolveRequestSize(quality: string | undefined, size: string) {
     throw new Error("图像尺寸格式不支持，请使用 auto、9:16 或 1024x1024");
 }
 
+function normalizeVolcengineArkImageSize(size: string | undefined) {
+    if (!size) return undefined;
+    const dimensions = parseImageDimensions(size);
+    if (!dimensions || dimensions.width * dimensions.height <= VOLCENGINE_ARK_IMAGE_MAX_PIXELS) return size;
+    const scale = Math.sqrt(VOLCENGINE_ARK_IMAGE_MAX_PIXELS / (dimensions.width * dimensions.height));
+    let width = Math.floor((dimensions.width * scale) / 2) * 2;
+    let height = Math.floor((dimensions.height * scale) / 2) * 2;
+    while (width > 2 && height > 2 && width * height > VOLCENGINE_ARK_IMAGE_MAX_PIXELS) {
+        if (width >= height) width -= 2;
+        else height -= 2;
+    }
+    return `${width}x${height}`;
+}
+
 function resolveImageDataUrl(item: Record<string, unknown>) {
     if (typeof item.b64_json === "string" && item.b64_json) {
         return `data:image/png;base64,${item.b64_json}`;
@@ -248,6 +263,18 @@ function aiHeaders(config: AiConfig, contentType?: string) {
         ...(contentType ? { "Content-Type": contentType } : {}),
         ...(isSystemProxyBaseUrl(config.baseUrl) ? { "X-Canvas-Scene": "image", "X-Idempotency-Key": crypto.randomUUID() } : {}),
     };
+}
+
+async function postVolcengineArkImage(config: ReturnType<typeof resolveModelRequestConfig>, payload: Record<string, unknown>, options?: RequestOptions) {
+    const upstreamUrl = aiApiUrl(config, "/images/generations");
+    const request = channelRequest(config, upstreamUrl, aiHeaders(config, "application/json"));
+    return (
+        await axios.post<ImageApiResponse>(request.url, payload, {
+            headers: request.headers,
+            withCredentials: request.credentials === "include",
+            signal: options?.signal,
+        })
+    ).data;
 }
 
 function geminiBaseUrl(config: Pick<AiConfig, "baseUrl">) {
@@ -768,25 +795,35 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
     }
     const quality = normalizeQuality(config.quality);
     const requestSize = resolveRequestSize(quality, config.size);
+    const isVolcengineArk = requestConfig.interfaceType === "volcengine-ark-image";
+    const normalizedRequestSize = isVolcengineArk ? normalizeVolcengineArkImageSize(requestSize) : requestSize;
     try {
-        const response = await axios.post<ImageApiResponse>(
-            aiApiUrl(requestConfig, "/images/generations"),
-            {
-                model: requestConfig.model,
-                prompt: withSystemPrompt(requestConfig, prompt),
-                n,
-                ...(quality ? { quality } : {}),
-                ...(requestSize ? { size: requestSize } : {}),
-                response_format: "b64_json",
-                output_format: IMAGE_OUTPUT_FORMAT,
-                ...(config.transparentBackground === "true" ? { background: "transparent" } : {}),
-            },
-            {
-                headers: aiHeaders(requestConfig, "application/json"),
-                signal: options?.signal,
-            },
-        );
-        const images = parseImagePayload(response.data);
+        const payload = isVolcengineArk
+            ? {
+                  model: requestConfig.model,
+                  prompt: withSystemPrompt(requestConfig, prompt),
+                  n,
+                  ...(normalizedRequestSize ? { size: normalizedRequestSize } : {}),
+              }
+            : {
+                  model: requestConfig.model,
+                  prompt: withSystemPrompt(requestConfig, prompt),
+                  n,
+                  ...(quality ? { quality } : {}),
+                  ...(requestSize ? { size: requestSize } : {}),
+                  response_format: "b64_json",
+                  output_format: IMAGE_OUTPUT_FORMAT,
+                  ...(config.transparentBackground === "true" ? { background: "transparent" } : {}),
+              };
+        const responseData = isVolcengineArk
+            ? await postVolcengineArkImage(requestConfig, payload, options)
+            : (
+                  await axios.post<ImageApiResponse>(aiApiUrl(requestConfig, "/images/generations"), payload, {
+                      headers: aiHeaders(requestConfig, "application/json"),
+                      signal: options?.signal,
+                  })
+              ).data;
+        const images = parseImagePayload(responseData);
         return images;
     } catch (error) {
         throw new Error(readAxiosError(error, "请求失败"));
@@ -804,6 +841,28 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
             return await requestGeminiImages(requestConfig, requestPrompt, references, n, options);
         } catch (error) {
             throw new Error(readAxiosError(error, "请求失败"));
+        }
+    }
+    if (requestConfig.interfaceType === "volcengine-ark-image") {
+        if (mask) throw new Error("火山方舟图片协议不支持蒙版编辑，请移除蒙版后重试");
+        const quality = normalizeQuality(config.quality);
+        const requestSize = normalizeVolcengineArkImageSize(resolveRequestSize(quality, config.size));
+        try {
+            const images = await Promise.all(references.map((image) => imageToDataUrl(image)));
+            const response = await postVolcengineArkImage(
+                requestConfig,
+                {
+                    model: requestConfig.model,
+                    prompt: withSystemPrompt(requestConfig, requestPrompt),
+                    n,
+                    ...(requestSize ? { size: requestSize } : {}),
+                    ...(images.length === 1 ? { image: images[0] } : images.length > 1 ? { image: images } : {}),
+                },
+                options,
+            );
+            return parseImagePayload(response);
+        } catch (error) {
+            throw new Error(readAxiosError(error, "火山方舟图片生成失败"));
         }
     }
     const quality = normalizeQuality(config.quality);
