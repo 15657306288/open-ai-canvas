@@ -80,7 +80,7 @@ func authorizeCustomRelay(method string, target *url.URL, apiFormat string, cont
 		return errors.New("自定义渠道不允许使用该请求方法")
 	}
 	if apiFormat == "openai" {
-		if len(query) != 0 || (!strings.HasSuffix(requestPath, "/responses") && !strings.HasSuffix(requestPath, "/chat/completions") && !strings.HasSuffix(requestPath, "/images/generations") && !strings.HasSuffix(requestPath, "/video/generations") && !strings.HasSuffix(requestPath, "/videos/generations") && !strings.HasSuffix(requestPath, "/contents/generations/tasks")) {
+		if len(query) != 0 || (!strings.HasSuffix(requestPath, "/responses") && !strings.HasSuffix(requestPath, "/chat/completions") && !strings.HasSuffix(requestPath, "/images/generations") && !strings.HasSuffix(requestPath, "/audio/speech") && !strings.HasSuffix(requestPath, "/video/generations") && !strings.HasSuffix(requestPath, "/videos/generations") && !strings.HasSuffix(requestPath, "/contents/generations/tasks")) {
 			return errors.New("自定义渠道不允许访问该上游接口")
 		}
 		return nil

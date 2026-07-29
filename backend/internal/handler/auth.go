@@ -694,6 +694,7 @@ func proxySystemRequest(c *gin.Context, svc *service.Service, user *model.User, 
 	if accept := c.GetHeader("Accept"); accept != "" {
 		upstreamReq.Header.Set("Accept", accept)
 	}
+	service.ApplyDefaultOutboundHeaders(upstreamReq)
 	if protocol == model.ChannelInterfaceGeminiVeo {
 		upstreamReq.Header.Set("x-goog-api-key", channel.APIKey)
 	} else {

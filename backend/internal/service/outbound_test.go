@@ -8,6 +8,23 @@ import (
 	"time"
 )
 
+func TestApplyDefaultOutboundHeaders(t *testing.T) {
+	request, err := http.NewRequest(http.MethodGet, "https://example.com", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ApplyDefaultOutboundHeaders(request)
+	if got := request.Header.Get("User-Agent"); got != DefaultOutboundUserAgent {
+		t.Fatalf("User-Agent = %q, want %q", got, DefaultOutboundUserAgent)
+	}
+
+	request.Header.Set("User-Agent", "custom-agent")
+	ApplyDefaultOutboundHeaders(request)
+	if got := request.Header.Get("User-Agent"); got != "custom-agent" {
+		t.Fatalf("custom User-Agent = %q", got)
+	}
+}
+
 func TestValidateOutboundURLRejectsPrivateHosts(t *testing.T) {
 	t.Setenv("CANVAS_ALLOW_PRIVATE_UPSTREAMS", "false")
 	t.Setenv("CANVAS_ALLOWED_PRIVATE_UPSTREAM_HOSTS", "")

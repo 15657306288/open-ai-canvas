@@ -12,7 +12,10 @@ import (
 	"time"
 )
 
-const maxOutboundRedirects = 5
+const (
+	maxOutboundRedirects     = 5
+	DefaultOutboundUserAgent = "InfiniteCanvas/1.0 (+https://github.com/ddcat-ai/open-ai-canvas)"
+)
 
 var (
 	outboundTransport          = newOutboundTransport(resolveOutboundHost)
@@ -94,6 +97,14 @@ func CustomRelayHTTPClient(timeout time.Duration) *http.Client {
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return errors.New("自定义渠道中转不允许重定向")
 		},
+	}
+}
+
+// ApplyDefaultOutboundHeaders 为所有服务端出网请求提供可识别的产品标识，
+// 避免 Go 默认 User-Agent 被部分 WAF 或中转网关拦截。
+func ApplyDefaultOutboundHeaders(req *http.Request) {
+	if req != nil && strings.TrimSpace(req.Header.Get("User-Agent")) == "" {
+		req.Header.Set("User-Agent", DefaultOutboundUserAgent)
 	}
 }
 
