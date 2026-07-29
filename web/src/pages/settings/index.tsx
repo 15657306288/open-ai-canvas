@@ -6,6 +6,7 @@ import { useNavigate, useSearchParams } from "react-router";
 import { UserOSSSettingsForm } from "@/components/layout/user-oss-settings-form";
 import { WorkspaceState } from "@/components/layout/workspace-state";
 import { WorkspaceSignalIcon } from "@/components/ui/aceternity/workspace-signal-icon";
+import { ChannelHeadersEditor, validateChannelHeaders } from "@/components/channel-headers-editor";
 import { refreshSystemChannels } from "@/lib/user-session";
 import { MODEL_PROTOCOL_OPTIONS, modelProtocolLabel } from "@/lib/model-protocols";
 import { fetchChannelModels } from "@/services/api/image";
@@ -391,6 +392,9 @@ export default function SettingsPage() {
                                                                 onChange={(models) => updateChannel(channel.id, { models: uniqueModels(models) })}
                                                             />
                                                         </Form.Item>
+                                                        <div className="lg:col-span-12">
+                                                            <ChannelHeadersEditor value={channel.headers} onChange={(headers) => updateChannel(channel.id, { headers })} />
+                                                        </div>
                                                     </div>
                                                     <ChannelModelSettings channel={channel} onChange={(modelCosts) => updateChannel(channel.id, { modelCosts })} />
                                                 </section>
@@ -572,11 +576,11 @@ function channelConnectionError(channel: ModelChannel) {
 }
 
 function channelConnectionSignature(channel: ModelChannel) {
-    return [channel.baseUrl.trim(), channel.apiKey.trim(), channel.apiFormat, channel.interfaceType || "auto"].join("\n");
+    return [channel.baseUrl.trim(), channel.apiKey.trim(), channel.apiFormat, channel.interfaceType || "auto", JSON.stringify(channel.headers || [])].join("\n");
 }
 
 function channelValidationError(channel: ModelChannel) {
-    return channelConnectionError(channel) || (!channel.models.length ? "请添加至少一个模型" : "");
+    return channelConnectionError(channel) || validateChannelHeaders(channel.headers) || (!channel.models.length ? "请添加至少一个模型" : "");
 }
 
 function isChannelReady(channel: ModelChannel) {

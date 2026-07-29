@@ -38,13 +38,46 @@ func TestChannelFromRequestStoresConnectionWithoutDefaultProtocol(t *testing.T) 
 func TestMergeChannelRequestSupportsEnabledOnlyPatch(t *testing.T) {
 	enabled := false
 	req := mergeChannelRequest(ChannelRequest{Enabled: &enabled}, model.ModelChannel{
-		Name:       "Video",
-		BaseURL:    "https://example.com/v1",
-		APIFormat:  "openai",
-		ModelsJSON: `["custom-video"]`,
+		Name:        "Video",
+		BaseURL:     "https://example.com/v1",
+		APIFormat:   "openai",
+		ModelsJSON:  `["custom-video"]`,
+		HeadersJSON: `[{"name":"User-Agent","value":"Stored Agent"}]`,
 	})
-	if req.Name != "Video" || req.BaseURL != "https://example.com/v1" || len(req.Models) != 1 {
+	if req.Name != "Video" || req.BaseURL != "https://example.com/v1" || len(req.Models) != 1 || len(req.Headers) != 1 {
 		t.Fatalf("mergeChannelRequest() = %#v", req)
+	}
+}
+
+func TestChannelFromRequestStoresAndClearsHeaders(t *testing.T) {
+	request := ChannelRequest{Name: "Headers", BaseURL: "https://example.com/v1", Headers: []OutboundHeader{{Name: "User-Agent", Value: "Custom Agent"}}}
+	channel, err := channelFromRequest(request, model.ModelChannel{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if channel.HeadersJSON != `[{"name":"User-Agent","value":"Custom Agent"}]` {
+		t.Fatalf("HeadersJSON = %q", channel.HeadersJSON)
+	}
+
+	request.Headers = []OutboundHeader{}
+	channel, err = channelFromRequest(request, channel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if channel.HeadersJSON != `[]` {
+		t.Fatalf("cleared HeadersJSON = %q", channel.HeadersJSON)
+	}
+}
+
+func TestPublicChannelOnlyReturnsSystemHeadersToAdmin(t *testing.T) {
+	channel := model.ModelChannel{ID: "system-1", Scope: model.ChannelScopeSystem, BaseURL: "https://example.com/v1", HeadersJSON: `[{"name":"X-Gateway-Tenant","value":"tenant-a"}]`}
+	adminView := publicChannel(channel, true, nil)
+	if len(adminView.Headers) != 1 || adminView.Headers[0].Name != "X-Gateway-Tenant" {
+		t.Fatalf("admin headers = %#v", adminView.Headers)
+	}
+	userView := publicChannel(channel, false, nil)
+	if len(userView.Headers) != 0 {
+		t.Fatalf("user headers = %#v", userView.Headers)
 	}
 }
 
