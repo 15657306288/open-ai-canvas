@@ -1,3 +1,5 @@
+import type { PortraitTextureSettings } from "@/lib/canvas/canvas-portrait-texture";
+
 export type Position = {
     x: number;
     y: number;
@@ -254,6 +256,7 @@ export type CanvasNodeMetadata = {
         providerSize?: string;
         maskStorageKey?: string;
     };
+    portraitTexture?: PortraitTextureSettings;
 };
 
 export type CanvasNodeData = {
