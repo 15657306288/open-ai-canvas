@@ -278,6 +278,12 @@ export type CanvasConnection = {
     toHandleId?: string;
 };
 
+export type CanvasDisplayConnection = {
+    connection: CanvasConnection;
+    from: CanvasNodeData;
+    to: CanvasNodeData;
+};
+
 export type CanvasAssistantReference = {
     id: string;
     type: CanvasNodeType;
