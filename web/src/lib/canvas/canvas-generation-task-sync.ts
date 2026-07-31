@@ -84,7 +84,9 @@ export async function buildGenerationTaskNodeResult(node: CanvasNodeData, task: 
             ? { url: await resolveImageUrl(image.storageKey, image.dataUrl), storageKey: image.storageKey, width: image.width || 1024, height: image.height || 1024, bytes: image.bytes || 0, mimeType: image.mimeType || "image/png" }
             : await uploadImage(resultDataUrl);
         const imageConfig = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
-        const imageSize = fitNodeSize(uploaded.width, uploaded.height, node.width || imageConfig.width, node.height || imageConfig.height);
+        const imageSize = node.metadata?.generationType === "edit"
+            ? { width: node.width || imageConfig.width, height: node.height || imageConfig.height }
+            : fitNodeSize(uploaded.width, uploaded.height, node.width || imageConfig.width, node.height || imageConfig.height);
         return {
             ...node,
             type: CanvasNodeType.Image,
