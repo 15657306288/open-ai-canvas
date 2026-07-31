@@ -84,8 +84,8 @@ func (s *Service) FetchAdminChannelModels(ctx context.Context, actor *model.User
 	if err != nil {
 		return nil, err
 	}
-	// 删除项作为 tombstone 参与去重，避免再次拉取上游目录时自动恢复到页面。
-	existing, err := s.repo.ChannelModelsIncludingDeleted(channelID)
+	// 只按当前未删除记录去重；重新拉取已删除模型时应生成新的待配置记录。
+	existing, err := s.repo.ChannelModels(channelID, true)
 	if err != nil {
 		return nil, err
 	}
@@ -140,6 +140,13 @@ func (s *Service) SaveAdminChannelModel(actor *model.User, channelID string, id 
 			return nil, err
 		}
 		item.PriceVersion++
+	}
+	conflict, conflictErr := s.repo.ChannelModelByKeyIncludingDisabled(channelID, modelKey)
+	if conflictErr != nil && !errors.Is(conflictErr, gorm.ErrRecordNotFound) {
+		return nil, conflictErr
+	}
+	if conflict != nil && conflict.ID != item.ID {
+		return nil, BadAuthRequest("该渠道已存在模型 " + modelKey + "，请直接编辑已有模型")
 	}
 	item.ModelKey = modelKey
 	item.DisplayName = strings.TrimSpace(req.DisplayName)
