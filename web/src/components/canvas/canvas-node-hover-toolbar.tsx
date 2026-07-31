@@ -233,7 +233,7 @@ export function CanvasNodeHoverToolbar({
         ...(hasVideo && !simpleMode ? [{ id: "extractLastFrame", title: extractingVideoFrame ? "正在截取尾帧" : "截取尾帧", label: extractingVideoFrame ? "截取中" : "尾帧", icon: extractingVideoFrame ? <LoaderCircle className="size-3.5 animate-spin" /> : <GalleryHorizontalEnd className="size-3.5" />, onClick: () => onExtractVideoLastFrame(node), disabled: extractingVideoFrame }] : []),
         ...(hasImage || hasVideo || isEditableText ? [{ id: "saveAsset", title: "加入我的素材", label: "存素材", icon: <FolderPlus className="size-3.5" />, onClick: () => onSaveAsset(node) }] : []),
         ...(hasImage || hasVideo || hasAudio ? [{ id: "download", title: hasAudio ? "下载音频" : hasVideo ? "下载视频" : "下载图片", label: "下载", icon: <Download className="size-3.5" />, onClick: () => onDownload(node) }] : []),
-        ...(canOpenDialog ? [{ id: "edit", title: isEditableText ? "生成提示与参数" : "编辑", label: isEditableText ? "生成设置" : "编辑", icon: <MessageSquare className="size-3.5" />, onClick: () => onToggleDialog(node) }] : []),
+        ...(canOpenDialog ? [{ id: "edit", title: isEditableText ? "调用文本模型生成内容" : "编辑", label: isEditableText ? "文本生成" : "编辑", icon: <MessageSquare className="size-3.5" />, onClick: () => onToggleDialog(node) }] : []),
         ...(isEditableText ? [{ id: "editText", title: "放大编辑文本", label: "放大编辑", icon: <Maximize2 className="size-3.5" />, onClick: () => onEditText(node) }] : []),
         ...(isEditableText ? [{ id: "generateImage", title: "用文本生图", label: "生图", icon: <ImageIcon className="size-3.5" />, onClick: () => onGenerateImage(node) }] : []),
         ...(isConfig && !simpleMode ? [{ id: "config", title: "生成配置", label: "生成配置", icon: <Settings2 className="size-3.5" />, onClick: () => onToggleDialog(node) }] : []),

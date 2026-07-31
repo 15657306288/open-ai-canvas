@@ -593,7 +593,7 @@ func runChatCompletionsTextTask(ctx context.Context, input canvasGenerationInput
 
 func textResponseInput(input canvasGenerationInput) (interface{}, error) {
 	systemPrompt := strings.TrimSpace(input.Config.SystemPrompt)
-	if len(input.ReferenceImages) == 0 {
+	if len(input.ReferenceImages) == 0 && len(input.ReferenceVideos) == 0 {
 		return withSystemPrompt(input.Config, input.Prompt), nil
 	}
 	messages := make([]map[string]interface{}, 0, 2)
@@ -617,11 +617,18 @@ func textResponseContent(input canvasGenerationInput) ([]map[string]interface{},
 		}
 		content = append(content, map[string]interface{}{"type": "input_image", "image_url": url})
 	}
+	for _, video := range input.ReferenceVideos {
+		url, err := openAIVideoInputURL(video)
+		if err != nil {
+			return nil, err
+		}
+		content = append(content, map[string]interface{}{"type": "input_video", "video_url": url})
+	}
 	return content, nil
 }
 
 func textChatContent(input canvasGenerationInput) (interface{}, error) {
-	if len(input.ReferenceImages) == 0 {
+	if len(input.ReferenceImages) == 0 && len(input.ReferenceVideos) == 0 {
 		return input.Prompt, nil
 	}
 	content := []map[string]interface{}{{"type": "text", "text": input.Prompt}}
@@ -631,6 +638,13 @@ func textChatContent(input canvasGenerationInput) (interface{}, error) {
 			return nil, err
 		}
 		content = append(content, map[string]interface{}{"type": "image_url", "image_url": map[string]interface{}{"url": url}})
+	}
+	for _, video := range input.ReferenceVideos {
+		url, err := openAIVideoInputURL(video)
+		if err != nil {
+			return nil, err
+		}
+		content = append(content, map[string]interface{}{"type": "video_url", "video_url": map[string]interface{}{"url": url}})
 	}
 	return content, nil
 }
@@ -651,6 +665,24 @@ func openAIImageInputURL(media providerMedia) (string, error) {
 		return "", errors.New("参考图片 MIME 类型无效，请重新读取或上传图片")
 	}
 	return "", errors.New("OpenAI 文本多模态参考图片需要公网 URL 或 base64 data URL")
+}
+
+func openAIVideoInputURL(media providerMedia) (string, error) {
+	value := strings.TrimSpace(media.DataURL)
+	if strings.HasPrefix(value, "data:video/") {
+		return value, nil
+	}
+	if strings.HasPrefix(value, "data:") {
+		return "", errors.New("参考视频 MIME 类型无效，请重新读取或上传视频")
+	}
+	value = strings.TrimSpace(media.URL)
+	if strings.HasPrefix(value, "data:video/") || isPublicMediaURL(value) {
+		return value, nil
+	}
+	if strings.HasPrefix(value, "data:") {
+		return "", errors.New("参考视频 MIME 类型无效，请重新读取或上传视频")
+	}
+	return "", errors.New("文本多模态参考视频需要公网 URL 或 base64 data URL")
 }
 
 func shouldFallbackTextToChat(err error) bool {
