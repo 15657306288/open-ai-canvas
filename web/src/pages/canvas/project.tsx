@@ -412,6 +412,8 @@ function InfiniteCanvasPage() {
         resetViewport,
         screenToCanvas,
         setZoomScale,
+        zoomCanvasIn,
+        zoomCanvasOut,
         zoomToActualSize,
     } = useCanvasViewportController({
         containerRef,
@@ -962,6 +964,8 @@ function InfiniteCanvasPage() {
         deleteNodes,
         deleteConnection,
         deselectCanvas,
+        zoomCanvasIn,
+        zoomCanvasOut,
     });
 
     const handleAssistantSessionsChange = useCallback((sessions: CanvasAssistantSession[], activeId: string | null) => {
