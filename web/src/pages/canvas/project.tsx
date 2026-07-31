@@ -46,7 +46,8 @@ import { CanvasVersionCompareModal } from "@/components/canvas/canvas-version-co
 import { CanvasLocalAgentPanel } from "@/components/canvas/canvas-local-agent-panel";
 import { useCanvasAgentStore } from "@/stores/canvas/use-canvas-agent-store";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
-import { CanvasAlignmentGuides, CanvasConnectionCreateMenu, CanvasNodePanelOverlay } from "@/components/canvas/canvas-workspace-overlays";
+import { CanvasConnectionCreateMenu, CanvasNodePanelOverlay } from "@/components/canvas/canvas-workspace-overlays";
+import { CanvasLeaferGraphicsLayer } from "@/components/canvas/canvas-leafer-graphics-layer";
 import { CanvasLinkedProjectEmptyState, CanvasShortDramaEmptyState, CanvasShortDramaGuide, CanvasStoryInputNodeContent, CanvasStylePlaceholderNodeContent } from "@/components/canvas/canvas-short-drama-entry";
 import {
     createCanvasNode,
@@ -680,8 +681,8 @@ function InfiniteCanvasPage() {
         nodeDraggingRef,
         selectionBoundsElementRef,
         selectionBox,
-        selectionBoxElementRef,
     } = useCanvasSelectionController({
+        containerRef,
         nodesRef,
         viewportRef,
         selectedNodeIdsRef,
@@ -1400,6 +1401,24 @@ function InfiniteCanvasPage() {
                     containerRef={containerRef}
                     viewport={viewport}
                     backgroundMode={backgroundMode}
+                    graphicsLayer={(
+                        <CanvasLeaferGraphicsLayer
+                            containerRef={containerRef}
+                            viewport={viewport}
+                            theme={theme}
+                            displayConnections={displayConnections}
+                            selectedConnectionId={selectedConnectionId}
+                            relatedConnectionIds={relatedHighlight.connectionIds}
+                            scriptScrollTopById={scriptScrollTopById}
+                            connectingParams={connectingParams}
+                            mouseWorld={mouseWorld}
+                            connectionTargetNodeId={connectionTargetNodeId}
+                            nodeById={nodeById}
+                            selectionBox={selectionBox}
+                            selectedNodeBounds={selectedNodeBounds}
+                            alignmentGuides={alignmentGuides}
+                        />
+                    )}
                     onViewportChange={handleViewportChange}
                     onViewportPreviewChange={handleViewportPreviewChange}
                     onCanvasMouseDown={handleCanvasMouseDown}
@@ -1413,7 +1432,6 @@ function InfiniteCanvasPage() {
                 >
                     <CanvasProjectWorldLayers
                         projectId={projectId}
-                        theme={theme}
                         viewportScale={viewport.k}
                         connectionLayerBounds={connectionLayerBounds}
                         displayConnections={displayConnections}
@@ -1444,7 +1462,6 @@ function InfiniteCanvasPage() {
                         selectedNodeBounds={selectedNodeBounds}
                         isNodeDragging={isNodeDragging}
                         selectionBoundsElementRef={selectionBoundsElementRef}
-                        selectionBoxElementRef={selectionBoxElementRef}
                         renderCanvasNodeContent={renderCanvasNodeContent}
                         onConnectionSelect={(connectionId) => { setSelectedConnectionId(connectionId); setSelectedNodeIds(new Set()); setContextMenu(null); }}
                         onConnectionContextMenu={(event, connectionId) => { setSelectedConnectionId(connectionId); setSelectedNodeIds(new Set()); closeConnectionCreateMenu(); setContextMenu({ type: "connection", x: event.clientX, y: event.clientY, connectionId }); }}
@@ -1500,8 +1517,6 @@ function InfiniteCanvasPage() {
                 {pendingConnectionCreate ? <CanvasConnectionCreateMenu pending={pendingConnectionCreate} viewport={viewport} viewportSize={size} containerRef={containerRef} canCreateDrawing={canCreateDrawingFromConnection} onCreate={(type) => void createConnectedNode(type, pendingConnectionCreate)} onClose={cancelPendingConnectionCreate} /> : null}
 
                 {selectedNodeBounds && !selectionBox && !isNodeDragging ? <CanvasProjectSelectionToolbar anchorRef={selectionBoundsElementRef} containerRef={containerRef} count={selectedNodeBounds.count} selectedVideoCount={selectedVideoNodes.length} mergingVideos={Boolean(mergeVideoProgress)} onAlign={alignSelectedNodes} onArrange={arrangeSelectedNodes} onCreateStoryboard={createStoryboardGroup} onCreateReferenceGroup={createReferenceGroup} onMergeVideos={() => void mergeSelectedVideos()} /> : null}
-
-                <CanvasAlignmentGuides guides={{ vertical: alignmentGuides.vertical ?? null, horizontal: alignmentGuides.horizontal ?? null }} viewport={viewport} containerRef={containerRef} color={theme.accent.primary} />
 
                 {uploadStatus ? <CanvasUploadStatusToast status={uploadStatus} theme={theme} /> : null}
                 {mergeVideoProgress ? <CanvasMergeStatusToast progress={mergeVideoProgress} theme={theme} /> : null}
