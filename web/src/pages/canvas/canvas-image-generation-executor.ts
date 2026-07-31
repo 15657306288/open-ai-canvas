@@ -48,10 +48,11 @@ export async function executeImageGeneration({
     const parentConfig = NODE_DEFAULT_SIZE[isConfigNode ? CanvasNodeType.Config : isImageNode ? CanvasNodeType.Image : CanvasNodeType.Text];
     const imageDefaults = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
     // 生成中占位框按设置比例显示，避免 16:9 任务显示成默认 340x240。
-    const imageConfig = nodeSizeFromRatio(generationConfig.size || "auto", imageDefaults.width, imageDefaults.height) || imageDefaults;
-    // 单图图生图沿用来源节点的可视尺寸，避免竖图回落到默认横向框后被压成窄卡片。
+    const requestedImageSize = nodeSizeFromRatio(generationConfig.size || "auto", imageDefaults.width, imageDefaults.height);
+    const imageConfig = requestedImageSize || imageDefaults;
+    // auto 图生图沿用来源节点尺寸；用户明确选择比例时必须以目标比例创建节点。
     const referenceNode = referenceImages.length === 1 ? canvasNodes.find((node) => node.id === referenceImages[0].id && node.type === CanvasNodeType.Image) : undefined;
-    const imageSizeSource = isImageNode && sourceNode?.metadata?.content ? sourceNode : referenceNode;
+    const imageSizeSource = requestedImageSize ? undefined : (isImageNode && sourceNode?.metadata?.content ? sourceNode : referenceNode);
     const outputNodeSize = imageSizeSource ? { width: imageSizeSource.width, height: imageSizeSource.height } : imageConfig;
     const parentPosition = sourceNode?.position || { x: 0, y: 0 };
     const parentWidth = sourceNode?.width || parentConfig.width;

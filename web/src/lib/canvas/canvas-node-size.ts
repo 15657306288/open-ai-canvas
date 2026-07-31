@@ -30,10 +30,27 @@ export function nodeSizeFromRatio(size: string, baseWidth: number, baseHeight: n
 
 export function ensureMediaNodeMinimumSize(node: CanvasNodeData) {
     if (node.type !== CanvasNodeType.Image && node.type !== CanvasNodeType.Video) return node;
-    if (node.width >= MEDIA_NODE_MIN_SIZE.width && node.height >= MEDIA_NODE_MIN_SIZE.height) return node;
-    const scale = Math.max(1, MEDIA_NODE_MIN_SIZE.width / Math.max(1, node.width), MEDIA_NODE_MIN_SIZE.height / Math.max(1, node.height));
-    const width = node.width * scale;
-    const height = node.height * scale;
+    let width = node.width;
+    let height = node.height;
+    const naturalWidth = node.metadata?.naturalWidth || 0;
+    const naturalHeight = node.metadata?.naturalHeight || 0;
+    const requestedSize = node.type === CanvasNodeType.Image && node.metadata?.generationType === "edit"
+        ? nodeSizeFromRatio(node.metadata.size || "auto", node.width, node.height)
+        : null;
+    const naturalRatio = naturalWidth / Math.max(1, naturalHeight);
+    const nodeRatio = node.width / Math.max(1, node.height);
+    // 修复旧版图生图无条件继承参考节点尺寸造成的比例错误，不覆盖自由拉伸或锁定布局。
+    if (requestedSize && naturalWidth > 0 && naturalHeight > 0 && !node.metadata?.freeResize && !node.metadata?.locked && Math.abs(naturalRatio - nodeRatio) > 0.01) {
+        const alignedSize = fitNodeSize(naturalWidth, naturalHeight, requestedSize.width, requestedSize.height);
+        width = alignedSize.width;
+        height = alignedSize.height;
+    }
+    if (width < MEDIA_NODE_MIN_SIZE.width || height < MEDIA_NODE_MIN_SIZE.height) {
+        const scale = Math.max(1, MEDIA_NODE_MIN_SIZE.width / Math.max(1, width), MEDIA_NODE_MIN_SIZE.height / Math.max(1, height));
+        width *= scale;
+        height *= scale;
+    }
+    if (width === node.width && height === node.height) return node;
     return {
         ...node,
         position: {
