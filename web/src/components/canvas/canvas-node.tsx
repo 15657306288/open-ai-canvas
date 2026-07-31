@@ -1138,8 +1138,8 @@ function NodeExternalHeader({ node, scale, active, editable, editing, draft, the
 
     return (
         <div
-            className="absolute left-0 z-40 flex h-6 max-w-[240px] items-center gap-1"
-            style={{ top: -24 * inverseScale, color: active ? theme.node.text : theme.node.label, transform: `scale(${inverseScale})`, transformOrigin: "left top" }}
+            className="canvas-node-external-header absolute bottom-full left-0 z-40 flex h-6 max-w-[240px] items-center gap-1"
+            style={{ color: active ? theme.node.text : theme.node.label, transform: `scale(var(--canvas-live-inverse-scale, ${inverseScale}))`, transformOrigin: "left bottom" }}
             onMouseDown={(event) => event.stopPropagation()}
             onPointerDown={(event) => event.stopPropagation()}
         >
