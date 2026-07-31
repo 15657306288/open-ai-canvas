@@ -782,7 +782,7 @@ func TestRunNewAPIChannel2VideoTaskDownloadsTemporaryResult(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Fatalf("decode request: %v", err)
 			}
-			if body["model"] != "grok-image-video" || body["seconds"] != float64(10) || body["aspect_ratio"] != "9:16" || body["resolution"] != "720p" {
+			if body["model"] != "grok-image-video" || body["seconds"] != "10" || body["aspect_ratio"] != "9:16" || body["resolution"] != "720p" {
 				t.Errorf("body = %#v", body)
 			}
 			images, ok := body["image_urls"].([]interface{})

@@ -1054,7 +1054,7 @@ func newAPIChannel2VideoBody(input canvasGenerationInput) (map[string]interface{
 	body := map[string]interface{}{
 		"model":          input.Config.Model,
 		"prompt":         strings.TrimSpace(input.Prompt),
-		"seconds":        seconds,
+		"seconds":        strconv.Itoa(seconds),
 		"aspect_ratio":   ratio,
 		"resolution":     resolution,
 		"generate_audio": parseBool(input.Config.VideoGenerateAudio, true),
