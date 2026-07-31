@@ -91,6 +91,7 @@ export function ModelPicker({ config, value, onChange, capability, className, fu
             ref={menuRef}
             data-canvas-no-zoom
             className="canvas-model-picker-menu w-[320px] max-w-[calc(100vw-24px)]"
+            style={{ background: theme.node.panel, color: theme.node.text }}
             role="listbox"
             aria-label={placeholder}
             onKeyDown={handleMenuKeyDown}
@@ -203,7 +204,7 @@ function ModelPrice({ price, compact = false }: { price: { value: number; unit: 
     if (price === undefined) return null;
     if (price === null) return compact ? null : <span className="shrink-0 text-[10px] text-foreground/40">未配置</span>;
     return (
-        <span className="inline-flex shrink-0 items-center gap-0.5 text-[10px] font-medium tabular-nums text-foreground/55" title={`每${price.unit}消耗 ${price.value.toLocaleString("zh-CN", { maximumFractionDigits: 6 })} 积分`}>
+        <span className="inline-flex shrink-0 items-center gap-0.5 text-[10px] font-bold tabular-nums text-amber-600 dark:text-amber-300" title={`每${price.unit}消耗 ${price.value.toLocaleString("zh-CN", { maximumFractionDigits: 6 })} 积分`}>
             <Coins className="size-3" />
             {price.value.toLocaleString("zh-CN", { maximumFractionDigits: compact ? 3 : 6 })}/{price.unit}
         </span>
