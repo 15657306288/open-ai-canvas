@@ -98,12 +98,12 @@ export function ModelPicker({ config, value, onChange, capability, className, fu
             onPointerDown={(event) => event.stopPropagation()}
         >
             {optionGroups.length ? optionGroups.map((group) => (
-                <section key={group.key} className="canvas-model-picker-group">
+                <section key={group.key} className="canvas-model-picker-group min-w-0 overflow-hidden">
                     <div className="canvas-model-picker-group-label" style={{ color: theme.node.muted }}>
                         <span className="truncate">{group.label}</span>
                         <span className="shrink-0" style={{ color: theme.node.muted }}>{group.scope}</span>
                     </div>
-                    <div className="grid gap-1">
+                    <div className="grid min-w-0 gap-1">
                         {group.models.map((model) => {
                             const selected = model === current;
                             return (
@@ -177,13 +177,13 @@ function emptyModelLabel(config: AiConfig, capability?: ModelCapability) {
 function ModelLabel({ config, model, capability, theme }: { config: AiConfig; model: string; capability?: ModelCapability; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
     const meta = modelMenuMeta(model, capability);
     return (
-        <span className="flex min-w-0 items-center gap-1.5 py-0">
+        <span className="flex w-full min-w-0 items-center gap-1.5 overflow-hidden py-0">
             <span className="grid size-6 shrink-0 place-items-center rounded-md" style={{ background: theme.toolbar.itemHover }}>
                 <ModelIcon model={model} />
             </span>
-            <span className="min-w-0 flex-1">
+            <span className="min-w-0 flex-1 overflow-hidden">
                 <span className="block min-w-0 truncate text-[11px] font-medium leading-none">{modelDisplayName(config, model)}</span>
-                <span className="mt-1 block truncate text-[10px]" style={{ color: theme.node.muted }}>{modelOptionName(model)} · {meta.description}</span>
+                <span className="mt-1 block truncate text-[10px]" style={{ color: theme.node.muted }} title={`${modelOptionName(model)} · ${meta.description}`}>{modelOptionName(model)} · {meta.description}</span>
             </span>
             <ModelPrice price={modelMenuPrice(config, model)} />
             {meta.time ? <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] tabular-nums" style={{ background: theme.toolbar.itemHover, color: theme.node.muted }}>{meta.time}</span> : null}
