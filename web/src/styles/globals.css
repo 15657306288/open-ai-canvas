@@ -1528,6 +1528,12 @@
         box-shadow: none !important;
     }
 
+    .dark .canvas-composer-model-picker.ant-select,
+    .dark .canvas-composer-model-picker.ant-select .ant-select-content,
+    .dark .canvas-model-picker-popup.ant-select-dropdown {
+        background: #000 !important;
+    }
+
     .canvas-composer-model-picker.ant-select-focused .ant-select-content {
         border-color: color-mix(in srgb, var(--foreground) 8%, transparent) !important;
         box-shadow: none !important;

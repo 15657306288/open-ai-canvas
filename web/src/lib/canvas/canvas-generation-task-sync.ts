@@ -1,5 +1,5 @@
 import { NODE_DEFAULT_SIZE } from "@/constant/canvas";
-import { fitNodeSize } from "@/lib/canvas/canvas-node-size";
+import { fitNodeSize, VIDEO_NODE_MAX_SIZE } from "@/lib/canvas/canvas-node-size";
 import { compositeEmotionImage } from "@/lib/canvas/canvas-emotion";
 import { storeGeneratedAudio } from "@/services/api/audio";
 import { storeGeneratedVideo } from "@/services/api/video";
@@ -17,8 +17,6 @@ type BackendGenerationResult = {
     text?: string;
 };
 
-const VIDEO_NODE_MAX_WIDTH = 420;
-const VIDEO_NODE_MAX_HEIGHT = 420;
 
 export function parseBackendGenerationResult(task: GenerationTask): BackendGenerationResult {
     if (!task.resultJson) throw new Error("后端任务没有返回结果");
@@ -102,7 +100,7 @@ export async function buildGenerationTaskNodeResult(node: CanvasNodeData, task: 
         const video = result.video.storageKey
             ? { url: await resolveMediaUrl(result.video.storageKey, result.video.dataUrl), storageKey: result.video.storageKey, width: result.video.width, height: result.video.height, durationMs: result.video.durationMs, bytes: result.video.bytes || 0, mimeType: result.video.mimeType || "video/mp4" }
             : await storeGeneratedVideo({ url: result.video.dataUrl, mimeType: result.video.mimeType || "video/mp4" });
-        const videoSize = fitNodeSize(video.width || node.width || VIDEO_NODE_MAX_WIDTH, video.height || node.height || VIDEO_NODE_MAX_HEIGHT, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
+        const videoSize = fitNodeSize(video.width || node.width || VIDEO_NODE_MAX_SIZE.width, video.height || node.height || VIDEO_NODE_MAX_SIZE.height, VIDEO_NODE_MAX_SIZE.width, VIDEO_NODE_MAX_SIZE.height);
         return {
             ...node,
             type: CanvasNodeType.Video,
