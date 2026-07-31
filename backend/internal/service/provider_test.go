@@ -527,7 +527,7 @@ func TestXAIVideoBodyUsesOfficialImageShapeAndNormalizesSettings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("grokVideoBody() error = %v", err)
 	}
-	if body["duration"] != 15 || body["aspect_ratio"] != "9:16" || body["resolution"] != "1080p" {
+	if body["duration"] != 20 || body["aspect_ratio"] != "9:16" || body["resolution"] != "1080p" {
 		t.Fatalf("xAI settings = %#v", body)
 	}
 	image, ok := body["image"].(map[string]interface{})

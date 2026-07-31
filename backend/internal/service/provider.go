@@ -1044,11 +1044,6 @@ func newAPIChannel2VideoBody(input canvasGenerationInput) (map[string]interface{
 	if secondsErr != nil || seconds < 1 {
 		seconds = 6
 	}
-	if len(images) > 1 && seconds > 10 {
-		seconds = 10
-	} else if seconds > 15 {
-		seconds = 15
-	}
 	ratio := normalizeNewAPIChannel2Ratio(input.Config.Size, modelName)
 	resolution := normalizeNewAPIChannel2Resolution(input.Config.VQuality, modelName)
 	body := map[string]interface{}{
@@ -2170,9 +2165,6 @@ func normalizeXAIVideoDuration(value string) int {
 	if err != nil || duration <= 0 {
 		return 6
 	}
-	if duration > 15 {
-		return 15
-	}
 	return duration
 }
 
@@ -2238,24 +2230,14 @@ func normalizeSeedanceDuration(value string) int {
 		return -1
 	}
 	seconds, err := strconv.Atoi(strings.TrimSpace(value))
-	if err != nil || seconds == 0 {
-		seconds = 5
-	}
-	if seconds < 4 {
-		return 4
-	}
-	if seconds > 15 {
-		return 15
+	if err != nil || seconds <= 0 {
+		return 5
 	}
 	return seconds
 }
 
 func normalizeSeedanceVideosDuration(value string) int {
-	seconds := normalizeSeedanceDuration(value)
-	if seconds < 4 {
-		return 5
-	}
-	return seconds
+	return normalizeSeedanceDuration(value)
 }
 
 func normalizeSeedanceRatio(value string) string {
