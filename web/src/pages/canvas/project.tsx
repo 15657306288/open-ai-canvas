@@ -616,6 +616,7 @@ function InfiniteCanvasPage() {
     const {
         cancelPendingConnectionCreate,
         closeConnectionCreateMenu,
+        connectionTargetAnchorRatio,
         connectionTargetNodeId,
         connectingParams,
         createConnectedNode,
@@ -1417,6 +1418,7 @@ function InfiniteCanvasPage() {
                             connectingParams={connectingParams}
                             mouseWorld={mouseWorld}
                             connectionTargetNodeId={connectionTargetNodeId}
+                            connectionTargetAnchorRatio={connectionTargetAnchorRatio}
                             nodeById={nodeById}
                             selectionBox={selectionBox}
                             selectedNodeBounds={selectedNodeBounds}

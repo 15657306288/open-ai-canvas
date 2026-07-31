@@ -162,7 +162,8 @@ export function CanvasNodeHoverToolbar({
             const halfToolbar = toolbarWidth / 2;
             const canClamp = toolbarWidth > 0 && toolbarWidth <= containerRect.width - 20;
             const left = canClamp ? Math.min(Math.max(preferredLeft, halfToolbar + 10), containerRect.width - halfToolbar - 10) : preferredLeft;
-            const top = nodeRect.top - containerRect.top - 10;
+            // 外置节点标题占用节点上方一行，工具 Dock 再向上错开，避免遮挡名称编辑入口。
+            const top = nodeRect.top - containerRect.top - 42;
             if (toolbarRef.current) {
                 toolbarRef.current.style.left = `${left}px`;
                 toolbarRef.current.style.top = `${top}px`;
