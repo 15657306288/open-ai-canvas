@@ -145,12 +145,13 @@ export function InfiniteCanvas({ containerRef, viewport, backgroundMode = "lines
             const absX = Math.abs(deltaX);
             const absY = Math.abs(deltaY);
             const isPinchZoom = event.ctrlKey || event.metaKey;
-            if (target?.closest(CANVAS_WHEEL_IGNORE_SELECTOR)) {
+            if (target?.closest(CANVAS_WHEEL_IGNORE_SELECTOR) && !isPinchZoom) {
                 // 内部区域保留纵向滚动，但横向手势不能泄漏为 macOS 浏览器前进/后退。
-                if (!isPinchZoom && (event.shiftKey || absX > absY)) event.preventDefault();
+                if (event.shiftKey || absX > absY) event.preventDefault();
                 return;
             }
 
+            // Ctrl/Meta + 滚轮在画布内始终由画布接管，避免浮层区域触发浏览器页面缩放。
             event.preventDefault();
             interactingRef.current = true;
             const current = viewportRef.current;
