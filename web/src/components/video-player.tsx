@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { CSSProperties, ComponentProps } from "react";
+import type { ComponentProps } from "react";
 import { MediaPlayer, MediaProvider, type VideoMimeType } from "@vidstack/react";
 import { DefaultVideoLayout, defaultLayoutIcons, type DefaultLayoutTranslations } from "@vidstack/react/player/layouts/default";
 import "@vidstack/react/player/styles/base.css";
@@ -90,7 +90,7 @@ export function VideoPlayer({ src, mimeType, title = "视频", className, brandC
             load="eager"
             preload={preload}
             data-canvas-no-zoom={dataCanvasNoZoom ? "true" : undefined}
-            style={{ "--video-brand": brandColor } as CSSProperties}
+            style={{ "--video-brand": brandColor }}
             onCanPlay={onCanPlay}
             onPointerDown={stopCanvasControlInteraction}
             onMouseDown={stopCanvasControlInteraction}
