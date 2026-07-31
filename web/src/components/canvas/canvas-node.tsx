@@ -17,6 +17,7 @@ import { CanvasNodeType, type CanvasNodeData, type Position } from "@/types/canv
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { loadCanvasDrawingPreview } from "@/lib/canvas/canvas-drawing-storage";
 import { MEDIA_NODE_MIN_SIZE } from "@/lib/canvas/canvas-node-size";
+import { VideoPlayer } from "@/components/video-player";
 
 type ResizeCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 type CanvasTheme = (typeof canvasThemes)[keyof typeof canvasThemes];
@@ -883,14 +884,8 @@ function EmptyImageContent({ node, theme, isBatchRoot, batchCount, batchExpanded
 }
 
 function VideoNodeContent({ node, theme, reduceMediaEffects }: NodeContentRendererProps) {
-    const videoRef = useRef<HTMLVideoElement>(null);
     const playWhenReadyRef = useRef(false);
     const { url, loading, load } = useNodeResourceUrl(node, false);
-    useEffect(() => {
-        if (!url || !playWhenReadyRef.current) return;
-        playWhenReadyRef.current = false;
-        void videoRef.current?.play().catch(() => undefined);
-    }, [url]);
     if (!node.metadata?.content)
         return (
             <div className="flex h-full w-full flex-col items-center justify-center gap-3" style={{ color: theme.node.placeholder }}>
@@ -901,7 +896,7 @@ function VideoNodeContent({ node, theme, reduceMediaEffects }: NodeContentRender
     if (!url) {
         return <DeferredMediaLoad icon={loading ? <LoaderCircle className="size-5 animate-spin" /> : <Play className="size-5 fill-current" />} label={loading ? "正在缓存视频" : "加载并缓存视频"} disabled={loading} onClick={() => { playWhenReadyRef.current = true; void load(); }} />;
     }
-    return <video ref={videoRef} src={url} controls preload={reduceMediaEffects ? "none" : "metadata"} className="h-full w-full rounded-[18px] bg-black object-contain" data-canvas-no-zoom />;
+    return <VideoPlayer src={url} mimeType={node.metadata?.mimeType} title={node.title || "视频"} preload={reduceMediaEffects ? "none" : "metadata"} autoPlay={playWhenReadyRef.current} onCanPlay={() => { playWhenReadyRef.current = false; }} brandColor={theme.accent.primary} className="h-full w-full rounded-[18px] bg-black" dataCanvasNoZoom compactControls />;
 }
 
 function AudioNodeContent({ node, theme }: NodeContentRendererProps) {
