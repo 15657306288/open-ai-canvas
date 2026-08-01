@@ -1148,6 +1148,13 @@ func newAPIChannel2VideoBody(input canvasGenerationInput) (map[string]interface{
 			return nil, fmt.Errorf("NewAPI Video Generations 的 %s 必须且只能提供 1 张参考图（当前 %d 张）", input.Config.Model, len(images))
 		}
 	}
+	frameImages, err := videoFrameImageURLs(input, images)
+	if err != nil {
+		return nil, err
+	}
+	if len(frameImages) > 0 {
+		images = frameImages
+	}
 
 	seconds, secondsErr := strconv.Atoi(strings.TrimSpace(input.Config.VideoSeconds))
 	if secondsErr != nil || seconds < 1 {
@@ -2066,7 +2073,11 @@ func seedanceVideosBody(input canvasGenerationInput) (map[string]interface{}, er
 		}
 		imageURLs = append(imageURLs, url)
 	}
-	if frameImageURLs := seedanceVideosFrameImageURLs(input, imageURLs); len(frameImageURLs) > 0 {
+	frameImageURLs, err := videoFrameImageURLs(input, imageURLs)
+	if err != nil {
+		return nil, err
+	}
+	if len(frameImageURLs) > 0 {
 		body["image_urls"] = frameImageURLs
 	} else if len(imageURLs) > 0 {
 		body["image_url"] = imageURLs[0]
@@ -2117,36 +2128,41 @@ func seedanceImageRole(input canvasGenerationInput, image providerMedia) string 
 	return "reference_image"
 }
 
-func seedanceVideosFrameImageURLs(input canvasGenerationInput, imageURLs []string) []string {
+func videoFrameImageURLs(input canvasGenerationInput, imageURLs []string) ([]string, error) {
 	startFrameID := metadataString(input.Metadata, "videoStartFrameNodeId")
 	endFrameID := metadataString(input.Metadata, "videoEndFrameNodeId")
 	if startFrameID == "" && endFrameID == "" {
-		return nil
+		return nil, nil
 	}
-	// /v1/videos 的 image_urls 只接受字符串；首帧和尾帧通过数组顺序表达。
+	// image_urls 按首帧、尾帧、普通参考图排序，保持 JSON 视频协议的结构化帧语义。
 	ordered := make([]string, 0, len(imageURLs))
 	used := make([]bool, len(imageURLs))
-	appendFrame := func(frameID string) {
+	appendFrame := func(frameID string, label string) error {
 		if frameID == "" {
-			return
+			return nil
 		}
 		for index, image := range input.ReferenceImages {
-			if index >= len(imageURLs) || used[index] || image.ID != frameID {
+			if index >= len(imageURLs) || image.ID != frameID {
 				continue
 			}
 			ordered = append(ordered, imageURLs[index])
 			used[index] = true
-			return
+			return nil
 		}
+		return fmt.Errorf("已配置的%s参考图未包含在视频请求中", label)
 	}
-	appendFrame(startFrameID)
-	appendFrame(endFrameID)
+	if err := appendFrame(startFrameID, "首帧"); err != nil {
+		return nil, err
+	}
+	if err := appendFrame(endFrameID, "尾帧"); err != nil {
+		return nil, err
+	}
 	for index, imageURL := range imageURLs {
 		if !used[index] {
 			ordered = append(ordered, imageURL)
 		}
 	}
-	return ordered
+	return ordered, nil
 }
 
 func metadataString(metadata map[string]interface{}, key string) string {
