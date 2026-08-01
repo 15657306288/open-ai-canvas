@@ -175,10 +175,12 @@ export function useCanvasRenderModel({
     const batchChildCountById = useMemo(() => {
         const map = new Map<string, number>();
         nodes.forEach((node) => {
-            if (node.metadata?.isBatchRoot) map.set(node.id, node.metadata.batchChildIds?.length || 0);
+            if (!node.metadata?.isBatchRoot) return;
+            const liveChildCount = (node.metadata.batchChildIds || []).filter((childId) => nodeById.get(childId)?.metadata?.batchRootId === node.id).length;
+            map.set(node.id, liveChildCount);
         });
         return map;
-    }, [nodes]);
+    }, [nodeById, nodes]);
     const frameChildrenById = useMemo(() => {
         const map = new Map<string, CanvasNodeData[]>();
         nodes.forEach((node) => {

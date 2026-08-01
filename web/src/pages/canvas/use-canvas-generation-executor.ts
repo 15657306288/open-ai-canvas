@@ -72,6 +72,20 @@ export function useCanvasGenerationExecutor({
                 return;
             }
             let generationConfig = buildGenerationConfig(effectiveConfig, sourceNode, mode);
+            const hasLiveBatchChildren = sourceNode?.type === CanvasNodeType.Image && (sourceNode.metadata?.batchChildIds || []).some((childId) => nodesRef.current.some((node) => node.id === childId && node.metadata?.batchRootId === sourceNode.id));
+            const hasStaleImageBatchState = mode === "image" && sourceNode?.type === CanvasNodeType.Image && !sourceNode.metadata?.content && Boolean(sourceNode.metadata?.isBatchRoot || sourceNode.metadata?.batchChildIds?.length) && !hasLiveBatchChildren;
+            if (hasStaleImageBatchState) {
+                setNodes((current) => current.map((node) => {
+                    if (node.id !== sourceNode.id) return node;
+                    const metadata = { ...node.metadata };
+                    delete metadata.isBatchRoot;
+                    delete metadata.batchChildIds;
+                    delete metadata.primaryImageId;
+                    delete metadata.imageBatchExpanded;
+                    delete metadata.batchUsesReferenceImages;
+                    return { ...node, metadata };
+                }));
+            }
             if (!isAiConfigReady(generationConfig, generationConfig.model)) {
                 navigateToSettings({ continueCreation: true });
                 return;

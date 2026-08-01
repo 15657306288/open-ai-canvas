@@ -204,6 +204,7 @@ export type CanvasNodeMetadata = {
     versionOfNodeId?: string;
     versionLabel?: string;
     versionPrimary?: boolean;
+    copiedFromNodeId?: string;
     directorSceneId?: string;
     directorShotId?: string;
     directorPreviewNodeId?: string;
