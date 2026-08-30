@@ -2510,6 +2510,49 @@ func TestRunMiniMaxVideoTaskCreatesPollsAndDownloads(t *testing.T) {
 	}
 }
 
+func TestRunMiniMaxVideoTaskUsesExplicitReferenceRoles(t *testing.T) {
+	t.Setenv("CANVAS_ALLOW_PRIVATE_UPSTREAMS", "true")
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method + " " + r.URL.Path {
+		case "POST /v2/video_generation":
+			var body miniMaxVideoRequest
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			if len(body.Content) != 3 || body.Content[1].Role != "reference_image" || body.Content[2].Role != "reference_audio" {
+				t.Errorf("content = %#v", body.Content)
+			}
+			if body.Ratio != "16:9" {
+				t.Errorf("ratio = %q, want 16:9 for reference mode", body.Ratio)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"task_id":"minimax-reference-task"}`))
+		case "GET /v2/query/video_generation/minimax-reference-task":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"task":{"status":"succeeded","content":{"url":"` + server.URL + `/video.mp4"}}}`))
+		case "GET /video.mp4":
+			w.Header().Set("Content-Type", "video/mp4")
+			_, _ = w.Write([]byte("video"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	_, err := runVideoTask(context.Background(), canvasGenerationInput{
+		Mode:            "video",
+		Prompt:          "保持角色一致",
+		Config:          providerConfig{BaseURL: server.URL, APIKey: "test-key", Model: "MiniMax-H3", InterfaceType: "minimax-video", VideoSeconds: "6", VQuality: "768P", Size: "16:9"},
+		ReferenceImages: []providerMedia{{ID: "character-1", URL: server.URL + "/character.png"}},
+		ReferenceAudios: []providerMedia{{ID: "voice-1", URL: server.URL + "/voice.mp3"}},
+		Metadata:        map[string]interface{}{"videoEditOperation": "reference_to_video"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRunMiniMaxVideoTaskReturnsFailureReason(t *testing.T) {
 	t.Setenv("CANVAS_ALLOW_PRIVATE_UPSTREAMS", "true")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

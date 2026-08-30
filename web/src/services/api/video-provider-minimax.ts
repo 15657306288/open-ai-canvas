@@ -15,14 +15,16 @@ export async function createMiniMaxVideoTask(deps: VideoProviderDeps, config: Re
     const videoUrls = await Promise.all(videoReferences.slice(0, 3).map((video) => resolveMiniMaxMediaUrl(video, "参考视频")));
     const audioUrls = await Promise.all(audioReferences.slice(0, 3).map((audio) => resolveMiniMaxMediaUrl(audio, "参考音频")));
     const content: Array<Record<string, unknown>> = [{ type: "text", text: prompt.trim() }];
+    const explicitFrameMode = options?.videoEditOperation !== "reference_to_video" && Boolean(options?.videoStartFrameNodeId || options?.videoEndFrameNodeId);
     imageUrls.forEach((url, index) => {
-        // 首尾帧只允许成对出现；三张及以上图片统一作为多模态参考图，避免提交非法组合。
-        const role = videoUrls.length || audioUrls.length || imageUrls.length > 2 ? "reference_image" : index === 0 ? "first_frame" : "last_frame";
+        const reference = references[index];
+        const role = miniMaxImageRole(reference?.id, options);
+        if (explicitFrameMode && role === "reference_image") throw new Error("MiniMax 首尾帧模式不能混合未标记的参考图");
         content.push({ type: "image_url", image_url: { url }, role });
     });
     videoUrls.forEach((url) => content.push({ type: "video_url", video_url: { url }, role: "reference_video" }));
     audioUrls.forEach((url) => content.push({ type: "audio_url", audio_url: { url }, role: "reference_audio" }));
-    const frameMode = imageUrls.length > 0 && imageUrls.length <= 2 && videoUrls.length === 0 && audioUrls.length === 0;
+    const frameMode = explicitFrameMode;
     const payload = {
         model: modelOptionName(model),
         content,
@@ -39,6 +41,13 @@ export async function createMiniMaxVideoTask(deps: VideoProviderDeps, config: Re
     } catch (error) {
         throw new Error(deps.response.readAxiosError(error, "MiniMax 视频任务创建失败"));
     }
+}
+
+function miniMaxImageRole(imageId: string | undefined, options?: RequestOptions) {
+    if (options?.videoEditOperation === "reference_to_video") return "reference_image";
+    if (imageId && imageId === options?.videoStartFrameNodeId) return "first_frame";
+    if (imageId && imageId === options?.videoEndFrameNodeId) return "last_frame";
+    return "reference_image";
 }
 
 export async function pollMiniMaxVideoTask(deps: VideoProviderDeps, config: ResolvedAiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {

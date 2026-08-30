@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { defaultConfig } from "../src/stores/use-config-store";
 import { createSeedanceTask } from "../src/services/api/video-provider-seedance";
+import { createMiniMaxVideoTask } from "../src/services/api/video-provider-minimax";
 import type { VideoProviderDeps } from "../src/services/api/video-provider-deps";
 import { unwrapEnvelope, videoResponseTools, videoTaskId } from "../src/services/api/video-response";
 import { isPublicMediaUrl, normalizeVideoResolution, normalizeVideoSeconds, normalizeVideoSize } from "../src/services/api/video-validation";
@@ -98,5 +99,39 @@ describe("Volcengine Ark full-modal references", () => {
     test("拒绝纯音频和文本加音频", async () => {
         const deps = { transport: {}, response: videoResponseTools } as unknown as VideoProviderDeps;
         await expect(createSeedanceTask(deps, config as never, model, "跟随节奏", [], [], [{ id: "audio-1", name: "audio.mp3", type: "audio/mpeg", url: "https://cdn.example.com/audio.mp3" }])).rejects.toThrow("不支持纯音频或文本+音频");
+    });
+});
+
+describe("MiniMax explicit reference roles", () => {
+    test("project assets use reference_image and reference_audio instead of first frame", async () => {
+        let requestBody: unknown;
+        const deps = {
+            transport: {
+                post: async (_url: string, body: unknown) => {
+                    requestBody = body;
+                    return { task_id: "minimax-task-1" };
+                },
+            },
+            response: videoResponseTools,
+        } as unknown as VideoProviderDeps;
+        const config = { ...defaultConfig, baseUrl: "https://api.minimaxi.com/v1", videoSeconds: "6", vquality: "768P", size: "16:9", videoWatermark: "false" };
+
+        await createMiniMaxVideoTask(
+            deps,
+            config as never,
+            "MiniMax-H3",
+            "保持角色一致",
+            [{ id: "character-1", name: "character.png", type: "image/png", dataUrl: "", url: "https://cdn.example.com/character.png" }],
+            [],
+            [{ id: "voice-1", name: "voice.mp3", type: "audio/mpeg", url: "https://cdn.example.com/voice.mp3" }],
+            { videoEditOperation: "reference_to_video" },
+        );
+
+        expect((requestBody as { content: unknown[] }).content).toEqual([
+            { type: "text", text: "保持角色一致" },
+            { type: "image_url", image_url: { url: "https://cdn.example.com/character.png" }, role: "reference_image" },
+            { type: "audio_url", audio_url: { url: "https://cdn.example.com/voice.mp3" }, role: "reference_audio" },
+        ]);
+        expect((requestBody as { ratio: string }).ratio).toBe("16:9");
     });
 });

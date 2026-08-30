@@ -44,6 +44,7 @@ type RegisterTaskOutputRequest struct {
 	CanvasID       string `json:"canvasId"`
 	UnitID         string `json:"unitId"`
 	ShotID         string `json:"shotId"`
+	ShotRevisionID string `json:"shotRevisionId"`
 	ArtifactType   string `json:"artifactType"`
 	AssetVersionID string `json:"assetVersionId"`
 	ResourceID     string `json:"resourceId"`
@@ -240,6 +241,16 @@ func (s *Service) RegisterTaskOutput(userID string, projectID string, stepID str
 			return model.WorkflowStepInstance{}, err
 		}
 	}
+	shotRevisionID := strings.TrimSpace(req.ShotRevisionID)
+	if shot != nil {
+		if shotRevisionID == "" {
+			shotRevisionID = shot.CurrentRevisionID
+		} else if _, revisionErr := s.repo.ShotRevisionForShot(shot.ID, shotRevisionID); revisionErr != nil {
+			return model.WorkflowStepInstance{}, revisionErr
+		}
+	} else if shotRevisionID != "" {
+		return model.WorkflowStepInstance{}, BadAuthRequest("镜头版本缺少所属镜头")
+	}
 	if versionID := strings.TrimSpace(req.AssetVersionID); versionID != "" {
 		if _, err := s.repo.AssetVersionForProject(projectID, versionID); err != nil {
 			return model.WorkflowStepInstance{}, err
@@ -305,7 +316,7 @@ func (s *Service) RegisterTaskOutput(userID string, projectID string, stepID str
 	productionLink := &model.ProductionTaskLink{ID: newID(), TaskID: task.ID, ProjectID: projectID, CanvasID: canvasID, UnitID: unitID, ShotID: shotID, WorkflowStepID: step.ID, ArtifactType: artifactType, CreatedAt: now, UpdatedAt: now}
 	var artifact *model.ShotArtifact
 	if shot != nil && strings.TrimSpace(req.ResourceID) != "" && artifactType != "" {
-		artifact = &model.ShotArtifact{ID: newID(), ProjectID: projectID, UnitID: shot.UnitID, ShotID: shot.ID, RevisionID: shot.CurrentRevisionID, TaskID: task.ID, Type: artifactType, ResourceID: strings.TrimSpace(req.ResourceID), Status: "ready", Selected: true, MetadataJSON: metadata, CreatedAt: now, UpdatedAt: now}
+		artifact = &model.ShotArtifact{ID: newID(), ProjectID: projectID, UnitID: shot.UnitID, ShotID: shot.ID, RevisionID: shotRevisionID, TaskID: task.ID, Type: artifactType, ResourceID: strings.TrimSpace(req.ResourceID), Status: "ready", Selected: true, MetadataJSON: metadata, CreatedAt: now, UpdatedAt: now}
 	}
 	// 单镜产物成功只代表该镜头完成，不能提前放行整个章节阶段。
 	if shot != nil {
@@ -421,11 +432,13 @@ func (s *Service) RegisterTaskOutputFromTask(task model.Task) error {
 		CanvasID        string         `json:"canvasId"`
 		UnitID          string         `json:"unitId"`
 		ShotID          string         `json:"shotId"`
+		ShotRevisionID  string         `json:"shotRevisionId"`
 		ArtifactType    string         `json:"artifactType"`
 		AssetVersionID  string         `json:"assetVersionId"`
 		ResourceID      string         `json:"resourceId"`
 		MediaType       string         `json:"mediaType"`
 		Role            string         `json:"role"`
+		MetadataJSON    string         `json:"metadataJson"`
 		Metadata        map[string]any `json:"metadata"`
 	}
 	if err := json.Unmarshal([]byte(decrypted), &input); err != nil {
@@ -450,6 +463,9 @@ func (s *Service) RegisterTaskOutputFromTask(task model.Task) error {
 		if input.ShotID == "" {
 			input.ShotID, _ = input.Metadata["shotId"].(string)
 		}
+		if input.ShotRevisionID == "" {
+			input.ShotRevisionID, _ = input.Metadata["shotRevisionId"].(string)
+		}
 		if input.ArtifactType == "" {
 			input.ArtifactType, _ = input.Metadata["artifactType"].(string)
 		}
@@ -461,6 +477,13 @@ func (s *Service) RegisterTaskOutputFromTask(task model.Task) error {
 		}
 		if input.Role == "" {
 			input.Role, _ = input.Metadata["role"].(string)
+		}
+		if input.MetadataJSON == "" {
+			if artifactMetadata, ok := input.Metadata["artifactMetadata"]; ok {
+				if encoded, encodeErr := json.Marshal(artifactMetadata); encodeErr == nil {
+					input.MetadataJSON = string(encoded)
+				}
+			}
 		}
 	}
 	if strings.TrimSpace(input.ResourceID) == "" {
@@ -488,7 +511,7 @@ func (s *Service) RegisterTaskOutputFromTask(task model.Task) error {
 		}
 		input.AssetVersionID = assetVersionID
 	}
-	_, err = s.RegisterTaskOutput(task.UserID, projectID, input.WorkflowStepID, RegisterTaskOutputRequest{TaskID: task.ID, CanvasID: input.CanvasID, UnitID: input.UnitID, ShotID: input.ShotID, ArtifactType: input.ArtifactType, AssetVersionID: input.AssetVersionID, ResourceID: input.ResourceID, MediaType: input.MediaType, Role: input.Role, OutputJSON: task.ResultJSON})
+	_, err = s.RegisterTaskOutput(task.UserID, projectID, input.WorkflowStepID, RegisterTaskOutputRequest{TaskID: task.ID, CanvasID: input.CanvasID, UnitID: input.UnitID, ShotID: input.ShotID, ShotRevisionID: input.ShotRevisionID, ArtifactType: input.ArtifactType, AssetVersionID: input.AssetVersionID, ResourceID: input.ResourceID, MediaType: input.MediaType, Role: input.Role, MetadataJSON: input.MetadataJSON, OutputJSON: task.ResultJSON})
 	return err
 }
 

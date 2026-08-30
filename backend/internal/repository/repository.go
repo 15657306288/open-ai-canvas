@@ -1772,6 +1772,14 @@ func (r *Repository) ShotForProject(projectID string, shotID string) (*model.Sho
 	return &shot, nil
 }
 
+func (r *Repository) ShotRevisionForShot(shotID string, revisionID string) (*model.ShotRevision, error) {
+	var revision model.ShotRevision
+	if err := r.db.First(&revision, "id = ? AND shot_id = ?", revisionID, shotID).Error; err != nil {
+		return nil, err
+	}
+	return &revision, nil
+}
+
 // DeleteProjectShot 原子删除单个镜头的领域关联，并重新压紧同章节镜头顺序。
 func (r *Repository) DeleteProjectShot(projectID string, shotID string, updatedAt time.Time) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {

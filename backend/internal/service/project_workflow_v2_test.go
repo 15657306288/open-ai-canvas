@@ -50,13 +50,17 @@ func TestRegisterTaskOutputFromTaskPersistsMediaAssetAndArtifactIdempotently(t *
 	if err != nil {
 		t.Fatal(err)
 	}
+	submittedRevisionID := shot.CurrentRevisionID
+	if _, _, err = service.CreateShotRevision("user-1", project.ID, shot.ID, ShotRevisionInput{PlotDescription: "任务提交后修改的镜头", DurationMs: 3000}); err != nil {
+		t.Fatal(err)
+	}
 	now := time.Now()
 	resource := model.Resource{ID: "resource-video-1", UserID: "user-1", Kind: "video", Status: model.ResourceStatusReady, MimeType: "video/mp4", Size: 1024, CreatedAt: now, UpdatedAt: now}
 	if err := db.Create(&resource).Error; err != nil {
 		t.Fatal(err)
 	}
 	task := model.Task{ID: "workflow-video-task-1", UserID: "user-1", ProjectID: project.ID, Type: "canvas_video", Status: model.TaskStatusSucceeded,
-		InputJSON:  `{"metadata":{"workflowStepId":"` + videoStep.ID + `","domainProjectId":"` + project.ID + `","unitId":"` + unit.ID + `","shotId":"` + shot.ID + `","artifactType":"video","role":"output"}}`,
+		InputJSON:  `{"metadata":{"workflowStepId":"` + videoStep.ID + `","domainProjectId":"` + project.ID + `","unitId":"` + unit.ID + `","shotId":"` + shot.ID + `","shotRevisionId":"` + submittedRevisionID + `","artifactType":"video","role":"output","artifactMetadata":{"model":"MiniMax-H3"}}}`,
 		ResultJSON: `{"mode":"video","video":{"resourceId":"resource-video-1","storageKey":"resource:resource-video-1","mimeType":"video/mp4"}}`, CreatedAt: now, UpdatedAt: now}
 	if err := db.Create(&task).Error; err != nil {
 		t.Fatal(err)
@@ -77,6 +81,16 @@ func TestRegisterTaskOutputFromTaskPersistsMediaAssetAndArtifactIdempotently(t *
 		if err := db.Table(table).Where(query).Count(&count).Error; err != nil || count != 1 {
 			t.Fatalf("%s count = %d, error = %v", table, count, err)
 		}
+	}
+	var artifact model.ShotArtifact
+	if err := db.First(&artifact, "task_id = ?", task.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if artifact.RevisionID != submittedRevisionID {
+		t.Fatalf("artifact revision = %q, want submitted revision %q", artifact.RevisionID, submittedRevisionID)
+	}
+	if artifact.MetadataJSON != `{"model":"MiniMax-H3"}` {
+		t.Fatalf("artifact metadata = %q", artifact.MetadataJSON)
 	}
 }
 

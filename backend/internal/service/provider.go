@@ -2858,18 +2858,25 @@ func runMiniMaxVideoTask(ctx context.Context, input canvasGenerationInput) (map[
 	if len(input.ReferenceImages) > 9 || len(input.ReferenceVideos) > 3 || len(input.ReferenceAudios) > 3 {
 		return nil, errors.New("MiniMax 视频最多支持 9 张参考图、3 个参考视频和 3 个参考音频")
 	}
+	operation := metadataString(input.Metadata, "videoEditOperation")
+	startFrameID := metadataString(input.Metadata, "videoStartFrameNodeId")
+	endFrameID := metadataString(input.Metadata, "videoEndFrameNodeId")
+	frameMode := operation != "reference_to_video" && (startFrameID != "" || endFrameID != "")
 	content := []miniMaxVideoContent{{Type: "text", Text: strings.TrimSpace(input.Prompt)}}
-	for index, image := range input.ReferenceImages {
+	for _, image := range input.ReferenceImages {
 		url, err := miniMaxMediaURLValue(image)
 		if err != nil {
 			return nil, fmt.Errorf("MiniMax 参考图无效：%w", err)
 		}
 		role := "reference_image"
-		if len(input.ReferenceVideos) == 0 && len(input.ReferenceAudios) == 0 && len(input.ReferenceImages) <= 2 {
-			if index == 0 {
+		if frameMode {
+			switch {
+			case startFrameID != "" && image.ID == startFrameID:
 				role = "first_frame"
-			} else if index == 1 {
+			case endFrameID != "" && image.ID == endFrameID:
 				role = "last_frame"
+			default:
+				return nil, errors.New("MiniMax 首尾帧模式不能混合未标记的参考图")
 			}
 		}
 		content = append(content, miniMaxVideoContent{Type: "image_url", ImageURL: &miniMaxMediaURL{URL: url}, Role: role})
@@ -2889,7 +2896,6 @@ func runMiniMaxVideoTask(ctx context.Context, input canvasGenerationInput) (map[
 		content = append(content, miniMaxVideoContent{Type: "audio_url", AudioURL: &miniMaxMediaURL{URL: url}, Role: "reference_audio"})
 	}
 	watermark := parseBool(input.Config.VideoWatermark, false)
-	frameMode := len(input.ReferenceImages) > 0 && len(input.ReferenceImages) <= 2 && len(input.ReferenceVideos) == 0 && len(input.ReferenceAudios) == 0
 	body := miniMaxVideoRequest{
 		Model:         input.Config.Model,
 		Content:       content,
