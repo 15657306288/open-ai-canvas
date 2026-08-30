@@ -2,6 +2,7 @@ package hostupdate
 
 import (
 	"archive/zip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
@@ -10,6 +11,18 @@ import (
 	"strings"
 	"testing"
 )
+
+type recordingRunner struct {
+	calls [][]string
+}
+
+func (r *recordingRunner) Run(_ context.Context, _ string, args, _ []string, stdout, _ io.Writer) error {
+	r.calls = append(r.calls, append([]string(nil), args...))
+	if stdout != nil {
+		_, _ = io.WriteString(stdout, "backup-fixture")
+	}
+	return nil
+}
 
 func TestSetEnvValuePreservesOtherSettings(t *testing.T) {
 	directory := t.TempDir()
@@ -89,4 +102,30 @@ func TestCurrentVersionRejectsLatest(t *testing.T) {
 	if _, err := manager.currentVersion(); err == nil {
 		t.Fatal("latest tag was accepted")
 	}
+}
+
+func TestCreateBackupReadsBackendDataAsRoot(t *testing.T) {
+	installDir := t.TempDir()
+	backupDir := filepath.Join(installDir, "backups")
+	if err := os.MkdirAll(backupDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(installDir, ".env"), []byte("POSTGRES_USER=canvas\nPOSTGRES_DB=canvas\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &recordingRunner{}
+	manager := &Manager{
+		config: Config{InstallDir: installDir, ComposeFile: "docker-compose.deploy.yml", EnvFile: ".env", BackupDir: backupDir},
+		runner: runner,
+	}
+	if _, err := manager.createBackup("v1.2.2-preview.2"); err != nil {
+		t.Fatal(err)
+	}
+	for _, call := range runner.calls {
+		joined := strings.Join(call, " ")
+		if strings.Contains(joined, "exec -T --user root backend tar -C /data -cf - .") {
+			return
+		}
+	}
+	t.Fatalf("backend data backup did not use root: %#v", runner.calls)
 }

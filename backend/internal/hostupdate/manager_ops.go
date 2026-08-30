@@ -301,7 +301,7 @@ func (m *Manager) createBackup(version string) (Backup, error) {
 	if err != nil {
 		return Backup{}, err
 	}
-	if err := m.compose(m.composePath(), version, m.config.StepTimeout, dataEntry, "exec", "-T", "backend", "tar", "-C", "/data", "-cf", "-", "."); err != nil {
+	if err := m.compose(m.composePath(), version, m.config.StepTimeout, dataEntry, "exec", "-T", "--user", "root", "backend", "tar", "-C", "/data", "-cf", "-", "."); err != nil {
 		return Backup{}, fmt.Errorf("备份数据目录：%w", err)
 	}
 	if err := archive.Close(); err != nil {
