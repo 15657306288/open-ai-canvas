@@ -178,7 +178,7 @@ export default function SystemUpdatePage() {
                         status={<PhaseBadge phase={status?.operation.phase ?? "idle"} />}
                         footer={
                             <>
-                                <span className="text-xs leading-5 text-foreground/50">更新按钮不会跳过备份、镜像摘要、迁移或健康检查。</span>
+                                <span className="text-xs leading-5 text-foreground/50">每次在线更新都会重新备份数据库，并校验镜像摘要、迁移结果和服务健康状态。</span>
                                 <Button type="primary" loading={starting} disabled={!status?.connected || !status.updateAvailable || operationActive || blockingCheckFailed} onClick={requestStart}>
                                     开始更新
                                 </Button>

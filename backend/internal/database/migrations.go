@@ -8,9 +8,10 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 1
+const CurrentSchemaVersion int64 = 2
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
+const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
 
 const postgresSchemaMigrationLockID int64 = 73123910420260830
 
@@ -38,6 +39,11 @@ type migration struct {
 
 var schemaMigrations = []migration{
 	{version: 1, name: "baseline_gorm_schema", checksum: baselineSchemaChecksum, apply: migrateSchemaV1},
+	{version: 2, name: "schema_migrations_applied_at_index", checksum: schemaMigrationAppliedAtIndexChecksum, apply: migrateSchemaV2},
+}
+
+func migrateSchemaV2(tx *gorm.DB) error {
+	return tx.Exec("CREATE INDEX IF NOT EXISTS idx_schema_migrations_applied_at ON schema_migrations (applied_at)").Error
 }
 
 func MigrateSchema(db *gorm.DB) error {

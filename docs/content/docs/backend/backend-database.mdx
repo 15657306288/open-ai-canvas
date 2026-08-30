@@ -15,6 +15,8 @@ description: 影策后端核心持久化表与状态边界
 
 容器内命令 `migrate-schema up` 应用缺失迁移，`migrate-schema status` 输出当前和期望版本，`migrate-schema verify` 只检查兼容性。`CANVAS_AUTO_MIGRATE=true` 仅用于开发和旧部署兼容；受管生产部署设置为 `false`，并由 Compose 的一次性 `migrate` 服务先完成迁移。后续迁移必须新增版本，不得修改已经发布迁移的实现或校验和。
 
+当前结构版本为 2。版本 2 为 `schema_migrations.applied_at` 增加 `idx_schema_migrations_applied_at` 索引，用于验证在线更新中的顺序迁移、事务提交和版本健康检查。
+
 ## 技能包与版本
 
 | 表 | 用途 | 关键边界 |
