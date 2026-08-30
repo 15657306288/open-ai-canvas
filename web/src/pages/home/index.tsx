@@ -7,7 +7,6 @@ import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer,
 
 import { resolveCanvasStylePreset, resolveProjectCanvasStyle } from "@/components/canvas/canvas-style-picker-modal";
 import { WorkspaceErrorState, WorkspaceLoadingState } from "@/components/layout/workspace-state";
-import { WorkspaceSignalIcon } from "@/components/ui/aceternity/workspace-signal-icon";
 import { parseStyleProfile } from "@/lib/canvas/style-profile";
 import { projectSummaryCompletion, projectSummaryStage } from "@/lib/project-workbench";
 import { listProjects, type ProjectSummary } from "@/services/api/projects";
@@ -185,10 +184,6 @@ function HomeDashboard({
         <>
             <header className="home-welcome" aria-label="欢迎区">
                 <div className="min-w-0">
-                    <span className="home-welcome-kicker">
-                        <WorkspaceSignalIcon variant="home" size="sm" />
-                        影策 · AI 影视与短剧创作工作台
-                    </span>
                     <h1 className="home-welcome-title">{hasProjects ? `欢迎回来，${displayName}` : `欢迎使用影策，${displayName}`}</h1>
                     <p className="home-welcome-sub">{hasProjects ? "回到最近制作，或从一句话故事开始一部新的短剧。" : "从一个故事开始：整理章节、确认设定、制作镜头，直到可交付的结果。"}</p>
                 </div>

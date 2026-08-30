@@ -73,15 +73,24 @@
 }
 
 .workflow-library-scroll {
+    max-width: 100%;
     min-height: 0;
     flex: 1 1 auto;
+    overflow-x: hidden;
     overflow-y: auto;
     padding: 2px 0 14px;
 }
 
 .workflow-asset-groups {
     display: grid;
+    min-width: 0;
     gap: 18px;
+}
+
+.workflow-asset-groups > section,
+.workflow-asset-list {
+    min-width: 0;
+    max-width: 100%;
 }
 
 .workflow-asset-groups h3 {
@@ -98,9 +107,12 @@
 .workflow-asset-row {
     display: flex;
     width: 100%;
+    max-width: 100%;
+    min-width: 0;
     min-height: 50px;
     align-items: center;
     gap: 10px;
+    overflow: hidden;
     border-radius: var(--r-md);
     padding: 6px 8px;
     text-align: left;
