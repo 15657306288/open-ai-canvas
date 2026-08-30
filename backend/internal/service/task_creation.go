@@ -13,6 +13,9 @@ import (
 // CreateTask 收敛任务进入系统前的 admission 流程：输入标准化、逻辑模型路由、
 // 能力/额度校验和持久化。执行阶段由 worker 与 provider 相关模块负责。
 func (s *Service) CreateTask(userID string, req CreateTaskRequest) (*model.Task, error) {
+	if s.IsDraining() {
+		return nil, &AppError{Status: 503, Code: 503, Message: "服务正在维护，暂不接受新的生成任务", Retryable: true}
+	}
 	prompt := strings.TrimSpace(req.Prompt)
 	if prompt == "" {
 		return nil, errors.New("prompt is required")

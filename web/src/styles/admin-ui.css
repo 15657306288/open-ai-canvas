@@ -8676,6 +8676,241 @@ html[data-magicui-theme-vt="active"] .admin-shell * {
     color: var(--foreground);
 }
 
+.admin-system-update {
+    gap: 14px;
+    padding-bottom: 28px;
+}
+
+.admin-system-update-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.55fr) minmax(300px, 0.75fr);
+    gap: 14px;
+}
+
+.admin-system-update-release-body,
+.admin-system-update-progress,
+.admin-system-update-backup {
+    padding: 16px;
+}
+
+.admin-system-update-version-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding-bottom: 15px;
+}
+
+.admin-system-update-version-row > strong {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    font-size: clamp(22px, 3vw, 29px);
+    line-height: 1;
+    letter-spacing: -0.04em;
+}
+
+.admin-system-update-facts,
+.admin-system-update-backup dl {
+    display: grid;
+    grid-template-columns: 104px minmax(0, 1fr);
+    gap: 8px 14px;
+    margin: 0;
+    font-size: 12px;
+}
+
+.admin-system-update-facts dt,
+.admin-system-update-backup dt {
+    color: color-mix(in srgb, var(--foreground) 48%, transparent);
+}
+
+.admin-system-update-facts dd,
+.admin-system-update-backup dd {
+    min-width: 0;
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+
+.admin-system-update-notes {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid var(--admin-divider);
+}
+
+.admin-system-update-notes h3 {
+    font-size: 12px;
+    font-weight: 650;
+}
+
+.admin-system-update-notes a {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: color-mix(in srgb, var(--foreground) 62%, transparent);
+    font-size: 11px;
+}
+
+.admin-system-update-notes pre {
+    max-height: 260px;
+    margin: 10px 0 0;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: color-mix(in srgb, var(--foreground) 68%, transparent);
+    font: inherit;
+    font-size: 12px;
+    line-height: 1.7;
+}
+
+.admin-system-update-checks {
+    padding: 4px 16px 8px;
+}
+
+.admin-system-update-check-row {
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 9px;
+    padding: 11px 0;
+    border-bottom: 1px solid var(--admin-divider);
+}
+
+.admin-system-update-check-row:last-child {
+    border-bottom: 0;
+}
+
+.admin-system-update-check-row > svg {
+    margin-top: 1px;
+    color: color-mix(in srgb, var(--foreground) 38%, transparent);
+}
+
+.admin-system-update-check-row[data-status="passed"] > svg,
+.admin-system-update-check-row[data-status="passed"] > span {
+    color: var(--status-success);
+}
+
+.admin-system-update-check-row[data-status="failed"] > svg,
+.admin-system-update-check-row[data-status="failed"] > span {
+    color: var(--status-error);
+}
+
+.admin-system-update-check-row strong {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.admin-system-update-check-row p {
+    margin: 2px 0 0;
+    color: color-mix(in srgb, var(--foreground) 48%, transparent);
+    font-size: 11px;
+    line-height: 1.55;
+    overflow-wrap: anywhere;
+}
+
+.admin-system-update-check-row > span {
+    color: color-mix(in srgb, var(--foreground) 45%, transparent);
+    font-size: 11px;
+}
+
+.admin-system-update-progress ol {
+    display: grid;
+    gap: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.admin-system-update-progress li {
+    display: grid;
+    grid-template-columns: 14px minmax(0, 1fr) auto;
+    gap: 9px;
+    padding: 9px 0;
+}
+
+.admin-system-update-progress li strong {
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.admin-system-update-progress li p {
+    margin: 2px 0 0;
+    color: color-mix(in srgb, var(--foreground) 55%, transparent);
+    font-size: 12px;
+}
+
+.admin-system-update-progress time {
+    color: color-mix(in srgb, var(--foreground) 40%, transparent);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    font-size: 10px;
+}
+
+.admin-system-update-dot {
+    width: 8px;
+    height: 8px;
+    margin-top: 5px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--foreground) 24%, transparent);
+}
+
+.admin-system-update-dot[data-active="true"] {
+    background: var(--status-loading);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--status-loading) 12%, transparent);
+}
+
+.admin-system-update-empty,
+.admin-system-update-backup > p {
+    margin: 0;
+    color: color-mix(in srgb, var(--foreground) 52%, transparent);
+    font-size: 12px;
+    line-height: 1.7;
+}
+
+.admin-system-update-alert {
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr);
+    gap: 10px;
+    padding: 12px 14px;
+    border: 1px solid color-mix(in srgb, var(--status-warning) 26%, var(--admin-divider));
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--status-warning) 7%, var(--background));
+}
+
+.admin-system-update-alert[data-tone="error"] {
+    border-color: color-mix(in srgb, var(--status-error) 28%, var(--admin-divider));
+    background: color-mix(in srgb, var(--status-error) 7%, var(--background));
+}
+
+.admin-system-update-alert > svg {
+    margin-top: 1px;
+    color: var(--status-warning);
+}
+
+.admin-system-update-alert[data-tone="error"] > svg {
+    color: var(--status-error);
+}
+
+.admin-system-update-alert strong {
+    display: block;
+    font-size: 12px;
+}
+
+.admin-system-update-alert p {
+    margin: 3px 0 0;
+    color: color-mix(in srgb, var(--foreground) 62%, transparent);
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+.admin-system-update-alert.is-compact {
+    margin-bottom: 10px;
+    padding: 10px 12px;
+}
+
+@media (max-width: 980px) {
+    .admin-system-update-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
 @media (max-width: 639px) {
     .admin-page-frame {
         padding: 10px 12px 0;

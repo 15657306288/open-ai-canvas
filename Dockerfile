@@ -14,7 +14,9 @@ FROM oven/bun:1.3.13 AS web-build
 
 WORKDIR /app/web
 ARG VITE_TLDRAW_LICENSE_KEY
+ARG BUILD_VERSION
 ENV VITE_TLDRAW_LICENSE_KEY=${VITE_TLDRAW_LICENSE_KEY}
+ENV CANVAS_BUILD_VERSION=${BUILD_VERSION}
 COPY web/package.json web/bun.lock ./
 RUN --mount=type=cache,target=/root/.bun/install/cache bun install --frozen-lockfile --cache-dir=/root/.bun/install/cache
 COPY VERSION /app/VERSION

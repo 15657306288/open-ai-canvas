@@ -28,6 +28,23 @@ services:
       retries: 20
     restart: unless-stopped
 
+  migrate:
+    container_name: open-ai-canvas-migrate
+    image: open-ai-canvas-backend:server
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        GOPROXY: ${GOPROXY:-https://goproxy.cn,direct}
+    command: ["migrate-schema", "up"]
+    environment:
+      CANVAS_BACKEND_DATA_DIR: /data
+      CANVAS_DATABASE_DRIVER: postgres
+      DATABASE_URL: ${DATABASE_URL:?必须配置 PostgreSQL 数据库连接}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   backend:
     container_name: open-ai-canvas-backend
     image: open-ai-canvas-backend:server
@@ -39,8 +56,10 @@ services:
     environment:
       CANVAS_BACKEND_ADDR: ":8080"
       CANVAS_BACKEND_DATA_DIR: /data
-      CANVAS_DATABASE_DRIVER: ${CANVAS_DATABASE_DRIVER:-postgres}
-      DATABASE_URL: ${DATABASE_URL:-}
+      CANVAS_AUTO_MIGRATE: "false"
+      CANVAS_SHUTDOWN_TIMEOUT: ${CANVAS_SHUTDOWN_TIMEOUT:-10m}
+      CANVAS_DATABASE_DRIVER: postgres
+      DATABASE_URL: ${DATABASE_URL:?必须配置 PostgreSQL 数据库连接}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       CANVAS_WORKER_CONCURRENCY: ${CANVAS_WORKER_CONCURRENCY:-3}
       CANVAS_CHANNEL_CONCURRENCY: ${CANVAS_CHANNEL_CONCURRENCY:-3}
@@ -56,7 +75,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
+    stop_grace_period: ${CANVAS_SHUTDOWN_TIMEOUT:-10m}
 
   web:
     container_name: open-ai-canvas-web

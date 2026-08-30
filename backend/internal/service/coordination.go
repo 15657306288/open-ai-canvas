@@ -317,6 +317,13 @@ func (s *Service) ValidateRuntime() error {
 	return s.runtimeErr
 }
 
+func (s *Service) Close() error {
+	if s.coordinator == nil || s.coordinator.redis == nil {
+		return nil
+	}
+	return s.coordinator.redis.Close()
+}
+
 func (s *Service) AllowRequest(ctx context.Context, key string, limit int, window time.Duration) (bool, error) {
 	if s.coordinator == nil {
 		return false, errors.New("运行时协调器未初始化")

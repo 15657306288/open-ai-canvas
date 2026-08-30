@@ -26,6 +26,7 @@ type Service struct {
 	redeemBatchMu              sync.Mutex
 	storageMu                  sync.Mutex
 	storageTestMu              sync.Mutex
+	workerRuntimeMu            sync.Mutex
 	activeStorageTests         map[string]bool
 	characterTaskMu            sync.Mutex
 	activeCancels              map[string]context.CancelFunc
@@ -50,6 +51,8 @@ type Service struct {
 	routeCatalogVersion        int64
 	routeHealthMu              sync.Mutex
 	routeHealthBlocked         map[string]time.Time
+	workers                    *workerRuntime
+	updateManager              UpdateManager
 }
 
 const taskWorkerConcurrency = 3
@@ -124,9 +127,39 @@ func (s *Service) taskBilling() *taskBillingCoordinator {
 }
 
 func (s *Service) StartWorker() {
-	s.taskWorker().start()
-	s.startResourceDeletionWorker()
-	s.startSkillSyncWorker()
+	runtime := s.backgroundWorkers()
+	ctx, started := runtime.start()
+	if !started {
+		return
+	}
+	s.taskWorker().start(ctx)
+	s.startResourceDeletionWorker(ctx)
+	s.startSkillSyncWorker(ctx)
+}
+
+func (s *Service) BeginDrain() { s.backgroundWorkers().beginDrain() }
+
+func (s *Service) StopWorker(ctx context.Context) error { return s.backgroundWorkers().stop(ctx) }
+
+func (s *Service) IsDraining() bool { return s.backgroundWorkers().isDraining() }
+
+func (s *Service) ActiveWorkerTasks() int64 { return s.backgroundWorkers().activeTaskCount() }
+
+func (s *Service) backgroundWorkers() *workerRuntime {
+	s.workerRuntimeMu.Lock()
+	defer s.workerRuntimeMu.Unlock()
+	if s.workers == nil {
+		s.workers = &workerRuntime{}
+	}
+	return s.workers
+}
+
+func (s *Service) runWorkerLoop(fn func(context.Context)) bool {
+	return s.backgroundWorkers().goLoop(fn)
+}
+
+func (s *Service) runWorkerTask(fn func()) bool {
+	return s.backgroundWorkers().goTask(fn)
 }
 
 func (s *Service) CreateSession(userID string, req CreateSessionRequest) (*SessionDetail, error) {

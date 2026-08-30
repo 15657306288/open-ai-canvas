@@ -31,22 +31,27 @@ const (
 	providerCancellationFailed    providerCancellationOutcome = "failed"
 )
 
-func (s *Service) startProviderCancellationReconciliation() {
-	go func() {
+func (s *Service) startProviderCancellationReconciliation(ctx context.Context) {
+	s.runWorkerLoop(func(ctx context.Context) {
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
-		for range ticker.C {
-			task, err := s.repo.ClaimNextTaskProviderCancellation("provider-cancel:"+s.workerID, providerCancellationLeaseDuration)
-			if err != nil || task == nil {
-				continue
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				task, err := s.repo.ClaimNextTaskProviderCancellation("provider-cancel:"+s.workerID, providerCancellationLeaseDuration)
+				if err != nil || task == nil {
+					continue
+				}
+				reconcileCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+				if err := s.reconcileProviderCancellation(reconcileCtx, task); err != nil {
+					_ = s.log(task.UserID, task.ID, "error", "上游取消状态对账失败", err.Error())
+				}
+				cancel()
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			if err := s.reconcileProviderCancellation(ctx, task); err != nil {
-				_ = s.log(task.UserID, task.ID, "error", "上游取消状态对账失败", err.Error())
-			}
-			cancel()
 		}
-	}()
+	})
 }
 
 func (s *Service) requestProviderCancellation(ctx context.Context, task *model.Task) error {

@@ -31,6 +31,9 @@ func (s *Service) taskLifecycle() *taskLifecycleCoordinator {
 
 func (w *taskLifecycleCoordinator) retryTask(userID string, id string) (*model.Task, error) {
 	s := w.service
+	if s.IsDraining() {
+		return nil, &AppError{Status: 503, Code: 503, Message: "服务正在维护，暂不接受任务重试", Retryable: true}
+	}
 	task, err := s.repo.TaskForUser(userID, id)
 	if err != nil {
 		return nil, err
@@ -156,13 +159,22 @@ func (w *taskLifecycleCoordinator) cancelTask(_ context.Context, userID string, 
 		// 上游取消可能需要轮询确认，不能阻塞取消接口；请求上下文也不能因
 		// 浏览器关闭而中断。后台对账会继续负责退款或费用核对。
 		cancelTask := *task
-		go func() {
+		started := s.runWorkerTask(func() {
 			requestCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			if err := s.requestProviderCancellation(requestCtx, &cancelTask); err != nil {
 				_ = s.log(cancelTask.UserID, cancelTask.ID, "error", "发送上游取消请求失败", err.Error())
 			}
-		}()
+		})
+		if !started {
+			// drain 后不能启动未登记 goroutine；当前 HTTP 请求同步完成首次取消，
+			// http.Server.Shutdown 会等待该请求，后续确认仍由持久化对账恢复。
+			requestCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			if err := s.requestProviderCancellation(requestCtx, &cancelTask); err != nil {
+				_ = s.log(cancelTask.UserID, cancelTask.ID, "error", "发送上游取消请求失败", err.Error())
+			}
+			cancel()
+		}
 	} else {
 		var billingErr error
 		if originalStatus == model.TaskStatusQueued {

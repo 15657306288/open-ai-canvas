@@ -5,9 +5,12 @@ set -Eeuo pipefail
 REPOSITORY_REF="${REPOSITORY_REF:-main}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/open-ai-canvas}"
 CANVAS_HTTP_PORT="${CANVAS_HTTP_PORT:-3000}"
-CANVAS_IMAGE_TAG="${CANVAS_IMAGE_TAG:-latest}"
+REQUESTED_IMAGE_TAG="${CANVAS_IMAGE_TAG:-}"
+CANVAS_IMAGE_TAG="${REQUESTED_IMAGE_TAG:-latest}"
+CANVAS_IMAGE_TAG="${CANVAS_IMAGE_TAG#v}"
 COMPOSE_FILE="docker-compose.deploy.yml"
 COMPOSE_URL="${COMPOSE_URL:-https://raw.githubusercontent.com/ddcat-ai/open-ai-canvas/${REPOSITORY_REF}/${COMPOSE_FILE}}"
+UPDATER_INSTALL_URL="${UPDATER_INSTALL_URL:-https://raw.githubusercontent.com/ddcat-ai/open-ai-canvas/${REPOSITORY_REF}/scripts/install-host-updater.sh}"
 
 step() {
     printf '\n==> %s\n' "$1"
@@ -91,9 +94,20 @@ prepare_environment() {
 
         local configured_image_tag
         configured_image_tag="$(sed -n 's/^CANVAS_IMAGE_TAG=//p' .env | tail -n 1)"
-        if [[ -n "$configured_image_tag" ]]; then
+        if [[ -n "$REQUESTED_IMAGE_TAG" ]]; then
+            local temporary_env
+            temporary_env="$(mktemp "${INSTALL_DIR}/.env.XXXXXX")"
+            awk -v image_tag="$CANVAS_IMAGE_TAG" '
+                BEGIN { updated=0 }
+                /^CANVAS_IMAGE_TAG=/ { print "CANVAS_IMAGE_TAG=" image_tag; updated=1; next }
+                { print }
+                END { if (!updated) print "CANVAS_IMAGE_TAG=" image_tag }
+            ' .env > "$temporary_env"
+            chmod --reference=.env "$temporary_env"
+            mv "$temporary_env" .env
+        elif [[ -n "$configured_image_tag" ]]; then
             [[ "$configured_image_tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || fail ".env 中的 CANVAS_IMAGE_TAG 无效"
-            CANVAS_IMAGE_TAG="$configured_image_tag"
+            CANVAS_IMAGE_TAG="${configured_image_tag#v}"
         fi
         return
     fi
@@ -124,6 +138,19 @@ download_compose() {
     mv "$temporary_file" "$COMPOSE_FILE"
 }
 
+install_host_updater() {
+    if [[ "$CANVAS_IMAGE_TAG" == "latest" ]]; then
+        printf '\n提示：CANVAS_IMAGE_TAG=latest，已跳过在线更新器安装。固定到具体发布版本后可再次运行本脚本。\n'
+        return
+    fi
+    step "安装宿主机在线更新服务"
+    local installer
+    installer="$(mktemp)"
+    curl -fsSL "$UPDATER_INSTALL_URL" -o "$installer"
+    INSTALL_DIR="$INSTALL_DIR" bash "$installer"
+    rm -f "$installer"
+}
+
 start_services() {
     step "拉取并启动 GHCR 网页与后端镜像"
     if ! docker compose --env-file .env -f "$COMPOSE_FILE" pull; then
@@ -152,6 +179,7 @@ main() {
     login_ghcr
     prepare_environment
     download_compose
+    install_host_updater
     start_services
     print_result
 }

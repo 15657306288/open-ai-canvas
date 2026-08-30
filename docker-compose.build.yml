@@ -1,4 +1,12 @@
 services:
+  migrate:
+    image: open-ai-canvas-backend:server
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
+
   backend:
     image: open-ai-canvas-backend:server
     build:

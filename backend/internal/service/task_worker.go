@@ -28,21 +28,24 @@ func (s *Service) taskWorker() *taskWorkerCoordinator {
 	return newTaskWorkerCoordinator(s)
 }
 
-func (w *taskWorkerCoordinator) start() {
+func (w *taskWorkerCoordinator) start(ctx context.Context) {
 	s := w.service
-	s.startTextReplayCleanup()
-	s.startProviderCancellationReconciliation()
-	s.startBillingReviewAudit()
-	go func() {
+	s.startTextReplayCleanup(ctx)
+	s.startProviderCancellationReconciliation(ctx)
+	s.startBillingReviewAudit(ctx)
+	s.runWorkerLoop(func(ctx context.Context) {
 		slots := make(chan struct{}, maxChannelConcurrencyLimit)
 		dispatch := func() {
+			if ctx.Err() != nil || s.IsDraining() {
+				return
+			}
 			setting, err := s.runtimeConcurrencySetting()
 			if err != nil {
 				return
 			}
 			workerConcurrency := setting.WorkerConcurrency
 			for len(slots) < workerConcurrency {
-				releaseGlobal, acquired, err := s.coordinator.acquire(context.Background(), "workers", workerConcurrency, 45*time.Minute)
+				releaseGlobal, acquired, err := s.coordinator.acquire(ctx, "workers", workerConcurrency, 45*time.Minute)
 				if err != nil || !acquired {
 					return
 				}
@@ -52,22 +55,33 @@ func (w *taskWorkerCoordinator) start() {
 					return
 				}
 				slots <- struct{}{}
-				go func(task *model.Task) {
+				started := s.runWorkerTask(func() {
 					defer func() { <-slots; releaseGlobal() }()
 					if err := w.processClaimedTask(task); err != nil {
 						_ = s.log(task.UserID, task.ID, "error", "后台任务处理失败", err.Error())
 					}
-				}(task)
+				})
+				if !started {
+					<-slots
+					releaseGlobal()
+					_ = s.repo.ReleaseTaskLease(task.ID, s.workerID)
+					return
+				}
 			}
 		}
 
 		dispatch()
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
-		for range ticker.C {
-			dispatch()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				dispatch()
+			}
 		}
-	}()
+	})
 }
 
 func (w *taskWorkerCoordinator) processNextTask() error {

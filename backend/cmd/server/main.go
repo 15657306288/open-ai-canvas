@@ -1,26 +1,41 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"infinite-canvas/backend/internal/database"
 	"infinite-canvas/backend/internal/handler"
 	"infinite-canvas/backend/internal/repository"
 	"infinite-canvas/backend/internal/service"
+	"infinite-canvas/backend/internal/updaterclient"
 
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	if err := run(ctx); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run(ctx context.Context) error {
 	dataDir := env("CANVAS_BACKEND_DATA_DIR", "data")
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
-		log.Fatal(err)
+		return err
 	}
 	db, err := database.Open(database.Config{
 		Driver:  env("CANVAS_DATABASE_DRIVER", "sqlite"),
@@ -28,44 +43,60 @@ func main() {
 		DataDir: dataDir,
 	})
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	if err := database.ConfigurePool(db); err != nil {
-		log.Fatal(err)
+		return err
 	}
-	if err := database.MigrateSchema(db); err != nil {
-		log.Fatal(err)
+	sqlDB, err := db.DB()
+	if err != nil {
+		return err
+	}
+	defer sqlDB.Close()
+	autoMigrate, err := envBool("CANVAS_AUTO_MIGRATE", true)
+	if err != nil {
+		return err
+	}
+	if autoMigrate {
+		err = database.MigrateSchema(db)
+	} else {
+		err = database.RequireSchemaVersion(db)
+	}
+	if err != nil {
+		return err
 	}
 
 	repo := repository.New(db)
 	addr := env("CANVAS_BACKEND_ADDR", ":8080")
 	capabilities := service.RuntimeCapabilitiesForDeployment(addr, os.Getenv("CANVAS_DESKTOP_LOCAL_CHANNELS_ENABLED"))
 	svc := service.NewWithRuntimeCapabilities(repo, dataDir, capabilities)
+	if updaterToken := strings.TrimSpace(os.Getenv("CANVAS_UPDATER_TOKEN")); updaterToken != "" {
+		svc.ConfigureUpdateManager(updaterclient.New(env("CANVAS_UPDATER_SOCKET", "/run/open-ai-canvas-updater/updater.sock"), updaterToken))
+	}
+	defer svc.Close()
 	if err := svc.ValidateRuntime(); err != nil {
-		log.Fatal(err)
+		return err
 	}
 	if err := svc.EnsureSystemChannelModels(); err != nil {
-		log.Fatal(err)
+		return err
 	}
 	if err := svc.EnsureDefaultPromptTemplates(); err != nil {
-		log.Fatal(err)
+		return err
 	}
 	if err := svc.EnsureBuiltinProjectWorkflowTemplate(); err != nil {
-		log.Fatal(err)
+		return err
 	}
 	if err := svc.EnsureBuiltinSkills(); err != nil {
-		log.Fatal(err)
+		return err
 	}
 	if err := svc.EnsureSkillPackages(); err != nil {
-		log.Fatal(err)
+		return err
 	}
 	if summary, err := svc.MigrateLegacyStorage(); err != nil {
 		log.Printf("storage migration skipped after error: %v", err)
 	} else if summary.Backup != "" {
 		log.Printf("storage migration completed: tasks=%d assets=%d projects=%d backup=%s", summary.Tasks, summary.Assets, summary.Projects, summary.Backup)
 	}
-	svc.StartWorker()
-
 	r := gin.New()
 	r.Use(gin.LoggerWithFormatter(func(param gin.LogFormatterParams) string {
 		return fmt.Sprintf("%s - [%s] \"%s %s\" %d %s %s\n", param.ClientIP, param.TimeStamp.Format(time.RFC3339), param.Method, redactCanvasSharePath(param.Path), param.StatusCode, param.Latency, param.ErrorMessage)
@@ -73,14 +104,13 @@ func main() {
 	r.Use(handler.RequestCorrelationMiddleware())
 	corsMiddleware, err := cors()
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	r.Use(corsMiddleware)
 	handler.ConfigureRuntime(svc)
 	api := r.Group("/api")
-	api.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{"code": 0, "data": gin.H{"status": "ok"}, "msg": "ok"})
-	})
+	status := newSystemStatus(db, svc)
+	registerSystemStatusRoutes(api, status)
 	handler.RegisterOAuthCallbackRoutes(r, svc)
 	handler.RegisterAuthRoutes(api, svc)
 	handler.RegisterFeatureAvailabilityRoutes(api, svc)
@@ -88,6 +118,7 @@ func main() {
 	handler.RegisterAdminRoutes(api, svc)
 	handler.RegisterAdminAnalyticsRoutes(api, svc)
 	handler.RegisterAdminStorageRoutes(api, svc)
+	handler.RegisterAdminUpdateRoutes(api, svc)
 	handler.RegisterAnnouncementRoutes(api, svc)
 	handler.RegisterFinanceRoutes(api, svc)
 	handler.RegisterLibTVRoutes(api, svc)
@@ -112,10 +143,52 @@ func main() {
 	handler.RegisterCanvasShareRoutes(api, svc)
 	r.NoRoute(handler.SystemProxyNoRouteHandler(svc))
 
-	log.Printf("影策 backend listening on %s", addr)
-	if err := r.Run(addr); err != nil {
-		log.Fatal(err)
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
 	}
+	workerTimeout, err := envDuration("CANVAS_SHUTDOWN_TIMEOUT", 10*time.Minute)
+	if err != nil {
+		_ = listener.Close()
+		return err
+	}
+	httpServer := &http.Server{Handler: r, ReadHeaderTimeout: 10 * time.Second}
+	svc.StartWorker()
+	status.markStarted()
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- httpServer.Serve(listener) }()
+	log.Printf("影策 backend listening on %s", addr)
+
+	var serveFailure error
+	select {
+	case <-ctx.Done():
+	case err := <-serveErr:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serveFailure = fmt.Errorf("HTTP 服务异常退出：%w", err)
+		}
+	}
+
+	status.beginDrain()
+	var shutdownFailures []error
+	if serveFailure != nil {
+		shutdownFailures = append(shutdownFailures, serveFailure)
+	}
+	httpShutdownCtx, httpShutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer httpShutdownCancel()
+	if err := httpServer.Shutdown(httpShutdownCtx); err != nil {
+		_ = httpServer.Close()
+		shutdownFailures = append(shutdownFailures, fmt.Errorf("关闭 HTTP 服务：%w", err))
+	}
+	workerCtx, workerCancel := context.WithTimeout(context.Background(), workerTimeout)
+	defer workerCancel()
+	if err := svc.StopWorker(workerCtx); err != nil {
+		shutdownFailures = append(shutdownFailures, fmt.Errorf("等待后台任务退出：%w", err))
+	}
+	if err := errors.Join(shutdownFailures...); err != nil {
+		return err
+	}
+	log.Printf("影策 backend stopped gracefully")
+	return nil
 }
 
 func redactCanvasSharePath(path string) string {
@@ -136,6 +209,30 @@ func env(key string, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func envBool(key string, fallback bool) (bool, error) {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, fmt.Errorf("%s 必须是 true 或 false", key)
+	}
+	return parsed, nil
+}
+
+func envDuration(key string, fallback time.Duration) (time.Duration, error) {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := time.ParseDuration(value)
+	if err != nil || parsed <= 0 {
+		return 0, fmt.Errorf("%s 必须是正数时长，例如 10m", key)
+	}
+	return parsed, nil
 }
 
 const corsAllowedHeaders = "Accept, Content-Type, Authorization, X-Requested-With, X-Canvas-Scene, X-Idempotency-Key, X-Canvas-Trace-ID, X-Canvas-Upstream-URL, X-Canvas-Upstream-Format, X-Canvas-Allow-Local-Channel, X-Canvas-Upstream-Base-URL"

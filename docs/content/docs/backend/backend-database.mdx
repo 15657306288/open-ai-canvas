@@ -5,7 +5,15 @@ description: 影策后端核心持久化表与状态边界
 
 # 后端数据库
 
-后端通过 GORM 管理 SQLite 与 PostgreSQL 表结构。服务启动时由 `backend/internal/database/schema.go` 执行迁移；业务写路径必须通过 service 和 repository 的状态约束，不能直接依赖前端状态。
+后端通过 GORM 管理 SQLite 与 PostgreSQL 表结构。结构变化由 `migrate-schema` 按版本顺序执行并写入 `schema_migrations`；受管生产部署在 Backend 启动前运行独立迁移服务，Backend 只校验当前 Schema 是否与二进制兼容。业务写路径必须通过 service 和 repository 的状态约束，不能直接依赖前端状态。
+
+## 结构迁移与版本
+
+| 表 | 用途 | 关键边界 |
+| --- | --- | --- |
+| `schema_migrations` | 保存已成功应用的结构版本、名称、校验和与时间 | 已应用版本的校验和发生变化时拒绝启动；数据库版本高于当前二进制支持版本时拒绝旧程序连接 |
+
+容器内命令 `migrate-schema up` 应用缺失迁移，`migrate-schema status` 输出当前和期望版本，`migrate-schema verify` 只检查兼容性。`CANVAS_AUTO_MIGRATE=true` 仅用于开发和旧部署兼容；受管生产部署设置为 `false`，并由 Compose 的一次性 `migrate` 服务先完成迁移。后续迁移必须新增版本，不得修改已经发布迁移的实现或校验和。
 
 ## 技能包与版本
 

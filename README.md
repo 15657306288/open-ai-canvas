@@ -189,7 +189,17 @@ sudo docker compose --env-file .env \
 curl -fsSL https://raw.githubusercontent.com/ddcat-ai/open-ai-canvas/main/scripts/install-server-image.sh | sudo bash
 ```
 
-容器包不可匿名拉取时，先通过 `GHCR_USERNAME` 和 `GHCR_TOKEN` 登录 GHCR。需要固定版本或端口时，在 `/opt/open-ai-canvas/.env` 中设置 `CANVAS_IMAGE_TAG`、`CANVAS_HTTP_PORT` 后重新启动。
+容器包不可匿名拉取时，先通过 `GHCR_USERNAME` 和 `GHCR_TOKEN` 登录 GHCR。生产环境应在 `/opt/open-ai-canvas/.env` 中把 `CANVAS_IMAGE_TAG` 固定为具体 Release（不要使用 `latest`），端口由 `CANVAS_HTTP_PORT` 配置。
+
+固定版本的 GHCR 部署可安装宿主机在线更新器；安装后管理后台会出现“系统配置 → 系统更新”，更新器会在切换前强制生成并校验 PostgreSQL 与数据目录 ZIP 备份：
+
+```bash
+cd /opt/open-ai-canvas
+curl -fsSL https://raw.githubusercontent.com/ddcat-ai/open-ai-canvas/main/scripts/install-host-updater.sh | sudo bash
+sudo docker compose --env-file .env -f docker-compose.deploy.yml up -d --force-recreate backend web --wait
+```
+
+更新流程、数据库迁移、健康验证和异常回退说明见 [`docs/content/docs/backend/system-update.mdx`](docs/content/docs/backend/system-update.mdx)。
 
 ### 公网必做事项
 

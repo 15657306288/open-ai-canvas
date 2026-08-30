@@ -56,6 +56,12 @@ func (r *Repository) Dialect() string {
 	return r.db.Dialector.Name()
 }
 
+func (r *Repository) ReleaseTaskLease(id string, owner string) error {
+	return r.db.Model(&model.Task{}).
+		Where("id = ? AND status = ? AND lease_owner = ?", id, model.TaskStatusRunning, owner).
+		Updates(map[string]any{"lease_owner": "", "lease_expires_at": nil, "updated_at": time.Now()}).Error
+}
+
 // NextPrefixedID 在数据库事务中递增序列，避免 UUID/父子字符串拼接导致的不可读和不可排序 ID。
 // prefix 只决定展示前缀，关联关系仍由独立外键维护。
 func (r *Repository) NextPrefixedID(prefix string) (string, error) {

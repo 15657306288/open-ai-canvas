@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## v1.2.2-preview.1
+
+- 管理后台新增“系统配置 → 系统更新”，自动检查 GitHub Release、比较当前运行版本并展示发布时间、更新日志、前置检查、持久化进度、备份和回退状态。
+- 新增独立 Host Updater systemd 服务，通过带随机 Token 的 Unix Socket 接收管理员操作；业务 Backend 不挂载 Docker Socket。
+- 在线更新强制执行 PostgreSQL 与数据目录 ZIP 备份、ZIP 结构与 SHA-256 复核、目标 Compose 校验、镜像仓库摘要检查、优雅停服、独立数据库迁移、版本健康稳定窗口和更新器二进制自更新。
+- 停服后的迁移、启动或健康检查失败时自动恢复旧 Compose、旧镜像和已校验数据库备份；回退失败明确进入人工介入状态，不会伪造成功。
+- Release 工作流新增 Linux amd64/arm64 Host Updater、`SHA256SUMS`、Compose 和更新日志资产，并继续校验 Git Tag、`VERSION` 与 `CHANGELOG.md` 一致。
+
 - 新增平台与个人 S3 兼容存储，支持 AWS S3、Cloudflare R2、Backblaze B2、RustFS 和自定义 Endpoint，提供 Path Style、临时凭据、连接测试、历史位置绑定及私网资源 HTTPS 代理；个人配置启用时优先于平台存储。
 - 新增用户诊断包导出：设置页和失败任务详情支持导出最近 15 分钟、30 分钟、1 小时或 24 小时内的脱敏 ZIP，并通过 `traceId`、`requestId`、`taskId` 和 `providerRequestId` 关联前端、任务日志与模型上游调用。
 - 建立诊断数据安全边界：前端内存事件缓冲区最多保留 500 条，后端按当前用户校验任务和项目归属，导出时排除提示词、任务输入、请求/响应体、密钥、Cookie 和 URL 查询参数，并补充脱敏与越权测试。

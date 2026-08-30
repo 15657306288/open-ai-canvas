@@ -208,23 +208,32 @@ func (s *Service) SyncGitHubSkill(userID string, skillID string) (*SkillItem, er
 	return s.SkillDetail(userID, skill.ID)
 }
 
-func (s *Service) startSkillSyncWorker() {
-	go func() {
+func (s *Service) startSkillSyncWorker(ctx context.Context) {
+	s.runWorkerLoop(func(ctx context.Context) {
 		ticker := time.NewTicker(6 * time.Hour)
 		defer ticker.Stop()
-		for range ticker.C {
-			skills, err := s.repo.AutoUpdatingGitHubSkills()
-			if err != nil {
-				continue
-			}
-			for index := range skills {
-				_ = s.syncGitHubSkill(&skills[index])
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				skills, err := s.repo.AutoUpdatingGitHubSkills()
+				if err != nil {
+					continue
+				}
+				for index := range skills {
+					_ = s.syncGitHubSkillWithContext(ctx, &skills[index])
+				}
 			}
 		}
-	}()
+	})
 }
 
 func (s *Service) syncGitHubSkill(skill *model.Skill) error {
+	return s.syncGitHubSkillWithContext(context.Background(), skill)
+}
+
+func (s *Service) syncGitHubSkillWithContext(ctx context.Context, skill *model.Skill) error {
 	now := time.Now()
 	spec, err := parseGitHubSkillURL(skill.SourceURL, skill.SourceRef, skill.SourceSubdir)
 	if err != nil {
@@ -234,7 +243,7 @@ func (s *Service) syncGitHubSkill(skill *model.Skill) error {
 		_ = s.repo.SaveSkill(skill)
 		return err
 	}
-	archive, commit, canonicalURL, resolvedRef, err := fetchGitHubSkillArchive(context.Background(), spec)
+	archive, commit, canonicalURL, resolvedRef, err := fetchGitHubSkillArchive(ctx, spec)
 	skill.LastCheckedAt = &now
 	if err != nil {
 		skill.SyncStatus = "failed"

@@ -3,6 +3,7 @@ package main
 import (
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -16,6 +17,19 @@ func TestAllowedOriginWildcard(t *testing.T) {
 	}
 	if allowedOrigin(context, "ftp://example.com") {
 		t.Fatal("wildcard CORS should reject non-HTTP origins")
+	}
+}
+
+func TestEnvironmentParsers(t *testing.T) {
+	t.Setenv("CANVAS_AUTO_MIGRATE", "false")
+	value, err := envBool("CANVAS_AUTO_MIGRATE", true)
+	if err != nil || value {
+		t.Fatalf("envBool = %v, %v", value, err)
+	}
+	t.Setenv("CANVAS_SHUTDOWN_TIMEOUT", "45s")
+	duration, err := envDuration("CANVAS_SHUTDOWN_TIMEOUT", time.Minute)
+	if err != nil || duration != 45*time.Second {
+		t.Fatalf("envDuration = %v, %v", duration, err)
 	}
 }
 

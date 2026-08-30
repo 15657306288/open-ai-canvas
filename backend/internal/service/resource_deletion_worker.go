@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"log"
 	"math"
 	"time"
@@ -10,21 +11,26 @@ import (
 
 const resourceDeletionLease = 2 * time.Minute
 
-func (s *Service) startResourceDeletionWorker() {
-	go func() {
+func (s *Service) startResourceDeletionWorker(ctx context.Context) {
+	s.runWorkerLoop(func(ctx context.Context) {
 		s.drainResourceDeletionJobs(32)
 		s.cleanupStaleAnnouncementImageDrafts()
 		ticker := time.NewTicker(15 * time.Second)
 		defer ticker.Stop()
 		lastDraftCleanup := time.Now()
-		for range ticker.C {
-			s.drainResourceDeletionJobs(32)
-			if time.Since(lastDraftCleanup) >= time.Hour {
-				s.cleanupStaleAnnouncementImageDrafts()
-				lastDraftCleanup = time.Now()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.drainResourceDeletionJobs(32)
+				if time.Since(lastDraftCleanup) >= time.Hour {
+					s.cleanupStaleAnnouncementImageDrafts()
+					lastDraftCleanup = time.Now()
+				}
 			}
 		}
-	}()
+	})
 }
 
 func (s *Service) drainResourceDeletionJobs(limit int) {
