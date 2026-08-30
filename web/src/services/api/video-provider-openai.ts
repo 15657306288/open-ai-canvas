@@ -13,13 +13,21 @@ export async function createOpenAIVideoTask(deps: VideoProviderDeps, config: Res
     if (config.interfaceType === "xai-video" || modelName.toLowerCase().includes("grok")) {
         const images = await Promise.all(references.slice(0, 7).map((image) => imageToDataUrl(image)));
         const seconds = normalizeVideoSeconds(config.videoSeconds);
+        const referenceMode = options?.videoEditOperation === "reference_to_video";
+        const explicitFrameMode = !referenceMode && Boolean(options?.videoStartFrameNodeId || options?.videoEndFrameNodeId);
+        if (config.interfaceType === "xai-video" && explicitFrameMode && (images.length > 1 || options?.videoEndFrameNodeId)) throw new Error("xAI 视频协议最多支持 1 张起始图，不支持尾帧或混合角色参考图");
+        const imagePayload = config.interfaceType === "xai-video"
+            ? referenceMode && images.length
+                ? { reference_images: images.map((url) => ({ url })) }
+                : images.length ? { image: { url: images[0] } } : {}
+            : images.length ? { image: images[0], images } : {};
         const payload = {
             model: modelName,
             prompt,
             duration: Number.parseInt(seconds, 10) || 6,
             seconds,
             ...(normalizeVideoSize(config.size) ? { size: normalizeVideoSize(config.size) } : {}),
-            ...(images.length ? { image: images[0], images } : {}),
+            ...imagePayload,
         };
         try {
             const createPath = config.interfaceType === "xai-video" ? "/videos/generations" : "/videos";

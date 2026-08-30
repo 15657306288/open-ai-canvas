@@ -1372,6 +1372,31 @@ func TestSeedanceVideosBodyUsesOrderedFrameImageURLsWhenConfigured(t *testing.T)
 	}
 }
 
+func TestSeedanceVideosBodyKeepsProjectAssetsAsReferenceImages(t *testing.T) {
+	body, err := seedanceVideosRequestBody(canvasGenerationInput{
+		Prompt: "keep the character consistent",
+		Config: providerConfig{Model: "seedance-2.0"},
+		ReferenceImages: []providerMedia{
+			{ID: "character-1", DataURL: testReferenceImageDataURL},
+			{ID: "character-2", DataURL: "data:image/png;base64,d29ybGQ="},
+		},
+		Metadata: map[string]interface{}{
+			"videoEditOperation":    "reference_to_video",
+			"videoStartFrameNodeId": "character-1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("seedanceVideosRequestBody() error = %v", err)
+	}
+	want := []string{testReferenceImageDataURL, "data:image/png;base64,d29ybGQ="}
+	if !reflect.DeepEqual(body.ReferenceImageURLs, want) {
+		t.Fatalf("reference_image_urls = %#v, want %#v", body.ReferenceImageURLs, want)
+	}
+	if body.ImageURL != "" || body.ImageURLs != nil {
+		t.Fatalf("reference operation leaked frame fields: %#v", body)
+	}
+}
+
 func TestRunVideoTaskUsesNewAPIForAnyVideoModel(t *testing.T) {
 	t.Setenv("CANVAS_ALLOW_PRIVATE_UPSTREAMS", "true")
 	paths := make([]string, 0, 3)
@@ -1731,6 +1756,22 @@ func TestXAIVideoBodyWithStartFrameKeepsOfficialImageShape(t *testing.T) {
 	}
 }
 
+func TestXAIVideoReferenceOperationIgnoresStaleStartFrameMetadata(t *testing.T) {
+	body, err := xaiVideoRequestBody(canvasGenerationInput{
+		Config: providerConfig{Model: "grok-imagine-video-1.5", InterfaceType: "xai-video"},
+		ReferenceImages: []providerMedia{
+			{ID: "character", DataURL: testReferenceImageDataURL},
+		},
+		Metadata: map[string]interface{}{"videoEditOperation": "reference_to_video", "videoStartFrameNodeId": "character"},
+	})
+	if err != nil {
+		t.Fatalf("xaiVideoRequestBody() error = %v", err)
+	}
+	if body.Image != nil || len(body.ReferenceImages) != 1 {
+		t.Fatalf("xAI reference operation body = %#v", body)
+	}
+}
+
 func TestXAIVideoBodyWithStartFrameRejectsMultipleImages(t *testing.T) {
 	_, err := xaiVideoRequestBody(canvasGenerationInput{
 		Config: providerConfig{Model: "grok-imagine-video-1.5", InterfaceType: "xai-video"},
@@ -1916,6 +1957,38 @@ func TestNewAPIChannel1VideoBodyMapsFramesAndReferences(t *testing.T) {
 	parameters := body["parameters"].(map[string]interface{})
 	if parameters["resolution"] != "1080P" || parameters["ratio"] != "9:16" || parameters["duration"] != 15 || parameters["watermark"] != true {
 		t.Fatalf("parameters = %#v", parameters)
+	}
+}
+
+func TestProtocolRequestPreservesVideoImageIDsAndRoles(t *testing.T) {
+	request := protocolRequestFromInput(canvasGenerationInput{
+		Mode: "video",
+		ReferenceImages: []providerMedia{
+			{ID: "start", URL: "https://example.com/start.png"},
+			{ID: "character", URL: "https://example.com/character.png"},
+		},
+		Metadata: map[string]interface{}{
+			"videoEditOperation":    "image_to_video",
+			"videoStartFrameNodeId": "start",
+		},
+	})
+	if len(request.Images) != 2 {
+		t.Fatalf("images = %#v", request.Images)
+	}
+	if request.Images[0].ID != "start" || request.Images[0].Role != "first_frame" {
+		t.Fatalf("start image = %#v", request.Images[0])
+	}
+	if request.Images[1].ID != "character" || request.Images[1].Role != "reference_image" {
+		t.Fatalf("unmarked image role = %#v", request.Images[1])
+	}
+
+	request = protocolRequestFromInput(canvasGenerationInput{
+		Mode:            "video",
+		ReferenceImages: []providerMedia{{ID: "character", URL: "https://example.com/character.png"}},
+		Metadata:        map[string]interface{}{"videoEditOperation": "reference_to_video", "videoStartFrameNodeId": "character"},
+	})
+	if request.Images[0].Role != "reference_image" {
+		t.Fatalf("reference operation image = %#v", request.Images[0])
 	}
 }
 

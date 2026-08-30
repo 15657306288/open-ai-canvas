@@ -196,6 +196,62 @@ func TestArkVideoAdapterMapsFullModalReferences(t *testing.T) {
 	}
 }
 
+func TestVideoAdaptersTranslateImageRolesWithoutGuessingFromCount(t *testing.T) {
+	tests := []struct {
+		name string
+		id   string
+		role string
+	}{
+		{name: "newapi channel 1", id: "newapi-channel-1", role: "reference_image"},
+		{name: "volcengine ark", id: "volcengine-ark-video", role: "first_frame"},
+		{name: "minimax", id: "minimax-video", role: "last_frame"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			adapter, _ := Builtins().Get(test.id)
+			spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+				Model: "video-model", Prompt: "test", Duration: 5,
+				Images: []MediaReference{{ID: "image-1", URL: "https://cdn.example/image.png", Role: test.role}},
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, _ := json.Marshal(spec.Body)
+			if !strings.Contains(string(body), `"`+test.role+`"`) {
+				t.Fatalf("body does not contain role %q: %s", test.role, body)
+			}
+		})
+	}
+}
+
+func TestXAIVideoUsesReferenceImagesEvenForOneReferenceAsset(t *testing.T) {
+	adapter, _ := Builtins().Get("xai-video")
+	spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+		Model: "grok-video", Prompt: "keep the character", Images: []MediaReference{{URL: "https://cdn.example/character.png", Role: "reference_image"}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := spec.Body.(map[string]any)
+	if body["image"] != nil || body["reference_images"] == nil {
+		t.Fatalf("xAI reference body = %#v", body)
+	}
+}
+
+func TestStartFrameOnlyAdaptersRejectReferenceAssetSemantics(t *testing.T) {
+	for _, id := range []string{"gemini-veo", "novita-video"} {
+		t.Run(id, func(t *testing.T) {
+			adapter, _ := Builtins().Get(id)
+			_, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+				Model: id, Prompt: "keep the character", Images: []MediaReference{{URL: "https://cdn.example/character.png", Role: "reference_image"}},
+			}})
+			if err == nil || !strings.Contains(err.Error(), "reference_to_video") {
+				t.Fatalf("BuildCreate() error = %v", err)
+			}
+		})
+	}
+}
+
 func TestAsyncVideoResponseNormalizesStatusAndResult(t *testing.T) {
 	adapter, _ := Builtins().Get("minimax-video")
 	created, err := adapter.ParseCreate(context.Background(), []byte(`{"task":{"id":"mm-1","status":"processing"}}`))

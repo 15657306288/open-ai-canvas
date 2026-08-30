@@ -10,6 +10,7 @@ import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 import { isPublicMediaUrl } from "./video-validation";
 import type { ApiEnvelope, RequestOptions, ResolvedAiConfig, SeedanceTask, VideoGenerationTask, VideoGenerationTaskState } from "./video-contracts";
 import type { VideoProviderDeps } from "./video-provider-deps";
+import { hasExplicitVideoFrames, resolveVideoImageReferences } from "./video-reference-roles";
 
 export function isSeedanceConfig(config: ResolvedAiConfig) {
     return config.interfaceType === "volcengine-ark-video" || isSeedanceVideoConfig(config);
@@ -20,8 +21,8 @@ export async function createSeedanceTask(deps: VideoProviderDeps, config: Resolv
     assertSeedanceAudioReferences(audioReferences);
     const isVolcengineArk = config.interfaceType === "volcengine-ark-video";
     const payload = isVolcengineArk || isArkPlanBaseUrl(config.baseUrl)
-        ? await buildSeedanceAgentPlanPayload(config, model, prompt, references, videoReferences, audioReferences, deps)
-        : await buildSeedanceVideosPayload(config, model, prompt, references, videoReferences, audioReferences, deps);
+        ? await buildSeedanceAgentPlanPayload(config, model, prompt, references, videoReferences, audioReferences, deps, options)
+        : await buildSeedanceVideosPayload(config, model, prompt, references, videoReferences, audioReferences, deps, options);
 
     try {
         const raw = await deps.transport.post<ApiEnvelope<SeedanceTask>>(seedanceApiUrl(config), payload, options);
@@ -80,13 +81,13 @@ function seedanceApiUrl(config: ResolvedAiConfig, taskId?: string) {
     return buildApiUrl(config.baseUrl, `/videos${taskId ? `/${encodeURIComponent(taskId)}` : ""}`);
 }
 
-async function buildSeedanceAgentPlanPayload(config: ResolvedAiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], deps: VideoProviderDeps) {
+async function buildSeedanceAgentPlanPayload(config: ResolvedAiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], deps: VideoProviderDeps, options?: RequestOptions) {
     if (audioReferences.length && !references.length && !videoReferences.length) {
         throw new Error(config.interfaceType === "volcengine-ark-video" ? "火山方舟全模态参考不支持纯音频或文本+音频，请同时添加参考图片或参考视频" : "Seedance 参考音频不能单独使用，请同时添加参考图或参考视频");
     }
     const content = config.interfaceType === "volcengine-ark-video"
-        ? await buildVolcengineArkContent(prompt, references, videoReferences, audioReferences)
-        : await buildSeedanceContent(config, prompt, references, videoReferences, audioReferences, deps);
+        ? await buildVolcengineArkContent(prompt, references, videoReferences, audioReferences, options)
+        : await buildSeedanceContent(config, prompt, references, videoReferences, audioReferences, deps, options);
     if (!content.length) throw new Error("请输入视频提示词，或连接参考图片/视频/音频");
     const profile = modelCapabilityConfigFor(config, model).video!;
     return {
@@ -100,11 +101,12 @@ async function buildSeedanceAgentPlanPayload(config: ResolvedAiConfig, model: st
     };
 }
 
-async function buildVolcengineArkContent(prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[]) {
+async function buildVolcengineArkContent(prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions) {
     const content: Array<Record<string, unknown>> = [];
+    const imagePlan = resolveVideoImageReferences(references.slice(0, SEEDANCE_REFERENCE_LIMITS.images), options, { videoCount: videoReferences.length, audioCount: audioReferences.length });
     if (prompt.trim()) content.push({ type: "text", text: prompt.trim() });
-    for (const image of references.slice(0, SEEDANCE_REFERENCE_LIMITS.images)) {
-        content.push({ type: "image_url", image_url: { url: await resolveVolcengineArkReferenceUrl(image.url || image.dataUrl, image.storageKey) }, role: "reference_image" });
+    for (const { image, role } of imagePlan) {
+        content.push({ type: "image_url", image_url: { url: await resolveVolcengineArkReferenceUrl(image.url || image.dataUrl, image.storageKey) }, role });
     }
     for (const video of videoReferences.slice(0, SEEDANCE_REFERENCE_LIMITS.videos)) {
         content.push({ type: "video_url", video_url: { url: await resolveVolcengineArkReferenceUrl(video.url, video.storageKey) }, role: "reference_video" });
@@ -121,35 +123,45 @@ async function resolveVolcengineArkReferenceUrl(value: string | undefined, stora
     throw new Error("火山方舟视频参考素材需要公网 URL 或 asset:// 素材 ID；请先将本地素材保存到对象存储");
 }
 
-async function buildSeedanceVideosPayload(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], deps: VideoProviderDeps) {
+async function buildSeedanceVideosPayload(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], deps: VideoProviderDeps, options?: RequestOptions) {
     if ((videoReferences.length || audioReferences.length) && !references.length) {
         throw new Error("Seedance 参考视频或参考音频需要同时连接至少 1 张主参考图");
     }
     const imageUrls = await Promise.all(references.slice(0, SEEDANCE_REFERENCE_LIMITS.images).map(resolveSeedanceVideosImageUrl));
+    const imagePlan = resolveVideoImageReferences(references.slice(0, SEEDANCE_REFERENCE_LIMITS.images), options, { videoCount: videoReferences.length, audioCount: audioReferences.length });
     const videoUrls = await Promise.all(videoReferences.slice(0, SEEDANCE_REFERENCE_LIMITS.videos).map((media) => resolveSeedanceVideosMediaUrl(media, deps)));
     const audioUrls = await Promise.all(audioReferences.slice(0, SEEDANCE_REFERENCE_LIMITS.audios).map((media) => resolveSeedanceVideosMediaUrl(media, deps)));
     const ratio = normalizeSeedanceRatio(config.size);
     const duration = normalizeSeedanceDuration(config.videoSeconds);
     const profile = modelCapabilityConfigFor(config, model).video!;
+    const imagePayload: Record<string, unknown> = {};
+    if (options?.videoEditOperation === "reference_to_video") {
+        if (imageUrls.length) imagePayload.reference_image_urls = imageUrls;
+    } else if (hasExplicitVideoFrames(options)) {
+        imagePayload.image_urls = orderedImageUrls(imageUrls, imagePlan.map(({ role }) => role));
+    } else if (imageUrls.length) {
+        imagePayload.image_url = imageUrls[0];
+        if (imageUrls.length > 1) imagePayload.reference_image_urls = imageUrls.slice(1);
+    }
     return {
         model: modelOptionName(model),
         prompt: prompt.trim(),
         aspect_ratio: ratio === "adaptive" ? "16:9" : ratio,
         duration,
         ...(profile.generateAudio.supported ? { generate_audio: boolConfig(config.videoGenerateAudio, profile.generateAudio.default) } : {}),
-        ...(imageUrls[0] ? { image_url: imageUrls[0] } : {}),
-        ...(imageUrls.length > 1 ? { reference_image_urls: imageUrls.slice(1) } : {}),
+        ...imagePayload,
         ...(videoUrls.length ? { reference_videos: videoUrls } : {}),
         ...(audioUrls.length ? { reference_audios: audioUrls } : {}),
     };
 }
 
-async function buildSeedanceContent(config: AiConfig, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], deps: VideoProviderDeps) {
+async function buildSeedanceContent(config: AiConfig, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], deps: VideoProviderDeps, options?: RequestOptions) {
     const content: Array<Record<string, unknown>> = [];
+    const imagePlan = resolveVideoImageReferences(references.slice(0, SEEDANCE_REFERENCE_LIMITS.images), options, { videoCount: videoReferences.length, audioCount: audioReferences.length });
     const text = buildSeedancePromptText(prompt, references, videoReferences, audioReferences);
     if (text) content.push({ type: "text", text });
-    for (const image of references.slice(0, SEEDANCE_REFERENCE_LIMITS.images)) {
-        content.push({ type: "image_url", image_url: { url: await resolveSeedanceImageUrl(image) }, role: "reference_image" });
+    for (const { image, role } of imagePlan) {
+        content.push({ type: "image_url", image_url: { url: await resolveSeedanceImageUrl(image) }, role });
     }
     for (const video of videoReferences.slice(0, SEEDANCE_REFERENCE_LIMITS.videos)) {
         content.push({ type: "video_url", video_url: { url: await resolveSeedanceMediaUrl(video, deps, "参考视频") }, role: "reference_video" });
@@ -158,6 +170,10 @@ async function buildSeedanceContent(config: AiConfig, prompt: string, references
         content.push({ type: "audio_url", audio_url: { url: await resolveSeedanceMediaUrl(audio, deps, "参考音频") }, role: "reference_audio" });
     }
     return content;
+}
+
+function orderedImageUrls(imageUrls: string[], roles: Array<"first_frame" | "last_frame" | "reference_image">) {
+    return ["first_frame", "last_frame", "reference_image"].flatMap((role) => imageUrls.filter((_, index) => roles[index] === role));
 }
 
 async function resolveSeedanceImageUrl(image: ReferenceImage) {

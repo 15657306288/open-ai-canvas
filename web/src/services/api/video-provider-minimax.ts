@@ -9,22 +9,22 @@ import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 
 import type { MiniMaxVideoCreateResponse, MiniMaxVideoTask, RequestOptions, ResolvedAiConfig, VideoGenerationTask, VideoGenerationTaskState } from "./video-contracts";
 import type { VideoProviderDeps } from "./video-provider-deps";
+import { resolveVideoImageReferences } from "./video-reference-roles";
 
 export async function createMiniMaxVideoTask(deps: VideoProviderDeps, config: ResolvedAiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
     const imageUrls = await Promise.all(references.slice(0, 9).map((image) => resolveMiniMaxImageUrl(image)));
     const videoUrls = await Promise.all(videoReferences.slice(0, 3).map((video) => resolveMiniMaxMediaUrl(video, "参考视频")));
     const audioUrls = await Promise.all(audioReferences.slice(0, 3).map((audio) => resolveMiniMaxMediaUrl(audio, "参考音频")));
     const content: Array<Record<string, unknown>> = [{ type: "text", text: prompt.trim() }];
-    const explicitFrameMode = options?.videoEditOperation !== "reference_to_video" && Boolean(options?.videoStartFrameNodeId || options?.videoEndFrameNodeId);
+    const imagePlan = resolveVideoImageReferences(references.slice(0, 9), options, { videoCount: videoUrls.length, audioCount: audioUrls.length });
+    const frameMode = imagePlan.some(({ role }) => role === "first_frame" || role === "last_frame");
     imageUrls.forEach((url, index) => {
-        const reference = references[index];
-        const role = miniMaxImageRole(reference?.id, options);
-        if (explicitFrameMode && role === "reference_image") throw new Error("MiniMax 首尾帧模式不能混合未标记的参考图");
+        const role = imagePlan[index]?.role || "reference_image";
+        if (frameMode && role === "reference_image") throw new Error("MiniMax 首尾帧模式不能混合未标记的参考图");
         content.push({ type: "image_url", image_url: { url }, role });
     });
     videoUrls.forEach((url) => content.push({ type: "video_url", video_url: { url }, role: "reference_video" }));
     audioUrls.forEach((url) => content.push({ type: "audio_url", audio_url: { url }, role: "reference_audio" }));
-    const frameMode = explicitFrameMode;
     const payload = {
         model: modelOptionName(model),
         content,
@@ -41,13 +41,6 @@ export async function createMiniMaxVideoTask(deps: VideoProviderDeps, config: Re
     } catch (error) {
         throw new Error(deps.response.readAxiosError(error, "MiniMax 视频任务创建失败"));
     }
-}
-
-function miniMaxImageRole(imageId: string | undefined, options?: RequestOptions) {
-    if (options?.videoEditOperation === "reference_to_video") return "reference_image";
-    if (imageId && imageId === options?.videoStartFrameNodeId) return "first_frame";
-    if (imageId && imageId === options?.videoEndFrameNodeId) return "last_frame";
-    return "reference_image";
 }
 
 export async function pollMiniMaxVideoTask(deps: VideoProviderDeps, config: ResolvedAiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {

@@ -124,6 +124,27 @@ describe("Agnes Video 2.5 request contract", () => {
         });
     });
 
+    test("treats a single storyboard character image as a reference asset", async () => {
+        const config = resolveModelRequestConfig(configForAgnes(), "agnes::agnes-video-2.5");
+        const { calls, deps } = providerDeps(config);
+        await createAgnesVideoTask(
+            deps,
+            config,
+            "agnes::agnes-video-2.5",
+            "保持角色一致",
+            [{ id: "character-1", name: "character.png", type: "image/png", dataUrl: "", url: "https://cdn.example.com/character.png" }],
+            [],
+            [],
+            { videoEditOperation: "reference_to_video" },
+        );
+
+        expect(calls[0]?.body).toMatchObject({
+            mode: "reference",
+            images: ["https://cdn.example.com/character.png"],
+        });
+        expect(calls[0]?.body as Record<string, unknown>).not.toHaveProperty("first_frame");
+    });
+
     test("polls the Agnes host root and reads metadata.url", async () => {
         const config = resolveModelRequestConfig(configForAgnes(), "agnes::agnes-video-2.5");
         const { calls, deps } = providerDeps(config, { polled: { video_id: "video-1", status: "completed", metadata: { url: "https://cdn.example.com/result.mp4" } } });

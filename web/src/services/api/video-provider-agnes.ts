@@ -5,6 +5,7 @@ import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 
 import type { ApiEnvelope, RequestOptions, ResolvedAiConfig, VideoGenerationTask, VideoGenerationTaskState } from "./video-contracts";
 import type { VideoProviderDeps } from "./video-provider-deps";
+import { resolveVideoImageReferences, type VideoImageRole } from "./video-reference-roles";
 
 type AgnesTaskResponse = {
     id?: string;
@@ -44,9 +45,10 @@ export async function createAgnesVideoTask(
         Promise.all(videoReferences.map((item) => resolveAgnesMediaUrl(item.url, item.storageKey))),
         Promise.all(audioReferences.map((item) => resolveAgnesMediaUrl(item.url, item.storageKey))),
     ]);
+    const imageRoles = resolveVideoImageReferences(references, options, { videoCount: videoUrls.length, audioCount: audioUrls.length }).map(({ role }) => role);
     const payload = modelName === "agnes-video-v2.0"
-        ? buildAgnesV20Payload(config, modelName, normalizedPrompt, imageUrls, videoUrls, audioUrls)
-        : buildAgnesV25Payload(config, modelName, normalizedPrompt, imageUrls, videoUrls, audioUrls);
+        ? buildAgnesV20Payload(config, modelName, normalizedPrompt, imageUrls, imageRoles, videoUrls, audioUrls, options)
+        : buildAgnesV25Payload(config, modelName, normalizedPrompt, imageUrls, imageRoles, videoUrls, audioUrls);
 
     try {
         const raw = await deps.transport.post<ApiEnvelope<AgnesTaskResponse>>(deps.transport.apiUrl("/videos"), payload, options);
@@ -92,7 +94,7 @@ export function agnesPollUrl(config: ResolvedAiConfig, videoId: string, modelNam
     return base.toString();
 }
 
-function buildAgnesV25Payload(config: ResolvedAiConfig, model: string, prompt: string, images: string[], videos: string[], audios: string[]) {
+function buildAgnesV25Payload(config: ResolvedAiConfig, model: string, prompt: string, images: string[], imageRoles: VideoImageRole[], videos: string[], audios: string[]) {
     if (!AGNES_V25_MODELS.has(model)) throw new Error(`Agnes 视频协议不支持模型 ${model}`);
     const seconds = agnesSeconds(config.videoSeconds);
     const size = agnesResolution(config.vquality);
@@ -101,7 +103,10 @@ function buildAgnesV25Payload(config: ResolvedAiConfig, model: string, prompt: s
         if (images.length > 5) throw new Error("Agnes Video 2.5 Flash 最多支持 5 张参考图");
         if (videos.length) throw new Error("Agnes Video 2.5 Flash 不支持参考视频");
     }
-    const mode = videos.length || audios.length || images.length > 2 ? "reference" : images.length ? "keyframe" : "text";
+    const hasReferenceImages = imageRoles.includes("reference_image");
+    const hasFrameImages = imageRoles.includes("first_frame") || imageRoles.includes("last_frame");
+    if (hasFrameImages && (hasReferenceImages || videos.length || audios.length)) throw new Error("Agnes Video 2.5 不能同时混用首尾帧和角色、视频或音频参考素材");
+    const mode = videos.length || audios.length || hasReferenceImages ? "reference" : images.length ? "keyframe" : "text";
     const payload: Record<string, unknown> = {
         model,
         prompt,
@@ -112,8 +117,10 @@ function buildAgnesV25Payload(config: ResolvedAiConfig, model: string, prompt: s
         n: 1,
     };
     if (mode === "keyframe") {
-        payload.first_frame = images[0];
-        if (images[1]) payload.last_frame = images[1];
+        const firstFrame = imageForRole(images, imageRoles, "first_frame") || images[0];
+        const lastFrame = imageForRole(images, imageRoles, "last_frame");
+        payload.first_frame = firstFrame;
+        if (lastFrame) payload.last_frame = lastFrame;
     } else if (mode === "reference") {
         if (images.length) payload.images = images;
         if (audios.length) payload.audios = audios;
@@ -122,8 +129,9 @@ function buildAgnesV25Payload(config: ResolvedAiConfig, model: string, prompt: s
     return payload;
 }
 
-function buildAgnesV20Payload(config: ResolvedAiConfig, model: string, prompt: string, images: string[], videos: string[], audios: string[]) {
+function buildAgnesV20Payload(config: ResolvedAiConfig, model: string, prompt: string, images: string[], imageRoles: VideoImageRole[], videos: string[], audios: string[], options?: RequestOptions) {
     if (videos.length || audios.length) throw new Error("Agnes Video V2.0 不支持参考视频或音频");
+    if (options?.videoEditOperation === "reference_to_video" || imageRoles.includes("reference_image")) throw new Error("Agnes Video V2.0 不支持角色或风格参考图模式，请改用 Agnes Video 2.5");
     const seconds = Math.max(1, Math.floor(Number(config.videoSeconds) || 5));
     const frameRate = 24;
     const targetFrames = seconds * frameRate;
@@ -133,9 +141,15 @@ function buildAgnesV20Payload(config: ResolvedAiConfig, model: string, prompt: s
         frame_rate: frameRate,
         num_frames: Math.min(441, Math.floor((targetFrames - 1 + 4) / 8) * 8 + 1),
     };
-    if (images.length === 1) payload.image = images[0];
-    if (images.length > 1) payload.extra_body = { image: images, mode: "keyframes" };
+    const orderedImages = [imageForRole(images, imageRoles, "first_frame"), imageForRole(images, imageRoles, "last_frame")].filter((value): value is string => Boolean(value));
+    if (orderedImages.length === 1) payload.image = orderedImages[0];
+    if (orderedImages.length > 1) payload.extra_body = { image: orderedImages, mode: "keyframes" };
     return payload;
+}
+
+function imageForRole(images: string[], roles: VideoImageRole[], role: VideoImageRole) {
+    const index = roles.indexOf(role);
+    return index >= 0 ? images[index] : undefined;
 }
 
 function agnesSeconds(value: string) {

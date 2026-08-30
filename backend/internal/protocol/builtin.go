@@ -340,7 +340,7 @@ func newAPIChannel1Adapter() Adapter {
 	return videoAdapter(info, func(r GenerationRequest) (RequestSpec, error) {
 		media := make([]map[string]string, 0, len(r.Images)+len(r.Videos)+len(r.Audios))
 		for _, image := range r.Images {
-			media = append(media, map[string]string{"type": "reference_image", "url": mediaValue(image)})
+			media = append(media, map[string]string{"type": mediaRole(image, "reference_image"), "url": mediaValue(image)})
 		}
 		for _, video := range r.Videos {
 			media = append(media, map[string]string{"type": "reference_video", "url": mediaValue(video)})
@@ -365,11 +365,26 @@ func xAIVideosAdapter() Adapter {
 	info.Parameters = videoParams()
 	return videoAdapter(info, func(r GenerationRequest) (RequestSpec, error) {
 		body := map[string]any{"model": r.Model, "prompt": r.Prompt, "duration": defaultInt(r.Duration, 6), "aspect_ratio": defaultValue(r.AspectRatio, "16:9"), "resolution": defaultValue(r.Resolution, "720p")}
-		if len(r.Images) == 1 {
-			body["image"] = map[string]any{"url": mediaValue(r.Images[0])}
-		} else if len(r.Images) > 1 {
+		frameImages, referenceImages, unspecifiedImages := splitVideoImages(r.Images)
+		if len(frameImages) > 0 && len(referenceImages) > 0 {
+			return RequestSpec{}, fmt.Errorf("xAI 视频协议不能同时混用首尾帧和角色参考图")
+		}
+		if len(frameImages) > 1 {
+			return RequestSpec{}, fmt.Errorf("xAI 视频协议最多支持 1 张起始图，不支持尾帧输入")
+		}
+		if len(frameImages) == 1 {
+			body["image"] = map[string]any{"url": mediaValue(frameImages[0])}
+		} else if len(referenceImages) > 0 {
+			refs := make([]any, 0, len(referenceImages))
+			for _, image := range referenceImages {
+				refs = append(refs, map[string]any{"url": mediaValue(image)})
+			}
+			body["reference_images"] = refs
+		} else if len(unspecifiedImages) == 1 {
+			body["image"] = map[string]any{"url": mediaValue(unspecifiedImages[0])}
+		} else if len(unspecifiedImages) > 1 {
 			refs := make([]any, 0, len(r.Images))
-			for _, image := range r.Images {
+			for _, image := range unspecifiedImages {
 				refs = append(refs, map[string]any{"url": mediaValue(image)})
 			}
 			body["reference_images"] = refs
@@ -390,7 +405,7 @@ func arkVideosAdapter() Adapter {
 		}
 		content := []any{map[string]any{"type": "text", "text": r.Prompt}}
 		for _, image := range r.Images {
-			content = append(content, map[string]any{"type": "image_url", "image_url": map[string]any{"url": mediaValue(image)}, "role": "reference_image"})
+			content = append(content, map[string]any{"type": "image_url", "image_url": map[string]any{"url": mediaValue(image)}, "role": mediaRole(image, "reference_image")})
 		}
 		for _, video := range r.Videos {
 			content = append(content, map[string]any{"type": "video_url", "video_url": map[string]any{"url": mediaValue(video)}, "role": "reference_video"})
@@ -428,6 +443,9 @@ func geminiVeoAdapter() Adapter {
 	info := metadata("gemini-veo", "Gemini Veo", "Google", CapabilityVideo, "POST /v1beta/models/{model}:predictLongRunning", "GET /v1beta/{operation_name}", "application/json")
 	info.Parameters = videoParams()
 	create := func(r GenerationRequest) (RequestSpec, error) {
+		if hasVideoImageRole(r.Images, "reference_image") {
+			return RequestSpec{}, fmt.Errorf("Gemini Veo 当前不支持角色或风格参考图生视频，请改用支持 reference_to_video 的模型")
+		}
 		instance := map[string]any{"prompt": r.Prompt}
 		if len(r.Images) > 0 {
 			image := r.Images[0]
@@ -450,6 +468,9 @@ func novitaVideosAdapter() Adapter {
 	info := metadata("novita-video", "Novita 视频", "Novita", CapabilityVideo, "POST /v3/video/create", "GET /v3/async/task-result?task_id={id}", "application/json")
 	info.Parameters = videoParams()
 	return videoAdapter(info, func(r GenerationRequest) (RequestSpec, error) {
+		if hasVideoImageRole(r.Images, "reference_image") {
+			return RequestSpec{}, fmt.Errorf("Novita 视频当前不支持角色或风格参考图生视频，请改用支持 reference_to_video 的模型")
+		}
 		body := map[string]any{"model_name": r.Model, "prompt": r.Prompt, "duration": defaultInt(r.Duration, 5), "aspect_ratio": defaultValue(r.AspectRatio, "16:9")}
 		if len(r.Images) > 0 {
 			body["image_url"] = mediaValue(r.Images[0])
@@ -464,7 +485,13 @@ func miniMaxVideosAdapter() Adapter {
 	return videoAdapter(info, func(r GenerationRequest) (RequestSpec, error) {
 		content := []any{map[string]any{"type": "text", "text": r.Prompt}}
 		for _, image := range r.Images {
-			content = append(content, map[string]any{"type": "image_url", "image_url": map[string]any{"url": mediaValue(image)}, "role": "reference_image"})
+			content = append(content, map[string]any{"type": "image_url", "image_url": map[string]any{"url": mediaValue(image)}, "role": mediaRole(image, "reference_image")})
+		}
+		for _, video := range r.Videos {
+			content = append(content, map[string]any{"type": "video_url", "video_url": map[string]any{"url": mediaValue(video)}, "role": "reference_video"})
+		}
+		for _, audio := range r.Audios {
+			content = append(content, map[string]any{"type": "audio_url", "audio_url": map[string]any{"url": mediaValue(audio)}, "role": "reference_audio"})
 		}
 		body := map[string]any{"model": r.Model, "prompt": r.Prompt, "duration": defaultInt(r.Duration, 6), "content": content}
 		mergeExtra(body, r.Extra, "model", "prompt", "duration", "content", "resolution", "aspect_ratio")
@@ -541,6 +568,10 @@ func buildAgnesCreate(r GenerationRequest) (RequestSpec, error) {
 }
 
 func buildAgnesV25Body(r GenerationRequest) (map[string]any, error) {
+	frameImages, referenceImages, _ := splitVideoImages(r.Images)
+	if len(frameImages) > 0 && (len(referenceImages) > 0 || len(r.Videos)+len(r.Audios) > 0) {
+		return nil, fmt.Errorf("Agnes 2.5 不能同时混用首尾帧和角色、视频或音频参考素材")
+	}
 	mode := firstString(r.Extra, "mode")
 	if mode == "" {
 		switch strings.TrimSpace(r.Operation) {
@@ -550,8 +581,10 @@ func buildAgnesV25Body(r GenerationRequest) (map[string]any, error) {
 			mode = "keyframe"
 		default:
 			switch {
-			case len(r.Videos) > 0 || len(r.Audios) > 0:
+			case len(r.Videos) > 0 || len(r.Audios) > 0 || len(referenceImages) > 0:
 				mode = "reference"
+			case len(frameImages) > 0:
+				mode = "keyframe"
 			case len(r.Images) > 2:
 				mode = "reference"
 			case len(r.Images) > 0:
@@ -610,9 +643,17 @@ func buildAgnesV25Body(r GenerationRequest) (map[string]any, error) {
 		if len(r.Images) == 0 || len(r.Images) > 2 || len(r.Videos)+len(r.Audios) > 0 {
 			return nil, fmt.Errorf("Agnes 2.5 keyframe 模式需要 1 到 2 张图片，且不接受音视频参考")
 		}
-		body["first_frame"] = mediaValue(r.Images[0])
-		if len(r.Images) > 1 {
-			body["last_frame"] = mediaValue(r.Images[1])
+		_, referenceImages, _ := splitVideoImages(r.Images)
+		if len(referenceImages) > 0 {
+			return nil, fmt.Errorf("Agnes 2.5 keyframe 模式不能混用角色或风格参考图")
+		}
+		frameImages := orderedFrameImages(r.Images)
+		if len(frameImages) == 0 {
+			return nil, fmt.Errorf("Agnes 2.5 keyframe 模式缺少首帧图片")
+		}
+		body["first_frame"] = mediaValue(frameImages[0])
+		if len(frameImages) > 1 {
+			body["last_frame"] = mediaValue(frameImages[1])
 		}
 	case "reference":
 		if len(r.Images)+len(r.Videos)+len(r.Audios) == 0 {
@@ -681,6 +722,10 @@ func buildAgnesV20Body(r GenerationRequest) (map[string]any, error) {
 	if len(r.Videos)+len(r.Audios) > 0 {
 		return nil, fmt.Errorf("Agnes Video V2.0 不支持参考视频或音频")
 	}
+	_, referenceImages, _ := splitVideoImages(r.Images)
+	if r.Operation == "reference_to_video" || len(referenceImages) > 0 {
+		return nil, fmt.Errorf("Agnes Video V2.0 不支持角色或风格参考图模式，请改用 Agnes Video 2.5")
+	}
 	body := map[string]any{"model": r.Model, "prompt": r.Prompt}
 	mergeExtra(body, r.Extra, "mode", "width", "height", "num_frames", "frame_rate", "num_inference_steps", "seed", "negative_prompt")
 	if r.Duration > 0 {
@@ -703,16 +748,17 @@ func buildAgnesV20Body(r GenerationRequest) (map[string]any, error) {
 			body["num_frames"] = frames
 		}
 	}
-	if len(r.Images) == 1 {
-		body["image"] = mediaValue(r.Images[0])
-	} else if len(r.Images) > 1 {
+	orderedImages := orderedFrameImages(r.Images)
+	if len(orderedImages) == 1 {
+		body["image"] = mediaValue(orderedImages[0])
+	} else if len(orderedImages) > 1 {
 		extraBody := map[string]any{}
 		if configured := object(r.Extra["extra_body"]); configured != nil {
 			for key, value := range configured {
 				extraBody[key] = value
 			}
 		}
-		extraBody["image"] = mediaValues(r.Images)
+		extraBody["image"] = mediaValues(orderedImages)
 		extraBody["mode"] = "keyframes"
 		body["extra_body"] = extraBody
 	} else if configured := object(r.Extra["extra_body"]); configured != nil {
@@ -1120,6 +1166,47 @@ func compactMap(body map[string]any) map[string]any {
 	return result
 }
 func mediaValue(media MediaReference) string { return defaultValue(media.URL, media.DataURL) }
+func mediaRole(media MediaReference, fallback string) string {
+	return defaultValue(strings.TrimSpace(media.Role), fallback)
+}
+
+func splitVideoImages(images []MediaReference) (frames []MediaReference, references []MediaReference, unspecified []MediaReference) {
+	firstFrames := make([]MediaReference, 0, 1)
+	lastFrames := make([]MediaReference, 0, 1)
+	for _, image := range images {
+		switch strings.TrimSpace(image.Role) {
+		case "first_frame":
+			firstFrames = append(firstFrames, image)
+		case "last_frame":
+			lastFrames = append(lastFrames, image)
+		case "reference_image":
+			references = append(references, image)
+		default:
+			unspecified = append(unspecified, image)
+		}
+	}
+	frames = append(frames, firstFrames...)
+	frames = append(frames, lastFrames...)
+	return frames, references, unspecified
+}
+
+func orderedFrameImages(images []MediaReference) []MediaReference {
+	frames, _, unspecified := splitVideoImages(images)
+	if len(frames) == 0 {
+		return unspecified
+	}
+	return append(frames, unspecified...)
+}
+
+func hasVideoImageRole(images []MediaReference, role string) bool {
+	for _, image := range images {
+		if strings.TrimSpace(image.Role) == role {
+			return true
+		}
+	}
+	return false
+}
+
 func mediaValues(values []MediaReference) []string {
 	result := make([]string, 0, len(values))
 	for _, value := range values {

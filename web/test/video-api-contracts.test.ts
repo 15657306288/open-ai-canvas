@@ -100,6 +100,63 @@ describe("Volcengine Ark full-modal references", () => {
         const deps = { transport: {}, response: videoResponseTools } as unknown as VideoProviderDeps;
         await expect(createSeedanceTask(deps, config as never, model, "跟随节奏", [], [], [{ id: "audio-1", name: "audio.mp3", type: "audio/mpeg", url: "https://cdn.example.com/audio.mp3" }])).rejects.toThrow("不支持纯音频或文本+音频");
     });
+
+    test("显式首帧与项目角色参考图使用不同角色", async () => {
+        let requestBody: unknown;
+        const deps = {
+            transport: { post: async (_url: string, body: unknown) => (requestBody = body, { id: "task-1" }) },
+            response: videoResponseTools,
+        } as unknown as VideoProviderDeps;
+        const images = [
+            { id: "character", name: "character.png", type: "image/png", dataUrl: "", url: "https://cdn.example.com/character.png" },
+            { id: "start", name: "start.png", type: "image/png", dataUrl: "", url: "https://cdn.example.com/start.png" },
+        ];
+
+        await createSeedanceTask(deps, config as never, model, "开始运动", images, [], [], {
+            videoEditOperation: "image_to_video",
+            videoStartFrameNodeId: "start",
+        });
+
+        expect((requestBody as { content: unknown[] }).content).toContainEqual({
+            type: "image_url",
+            image_url: { url: "https://cdn.example.com/start.png" },
+            role: "first_frame",
+        });
+        expect((requestBody as { content: unknown[] }).content).toContainEqual({
+            type: "image_url",
+            image_url: { url: "https://cdn.example.com/character.png" },
+            role: "reference_image",
+        });
+    });
+});
+
+describe("Seedance /videos image roles", () => {
+    test("reference_to_video does not promote the first character image to image_url", async () => {
+        let requestBody: Record<string, unknown> = {};
+        const deps = {
+            transport: { post: async (_url: string, body: unknown) => (requestBody = body as Record<string, unknown>, { id: "task-1" }) },
+            response: videoResponseTools,
+        } as unknown as VideoProviderDeps;
+        const config = { ...defaultConfig, baseUrl: "https://video.example.com/v1", model: "seedance-2.0", videoModel: "seedance-2.0" };
+
+        await createSeedanceTask(
+            deps,
+            config as never,
+            "seedance-2.0",
+            "保持角色一致",
+            [
+                { id: "character-1", name: "1.png", type: "image/png", dataUrl: "", url: "https://cdn.example.com/1.png" },
+                { id: "character-2", name: "2.png", type: "image/png", dataUrl: "", url: "https://cdn.example.com/2.png" },
+            ],
+            [],
+            [],
+            { videoEditOperation: "reference_to_video" },
+        );
+
+        expect(requestBody.reference_image_urls).toEqual(["https://cdn.example.com/1.png", "https://cdn.example.com/2.png"]);
+        expect(requestBody).not.toHaveProperty("image_url");
+        expect(requestBody).not.toHaveProperty("image_urls");
+    });
 });
 
 describe("MiniMax explicit reference roles", () => {

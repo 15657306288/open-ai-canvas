@@ -37,9 +37,11 @@ const (
 )
 
 type MediaReference struct {
+	ID        string `json:"id,omitempty"`
 	URL       string `json:"url,omitempty"`
 	DataURL   string `json:"dataUrl,omitempty"`
 	Kind      string `json:"kind,omitempty"`
+	Role      string `json:"role,omitempty"`
 	Ephemeral bool   `json:"ephemeral,omitempty"`
 }
 
