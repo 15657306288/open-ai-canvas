@@ -6,6 +6,13 @@ import type { GenerationTask } from "../src/services/api/task-center";
 import type { ProjectDetail } from "../src/services/api/projects";
 import { buildShotAssetReferenceContext, resolveShotAssetMentionPrompt } from "../src/pages/projects/detail/workflow-shot-references";
 
+test("production workbench does not silently drop bound voice samples before backend validation", async () => {
+    const source = await Bun.file(new URL("../src/pages/projects/detail/workflow-production-workbench.tsx", import.meta.url)).text();
+
+    expect(source).toContain('const generationReferenceAudios = generationCapability === "video" ? shotAssetReferenceContext.referenceAudios : [];');
+    expect(source).not.toContain("selectedVideoProfile?.references.maxAudios");
+});
+
 test("shot generation submits historical character image, current voice and asset prompt", async () => {
     const detail = {
         assets: [

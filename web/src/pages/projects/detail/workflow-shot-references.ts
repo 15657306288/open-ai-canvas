@@ -105,6 +105,20 @@ export function resolveShotAssetMentionPrompt(prompt: string, context: ShotAsset
     return [resolved.trim(), assetBlock, dialogueBlock].filter(Boolean).join("\n\n");
 }
 
+export function ensureShotAssetMentionPrompt(prompt: string, references: Array<Pick<CanvasResourceReference, "assetId" | "kind" | "label" | "title">>) {
+    const value = prompt.trim();
+    if (!value) return "";
+    const mentionedAssetIds = new Set(Array.from(value.matchAll(/@\[asset:([^\]]+)\]/g), (match) => match[1]));
+    const missing = references.filter((reference): reference is typeof reference & { assetId: string } => Boolean(reference.assetId && !mentionedAssetIds.has(reference.assetId)));
+    if (!missing.length) return value;
+    const block = (title: string, items: typeof missing) => items.length
+        ? [title, ...items.map((reference) => `${reference.title || reference.label}：@[asset:${reference.assetId}]`)].join("\n")
+        : "";
+    const characters = missing.filter((reference) => reference.kind === "character");
+    const otherAssets = missing.filter((reference) => reference.kind !== "character");
+    return [value, block("【角色参考】", characters), block("【场景与道具参考】", otherAssets)].filter(Boolean).join("\n\n");
+}
+
 export function compileShotAssetReferencePrompt(references: ShotPromptAssetReference[]) {
     if (!references.length) return "";
     const lines = references.flatMap((reference) => {

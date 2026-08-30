@@ -1,5 +1,6 @@
 import type { StoryboardRow } from "@/types/canvas";
 import type { ProjectDetail, ShotRevisionInput } from "@/services/api/projects";
+import { ensureShotAssetMentionPrompt } from "./workflow-shot-references";
 
 export type ChapterStoryboardAsset = {
     id: string;
@@ -74,10 +75,20 @@ export function chapterStoryboardAssets(detail: ProjectDetail): ChapterStoryboar
 
 export function storyboardRowsToProjectShots(rows: StoryboardRow[], detail?: ProjectDetail): ProjectShotReplacementInput[] {
     const versionByAssetId = new Map((detail?.assets || []).flatMap((asset) => asset.primaryVersionId ? [[asset.id, asset.primaryVersionId] as const] : []));
+    const mentionReferenceByAssetId = new Map((detail?.assets || []).map((asset) => [asset.id, {
+        assetId: asset.id,
+        kind: asset.category === "character" ? "character" as const : "image" as const,
+        label: asset.title,
+        title: asset.title,
+    }]));
     return rows.map((row, index) => {
         const shotNumber = index + 1;
         const description = row.plotDescription.trim() || `镜头 ${shotNumber}`;
         const durationMs = Math.max(1000, Math.round((Number(row.durationSeconds) || 1) * 1000));
+        const mentionReferences = storyboardRowAssetIds(row).flatMap((assetId) => {
+            const reference = mentionReferenceByAssetId.get(assetId);
+            return reference ? [reference] : [];
+        });
         return {
             title: `SC.${String(shotNumber).padStart(2, "0")}`,
             description,
@@ -92,7 +103,7 @@ export function storyboardRowsToProjectShots(rows: StoryboardRow[], detail?: Pro
                 cameraMovement: row.motion.trim(),
                 durationMs,
                 imagePrompt: row.imageGenerationPrompt.trim(),
-                videoPrompt: row.videoMotionPrompt.trim(),
+                videoPrompt: ensureShotAssetMentionPrompt(row.videoMotionPrompt, mentionReferences),
                 negativePrompt: row.negativePrompt.trim(),
                 continuityNotes: row.continuityOut.trim(),
                 actionBeats: row.timeBeats.trim() ? [{ description: row.timeBeats.trim() }] : [],
@@ -114,14 +125,17 @@ export function chapterStoryboardReplaceImpact(detail: ProjectDetail, unitId: st
 }
 
 function storyboardRowAssetVersionIds(row: StoryboardRow, versionByAssetId: Map<string, string>) {
-    const assetIds = [
-        ...row.assetBindings.map((binding) => binding.nodeId),
-        ...row.characters.flatMap((character) => character.characterAssetId ? [character.characterAssetId] : []),
-    ];
-    return Array.from(new Set(assetIds)).flatMap((assetId) => {
+    return storyboardRowAssetIds(row).flatMap((assetId) => {
         const versionId = versionByAssetId.get(assetId);
         return versionId ? [versionId] : [];
     }).slice(0, 6);
+}
+
+function storyboardRowAssetIds(row: StoryboardRow) {
+    return Array.from(new Set([
+        ...row.assetBindings.map((binding) => binding.nodeId),
+        ...row.characters.flatMap((character) => character.characterAssetId ? [character.characterAssetId] : []),
+    ])).slice(0, 6);
 }
 
 function storyboardAssetType(mediaType: string, category: string): ChapterStoryboardAsset["type"] | null {

@@ -25,7 +25,7 @@ describe("章节分镜写入分镜制作", () => {
                 cameraAngle: "平视，35mm",
                 cameraMovement: "缓慢推进",
                 imagePrompt: "雨夜旧屋中的林默",
-                videoPrompt: "林默推门，镜头缓慢推进",
+                videoPrompt: "林默推门，镜头缓慢推进\n\n【角色参考】\n林默：@[asset:character-1]\n\n【场景与道具参考】\n旧信封：@[asset:prop-1]",
                 continuityNotes: "林默停在门内，右手仍扶着门把",
                 actionBeats: [{ description: "0-2 秒推门；2-5 秒环顾" }],
             },

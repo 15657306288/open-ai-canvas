@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { canvasResourceMentionToken } from "@/lib/canvas/canvas-resource-references";
 import type { ProjectAsset, ProjectDetail } from "@/services/api/projects";
-import { buildShotAssetReferenceContext, resolveShotAssetMentionPrompt } from "@/pages/projects/detail/workflow-shot-references";
+import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, resolveShotAssetMentionPrompt } from "@/pages/projects/detail/workflow-shot-references";
 
 describe("workflow shot asset references", () => {
     test("builds ordered image references for bound media and characters", () => {
@@ -25,6 +25,15 @@ describe("workflow shot asset references", () => {
         const context = buildShotAssetReferenceContext(detail(), "shot-1");
 
         expect(() => resolveShotAssetMentionPrompt("跟随 @[asset:missing]", context)).toThrow("未绑定到当前镜头");
+    });
+
+    test("adds bound assets as editable mention tokens without duplicating existing mentions", () => {
+        const context = buildShotAssetReferenceContext(detail(), "shot-1");
+        const prompt = ensureShotAssetMentionPrompt("让 @[asset:asset-character] 走近镜头", context.mentionReferences);
+
+        expect(prompt).toContain("@[asset:asset-character]");
+        expect(prompt.match(/@\[asset:asset-character\]/g)).toHaveLength(1);
+        expect(prompt).toContain("【场景与道具参考】\n雨夜街道：@[asset:asset-scene]");
     });
 });
 

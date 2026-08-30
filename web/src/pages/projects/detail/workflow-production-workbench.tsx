@@ -44,7 +44,7 @@ import {
     formatDuration,
     type ShortDramaWorkflowStage,
 } from "./workflow-shared";
-import { buildShotAssetReferenceContext, resolveShotAssetMentionPrompt } from "./workflow-shot-references";
+import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, resolveShotAssetMentionPrompt } from "./workflow-shot-references";
 
 type ShotEditorValues = Omit<ShotRevisionInput, "durationMs"> & {
     title: string;
@@ -127,8 +127,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
     }, [detail.shotReferences, selectedShot?.id]);
     const currentDurationSeconds = Number(watchedDuration || Math.max(0.5, (selectedShot?.durationMs || 3000) / 1000));
     const generationSeconds = String(Math.max(1, Math.round(currentDurationSeconds)));
-    const selectedVideoProfile = generationCapability === "video" && selectedModel ? modelCapabilityConfigFor(effectiveConfig, selectedModel).video : undefined;
-    const generationReferenceAudios = generationCapability === "video" && (selectedVideoProfile?.references.maxAudios || 0) > 0 ? shotAssetReferenceContext.referenceAudios : [];
+    const generationReferenceAudios = generationCapability === "video" ? shotAssetReferenceContext.referenceAudios : [];
     const videoEditOperation = generationCapability === "video" && shotAssetReferenceContext.referenceImages.length ? "reference_to_video" : undefined;
     const modelRequirements = useMemo<ModelRequirements>(() => ({
         capability: generationCapability,
@@ -218,6 +217,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
         const normalizedDurationSeconds = generationCapability === "video" && currentModel
             ? Number(normalizeVideoValue(modelCapabilityConfigFor(effectiveConfig, currentModel).video!, { seconds: String(shotDurationSeconds) }).seconds)
             : shotDurationSeconds;
+        const videoPrompt = ensureShotAssetMentionPrompt(revision?.videoPrompt || "", shotAssetReferenceContext.mentionReferences);
         form.setFieldsValue({
             title: selectedShot?.title || "",
             plotDescription: revision?.plotDescription || selectedShot?.description || "",
@@ -228,13 +228,13 @@ export default function WorkflowProductionWorkbench(props: Props) {
             cameraMovement: revision?.cameraMovement || "",
             durationSeconds: normalizedDurationSeconds,
             imagePrompt: revision?.imagePrompt || "",
-            videoPrompt: revision?.videoPrompt || "",
+            videoPrompt,
             negativePrompt: revision?.negativePrompt || "",
             continuityNotes: revision?.continuityNotes || "",
         });
         setPreviewArtifactId("");
-        setEditorDirty(!revision);
-    }, [effectiveConfig, form, generationCapability, initialModel, revision?.id, selectedShot?.id]);
+        setEditorDirty(!revision || videoPrompt !== revision.videoPrompt);
+    }, [effectiveConfig, form, generationCapability, initialModel, revision?.id, selectedShot?.id, shotAssetReferenceContext.mentionReferences]);
 
     const changeGenerationModel = (nextModel: string) => {
         selectedModelRef.current = nextModel;
@@ -359,7 +359,6 @@ export default function WorkflowProductionWorkbench(props: Props) {
                     artifactMetadata: { model: routedModel, aspectRatio, resolution, durationSeconds: values.durationSeconds, ...skillExecution.metadata },
                 },
             });
-            if (shotAssetReferenceContext.referenceAudios.length && !generationReferenceAudios.length) message.warning("当前模型不支持参考音频，已保留角色声音文字说明，但未附加声音样本");
             if (activeShotIdRef.current === submittingShot.id) setEditorDirty(false);
             await onRefresh();
             message.success(`${productionStageCopy[activeStage as "storyboard" | "previz" | "video"].label}任务已提交`);
