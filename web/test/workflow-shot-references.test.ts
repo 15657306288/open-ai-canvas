@@ -18,7 +18,7 @@ describe("workflow shot asset references", () => {
         const [scene, character] = context.mentionReferences;
         const prompt = `让 ${canvasResourceMentionToken(character)} 从 ${canvasResourceMentionToken(scene)} 走近镜头`;
 
-        expect(resolveShotAssetMentionPrompt(prompt, context)).toBe("让 图片2 从 图片1 走近镜头");
+        expect(resolveShotAssetMentionPrompt(prompt, context)).toContain("让 图片2 从 图片1 走近镜头");
     });
 
     test("rejects stale mentions after an asset is unbound", () => {

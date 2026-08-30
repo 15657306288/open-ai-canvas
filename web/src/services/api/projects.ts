@@ -202,6 +202,13 @@ export type ShotAssetReference = {
     role: "reference" | "start_frame" | "end_frame" | "keyframe" | "storyboard" | "output" | string;
     status: string;
     createdAt: string;
+    asset?: ProjectAsset;
+    referencedVersion?: {
+        id: string;
+        assetId: string;
+        version: number;
+        representations: CharacterRepresentation[];
+    };
 };
 
 export type WorkflowStep = {

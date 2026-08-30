@@ -118,7 +118,13 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
     const { skills: availableSkills, loading: skillsLoading } = useSkillRuntimeCatalog();
     const shotAssetReferenceContext = useMemo(() => buildShotAssetReferenceContext(detail, selectedShot?.id || ""), [detail, selectedShot?.id]);
-    const referenceByVersionId = useMemo(() => new Map((detail.shotReferences || []).filter((reference) => reference.shotId === selectedShot?.id && reference.role === "reference" && reference.status === "linked").map((reference) => [reference.assetVersionId, reference])), [detail.shotReferences, selectedShot?.id]);
+    const referenceByVersionId = useMemo(() => {
+        const references = (detail.shotReferences || []).filter((reference) => reference.shotId === selectedShot?.id && reference.role === "reference" && reference.status === "linked");
+        return new Map(references.flatMap((reference) => [
+            [reference.assetVersionId, reference] as const,
+            ...(reference.asset?.primaryVersionId ? [[reference.asset.primaryVersionId, reference] as const] : []),
+        ]));
+    }, [detail.shotReferences, selectedShot?.id]);
     const currentDurationSeconds = Number(watchedDuration || Math.max(0.5, (selectedShot?.durationMs || 3000) / 1000));
     const generationSeconds = String(Math.max(1, Math.round(currentDurationSeconds)));
     const selectedVideoProfile = generationCapability === "video" && selectedModel ? modelCapabilityConfigFor(effectiveConfig, selectedModel).video : undefined;
@@ -324,7 +330,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
             const basePrompt = mode === "video"
                 ? [values.videoPrompt || values.plotDescription, values.action, values.dialogue && `台词：${values.dialogue}`, values.continuityNotes].filter(Boolean).join("\n")
                 : [values.imagePrompt || values.plotDescription, values.action, "黑白分镜草图，清晰动作节拍，电影构图"].filter(Boolean).join("\n");
-            const resolvedPrompt = resolveShotAssetMentionPrompt(basePrompt, shotAssetReferenceContext);
+            const resolvedPrompt = resolveShotAssetMentionPrompt(basePrompt, shotAssetReferenceContext, { dialogue: values.dialogue });
             const skillExecution = await skillRuntime.prepare({
                 profile: "shortDrama",
                 prompt: resolvedPrompt,
@@ -637,7 +643,7 @@ function BoundAssets({ detail, shotId, changing, onUnlink }: { detail: ProjectDe
             <Image.PreviewGroup>
                 <div className="workflow-bound-assets-content">
                     {references.length ? references.map((reference) => {
-                        const asset = assetByVersionId.get(reference.assetVersionId);
+                        const asset = reference.asset || assetByVersionId.get(reference.assetVersionId);
                         const title = asset?.title || "历史资产版本";
                         const previewUrl = asset ? assetPreviewUrl(asset) : "";
                         return <div key={reference.id} className="workflow-bound-asset-chip">

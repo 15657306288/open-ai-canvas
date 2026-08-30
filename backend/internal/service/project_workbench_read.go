@@ -49,10 +49,26 @@ type ProjectUnitWorkspace struct {
 	Shots           []model.Shot                  `json:"shots"`
 	ShotRevisions   []model.ShotRevision          `json:"shotRevisions"`
 	ShotArtifacts   []model.ShotArtifact          `json:"shotArtifacts"`
-	ShotReferences  []model.ShotAssetReference    `json:"shotReferences"`
+	ShotReferences  []ProjectShotAssetReference   `json:"shotReferences"`
 	AssetCandidates []model.ProjectAssetCandidate `json:"assetCandidates"`
 	Assets          []ProjectAssetSummary         `json:"assets"`
 	Tasks           []TaskSummary                 `json:"tasks"`
+}
+
+// ProjectShotAssetReference keeps the immutable visual version selected by the
+// shot while also exposing the asset's current card configuration (notably its
+// voice binding) for generation-time prompt assembly.
+type ProjectShotAssetReference struct {
+	model.ShotAssetReference
+	Asset             ProjectAssetSummary              `json:"asset"`
+	ReferencedVersion ProjectShotAssetReferenceVersion `json:"referencedVersion"`
+}
+
+type ProjectShotAssetReferenceVersion struct {
+	ID              string                           `json:"id"`
+	AssetID         string                           `json:"assetId"`
+	Version         int                              `json:"version"`
+	Representations []CharacterRepresentationSummary `json:"representations"`
 }
 
 type ProjectCanvasPage struct {
@@ -167,6 +183,7 @@ func (s *Service) ProjectUnitWorkspace(userID string, projectID string, unitID s
 	}
 	result := ProjectUnitWorkspace{Unit: *unit}
 	var projectTasks []TaskSummary
+	var shotReferences []model.ShotAssetReference
 	var group errgroup.Group
 	group.Go(func() error {
 		var err error
@@ -185,7 +202,7 @@ func (s *Service) ProjectUnitWorkspace(userID string, projectID string, unitID s
 	})
 	group.Go(func() error {
 		var err error
-		result.ShotReferences, err = s.repo.ProjectUnitShotAssetReferences(projectID, unitID)
+		shotReferences, err = s.repo.ProjectUnitShotAssetReferences(projectID, unitID)
 		return err
 	})
 	group.Go(func() error {
@@ -250,6 +267,54 @@ func (s *Service) ProjectUnitWorkspace(userID string, projectID string, unitID s
 	})
 	if err := group.Wait(); err != nil {
 		return ProjectUnitWorkspace{}, err
+	}
+	assetByID := make(map[string]ProjectAssetSummary, len(result.Assets))
+	for _, asset := range result.Assets {
+		assetByID[asset.ID] = asset
+	}
+	versionIDs := make([]string, 0, len(shotReferences))
+	for _, reference := range shotReferences {
+		versionIDs = append(versionIDs, reference.AssetVersionID)
+	}
+	versions, err := s.repo.ProjectAssetVersionsByIDs(projectID, versionIDs)
+	if err != nil {
+		return ProjectUnitWorkspace{}, err
+	}
+	storedRepresentations, err := s.repo.AssetRepresentationsByVersionIDs(versionIDs)
+	if err != nil {
+		return ProjectUnitWorkspace{}, err
+	}
+	versionByID := make(map[string]model.AssetVersion, len(versions))
+	for _, version := range versions {
+		versionByID[version.ID] = version
+	}
+	representationsByVersionID := make(map[string][]CharacterRepresentationSummary, len(versionIDs))
+	for _, representation := range storedRepresentations {
+		representationsByVersionID[representation.AssetVersionID] = append(representationsByVersionID[representation.AssetVersionID], CharacterRepresentationSummary{
+			ID: representation.ID, ResourceID: representation.ResourceID, MediaType: representation.MediaType, Role: representation.Role,
+		})
+	}
+	result.ShotReferences = make([]ProjectShotAssetReference, 0, len(shotReferences))
+	for _, reference := range shotReferences {
+		version, exists := versionByID[reference.AssetVersionID]
+		if !exists {
+			return ProjectUnitWorkspace{}, BadAuthRequest("镜头引用的资产版本不可用")
+		}
+		asset, exists := assetByID[version.AssetID]
+		if !exists {
+			return ProjectUnitWorkspace{}, BadAuthRequest("镜头引用的项目资产不可用")
+		}
+		representations := representationsByVersionID[version.ID]
+		if representations == nil {
+			representations = []CharacterRepresentationSummary{}
+		}
+		result.ShotReferences = append(result.ShotReferences, ProjectShotAssetReference{
+			ShotAssetReference: reference,
+			Asset:              asset,
+			ReferencedVersion: ProjectShotAssetReferenceVersion{
+				ID: version.ID, AssetID: version.AssetID, Version: version.Version, Representations: representations,
+			},
+		})
 	}
 	shotIDs := make(map[string]struct{}, len(result.Shots))
 	for _, shot := range result.Shots {

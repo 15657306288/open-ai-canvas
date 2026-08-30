@@ -21,12 +21,59 @@ func newProjectWorkbenchReadTestService(t *testing.T) (*Service, *gorm.DB) {
 	if err := db.AutoMigrate(
 		&model.Project{}, &model.ProjectUnit{}, &model.CanvasProject{}, &model.CanvasUnitLink{},
 		&model.Asset{}, &model.AssetVersion{}, &model.AssetRepresentation{}, &model.ProjectAssetLink{}, &model.ProjectAssetCandidate{},
+		&model.CharacterVoiceBinding{}, &model.VoiceProfile{},
 		&model.Shot{}, &model.ShotRevision{}, &model.ShotArtifact{}, &model.ShotAssetReference{},
 		&model.WorkflowInstance{}, &model.WorkflowStepInstance{}, &model.Task{},
 	); err != nil {
 		t.Fatal(err)
 	}
 	return &Service{repo: repository.New(db)}, db
+}
+
+func TestProjectUnitWorkspaceResolvesHistoricalVisualAndCurrentCharacterVoice(t *testing.T) {
+	service, db := newProjectWorkbenchReadTestService(t)
+	project := seedWorkbenchProject(t, db)
+	unit := model.ProjectUnit{ID: "unit-1", ProjectID: project.ID, Title: "第一章", Status: model.ProjectUnitStatusReady}
+	asset := model.Asset{
+		ID: "character-1", UserID: "user-1", Title: "张天昊", Kind: "entity", Category: model.AssetCategoryCharacter,
+		Status: model.AssetVersionStatusConfirmed, PrimaryVersionID: "character-v2", PayloadJSON: `{}`,
+	}
+	seed := []any{
+		&unit,
+		&asset,
+		&model.ProjectAssetLink{ID: "link-1", ProjectID: project.ID, AssetID: asset.ID},
+		&model.AssetVersion{ID: "character-v1", AssetID: asset.ID, Version: 1, Status: model.AssetVersionStatusConfirmed, DefinitionJSON: `{}`},
+		&model.AssetVersion{ID: "character-v2", AssetID: asset.ID, Version: 2, Status: model.AssetVersionStatusConfirmed, DefinitionJSON: `{"voiceLanguage":"普通话","voiceAge":"青年男性","voiceTimbre":"略带疲惫和震惊"}`},
+		&model.AssetRepresentation{ID: "representation-v1", TaskID: "visual-v1", AssetVersionID: "character-v1", ResourceID: "character-image-v1", MediaType: "image/png", Role: "primary"},
+		&model.AssetRepresentation{ID: "representation-v2", TaskID: "visual-v2", AssetVersionID: "character-v2", ResourceID: "character-image-v2", MediaType: "image/png", Role: "primary"},
+		&model.VoiceProfile{ID: "voice-1", UserID: "user-1", Name: "张天昊声音", Provider: "custom", VoiceKey: "voice-1", Language: "普通话", Timbre: "青年男声", SampleResourceID: "voice-sample-1", Status: "active", CompatibleModelsJSON: `[]`},
+		&model.CharacterVoiceBinding{ID: "binding-1", AssetVersionID: "character-v2", VoiceProfileID: "voice-1", Instructions: "内心独白语气"},
+		&model.Shot{ID: "shot-1", ProjectID: project.ID, UnitID: unit.ID, Position: 0},
+		&model.ShotAssetReference{ID: "reference-1", ShotID: "shot-1", AssetVersionID: "character-v1", Role: "reference", Status: "linked"},
+	}
+	for _, item := range seed {
+		if err := db.Create(item).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	workspace, err := service.ProjectUnitWorkspace("user-1", project.ID, unit.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(workspace.ShotReferences) != 1 {
+		t.Fatalf("shot references = %d, want 1", len(workspace.ShotReferences))
+	}
+	reference := workspace.ShotReferences[0]
+	if reference.ReferencedVersion.ID != "character-v1" || len(reference.ReferencedVersion.Representations) != 1 || reference.ReferencedVersion.Representations[0].ResourceID != "character-image-v1" {
+		t.Fatalf("historical visual snapshot not preserved: %+v", reference.ReferencedVersion)
+	}
+	if reference.Asset.Character == nil || reference.Asset.Character.VersionID != "character-v2" || reference.Asset.Character.Voice == nil {
+		t.Fatalf("current character card not resolved: %+v", reference.Asset.Character)
+	}
+	if reference.Asset.Character.Voice.Profile.SampleResourceID != "voice-sample-1" || reference.Asset.Character.Voice.Instructions != "内心独白语气" {
+		t.Fatalf("current character voice not resolved: %+v", reference.Asset.Character.Voice)
+	}
 }
 
 func seedWorkbenchProject(t *testing.T, db *gorm.DB) model.Project {
