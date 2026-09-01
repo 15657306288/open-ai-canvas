@@ -10816,6 +10816,23 @@ html:not(.dark) .creation-home .creation-chat-control:hover,
 html:not(.dark) .creation-home .creation-chat-control[aria-expanded="true"],
 html:not(.dark) .creation-home .creation-chat-composer .creation-model-picker.canvas-composer-model-picker:hover { background: rgba(28, 32, 37, .06) !important; }
 
+.creation-home .creation-chat-controls > .voice-recording-inline {
+    width: min(236px, calc(100vw - 120px));
+    max-width: 236px;
+    flex: 0 1 236px;
+    min-height: 30px;
+    height: 30px;
+    overflow: hidden;
+    border: 0;
+    border-radius: 7px;
+    background: transparent !important;
+    padding: 0 2px;
+}
+.creation-home .creation-chat-controls > .voice-recording-inline > svg {
+    flex: 0 1 160px;
+    max-width: 160px;
+}
+
 .creation-chat-intro h1 > .creation-intro-emphasis {
     display: inline-block;
     margin: 0 4px;

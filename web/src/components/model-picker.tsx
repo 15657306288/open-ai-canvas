@@ -24,6 +24,7 @@ type ModelPickerProps = {
     placeholder?: string;
     onMissingConfig?: () => void;
     showSelectedPrice?: boolean;
+    showOptionPrices?: boolean;
     variant?: "default" | "creation";
     requirements?: ModelRequirements;
     showConfiguredModelName?: boolean;
@@ -40,6 +41,7 @@ export function ModelPicker({
     placeholder = "选择模型",
     onMissingConfig,
     showSelectedPrice = true,
+    showOptionPrices = showSelectedPrice,
     variant = "default",
     requirements,
     showConfiguredModelName = false,
@@ -226,7 +228,7 @@ export function ModelPicker({
                                             theme={theme}
                                             creationVariant={creationVariant}
                                             showConfiguredModelName={showConfiguredModelName}
-                                            showPrice={showSelectedPrice && creditsEnabled}
+                                            showPrice={showOptionPrices && creditsEnabled}
                                             disabledReason={disabledReason}
                                         />
                                         {selected ? <Check className="canvas-model-picker-option-check" style={{ color: theme.node.activeStroke }} /> : null}

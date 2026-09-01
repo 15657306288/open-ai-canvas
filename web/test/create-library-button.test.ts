@@ -18,14 +18,13 @@ describe("creation library button", () => {
         expect(dockEnd).toBeGreaterThan(dockStart);
         const dockSource = compactSource(source.slice(dockStart, dockEnd));
         const modePickerIndex = dockSource.indexOf("<ModePicker mode={props.mode}");
-        const attachmentIndex = dockSource.indexOf('aria-label="从本机上传附件"');
 
         expect(modePickerIndex).toBeGreaterThanOrEqual(0);
-        expect(attachmentIndex).toBeGreaterThan(modePickerIndex);
         expect(dockSource).not.toContain('aria-label="打开素材库选择参考内容"');
+        expect(dockSource).not.toContain('aria-label="从本机上传附件"');
         expect(source).toContain("onClick={props.onOpenLibrary}");
         expect(source).toContain("creation-reference-add-button");
-        expect(source).toContain('showSelectedPrice={false} variant="creation"');
+        expect(source).toContain('showSelectedPrice={false} showOptionPrices variant="creation"');
         expect(source).toContain("canvas-node-composer-submit-cost");
     });
 
@@ -33,7 +32,7 @@ describe("creation library button", () => {
         const source = readFileSync(resolve(import.meta.dir, "../src/pages/create/index.tsx"), "utf8");
         const pickerSource = readFileSync(resolve(import.meta.dir, "../src/components/assets/asset-library-picker-modal.tsx"), "utf8");
         const uploadStart = source.indexOf("const uploadLibraryAssets = async");
-        const uploadEnd = source.indexOf("const handleFileChange", uploadStart);
+        const uploadEnd = source.indexOf("const handleLibrarySelect", uploadStart);
 
         expect(uploadStart).toBeGreaterThanOrEqual(0);
         expect(uploadEnd).toBeGreaterThan(uploadStart);
@@ -128,12 +127,12 @@ describe("creation library button", () => {
         expect(removeCreationAttachment(attachments, "last").map((item) => item.id)).toEqual(["first", "middle"]);
     });
 
-    test("删除按钮在指针按下阶段隔离拖拽，附件与素材库入口职责独立", () => {
+    test("删除按钮在指针按下阶段隔离拖拽，素材库入口职责独立", () => {
         const source = compactSource(readFileSync(resolve(import.meta.dir, "../src/pages/create/index.tsx"), "utf8"));
 
         expect(source).toContain("onPointerDownCapture={(event) => event.stopPropagation()}");
         expect(source).toContain("onRemove(item.id)");
-        expect(source).toContain("onClick={() => props.fileInputRef.current?.click()}");
         expect(source).toContain("onClick={props.onOpenLibrary}");
+        expect(source).not.toContain("onClick={() => props.fileInputRef.current?.click()}");
     });
 });
