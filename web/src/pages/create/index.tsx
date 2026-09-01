@@ -25,13 +25,11 @@ import { buildImageResolutionOptions, formatImageResolutionSize, imageRatioForSi
 import { formatVideoResolutionLabel as videoResolutionLabel, VIDEO_RESOLUTION_OPTIONS } from "@/lib/video-generation-options";
 import { modelCapabilityConfigFor, normalizeImageValue, normalizeVideoValue, videoDurationAllowed, videoDurationOptions, type ImageCapabilityConfig, type VideoCapabilityConfig } from "@/lib/model-capabilities";
 import { inferVideoOperation, resolveCompatibleModel, mergedImageCapabilityConfig, type ModelRequirements } from "@/lib/model-selection";
-import { backendModelRuntimeRequired, isGenerationTaskCancelled, runBackendGenerationTask, runBackendGenerationTaskBatch, type BackendGenerationResult } from "@/services/api/generation-task";
-import { requestImageQuestion, type AiTextContentPart } from "@/services/api/image";
+import { isGenerationTaskCancelled, runBackendGenerationTask, runBackendGenerationTaskBatch, type BackendGenerationResult } from "@/services/api/generation-task";
 import { listAddedSkills, type Skill } from "@/services/api/skills";
 import { subscribeGenerationTasks, type GenerationTask } from "@/services/api/task-center";
-import { createTextReplayPublisher } from "@/lib/creation-text-replay";
 import { isLocalDreaminaWaitStopped, localDreaminaCancellationMessage } from "@/services/local-dreamina-task-projection";
-import { getMediaBlob, uploadMediaFile } from "@/services/file-storage";
+import { uploadMediaFile } from "@/services/file-storage";
 import { uploadImage } from "@/services/image-storage";
 import { consumeGenerationTaskMessage, generationTaskMaterializedUrls, materializeGenerationTaskAssets, projectGenerationTaskResult } from "@/services/project-asset-sync";
 import { applyGenerationConsumerEffect } from "@/services/generation-consumer-dedupe";
@@ -100,7 +98,6 @@ const qualityOptions = [
 ];
 const resolutionOptions = VIDEO_RESOLUTION_OPTIONS.map((value) => ({ value: String(value), label: videoResolutionLabel(value) }));
 const countOptions = ["1", "2", "3", "4"];
-const TEXT_ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024;
 const conversationTimeFormatter = new Intl.DateTimeFormat("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
 const messageTimeFormatter = new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
 
@@ -634,43 +631,22 @@ export default function CreatePage() {
         };
         try {
             if (mode === "text") {
-                if (backendModelRuntimeRequired(requestConfig)) {
-					const result = await runGenerationOperationOnce(retryContext?.clientOperationId, () => runBackendGenerationTask({
-						mode: "text",
-						prompt: expandedPrompt,
-						config: requestConfig,
-						referenceImages,
-						referenceVideos,
-						referenceAudios,
-						textHistory: (activeConversation.messages || []).filter((item) => item.content.trim()).map((item) => ({ role: item.role, content: item.content })),
-						signal: requestLifecycle.signal,
-						metadata: { source: "create-page", conversationId: activeConversation.id, messageId: assistantMessage.id, ...referenceMetadata },
-						onTaskUpdate: bindTask,
-						onTextDelta: (text) => updateOriginAssistant((item) => ({ ...item, content: text })),
-						...retryContext,
-					}));
-					if (!result.text?.trim()) throw new Error("后端任务没有返回文本");
-					updateOriginAssistant((item) => ({ ...item, content: result.text || "" }));
-				} else {
-					const history = await Promise.all([...(activeConversation.messages || []), userMessage].map(async (item) => ({
-						role: item.role,
-						content: item.role === "user"
-							? await buildTextMessageContent(item)
-							: item.content,
-					})));
-					const replayPublisher = createTextReplayPublisher(requestConfig, text);
-					void replayPublisher.start();
-					let finalText = "";
-					await requestImageQuestion(requestConfig, history, (full) => {
-						finalText = full;
-						updateOriginAssistant((item) => ({ ...item, content: full }));
-						replayPublisher.publish(full);
-					}, {
-						signal: requestLifecycle.signal,
-						onReasoning: (reasoning) => updateOriginAssistant((item) => ({ ...item, reasoning })),
-					});
-					replayPublisher.finish(finalText);
-				}
+                const result = await runGenerationOperationOnce(retryContext?.clientOperationId, () => runBackendGenerationTask({
+                    mode: "text",
+                    prompt: expandedPrompt,
+                    config: requestConfig,
+                    referenceImages,
+                    referenceVideos,
+                    referenceAudios,
+                    textHistory: (activeConversation.messages || []).filter((item) => item.content.trim()).map((item) => ({ role: item.role, content: item.content })),
+                    signal: requestLifecycle.signal,
+                    metadata: { source: "create-page", conversationId: activeConversation.id, messageId: assistantMessage.id, ...referenceMetadata },
+                    onTaskUpdate: bindTask,
+                    onTextDelta: (value) => updateOriginAssistant((item) => ({ ...item, content: value })),
+                    ...retryContext,
+                }));
+                if (!result.text?.trim()) throw new Error("后端任务没有返回文本");
+                updateOriginAssistant((item) => ({ ...item, content: result.text || "", reasoning: result.reasoning }));
             } else if (mode === "image") {
                 const taskCount = Math.max(1, Math.min(imageProfile.maxOutputs, Math.floor(Number(count) || 1)));
                 const settled = await runGenerationOperationOnce(retryContext?.clientOperationId, () => runBackendGenerationTaskBatch({
@@ -1793,44 +1769,6 @@ function conversationPreviewMessage(conversation: CreationConversation) {
         if (message.role === "user") return message;
     }
     return fallback;
-}
-
-async function buildTextMessageContent(item: CreationMessage) {
-    const content = expandCreationPrompt(item.content, item.references || [], item.attachments || []);
-    const attachments = item.attachments || [];
-    if (!attachments.length) return content;
-    const parts: AiTextContentPart[] = [{ type: "text", text: content }];
-    for (const attachment of attachments) {
-        if (isImageAttachment(attachment)) {
-            parts.push({ type: "image_url", image_url: { url: attachment.dataUrl || attachment.url || "" } });
-            continue;
-        }
-        const url = await creationAttachmentDataUrl(attachment);
-        parts.push({ type: "file_url", file_url: { url, name: attachment.name || "附件", mimeType: attachment.type || "application/octet-stream" } });
-    }
-    return parts;
-}
-
-async function creationAttachmentDataUrl(attachment: CreationAttachment) {
-    if ((attachment.bytes || 0) > TEXT_ATTACHMENT_MAX_BYTES) throw new Error(`${attachment.name} 超过 20MB，当前文本模型附件需要压缩后再上传`);
-    const attachmentUrl = attachment.url || "";
-    if (attachmentUrl.startsWith("data:")) return attachmentUrl;
-    const blob = attachment.storageKey ? await getMediaBlob(attachment.storageKey) : null;
-    if (blob) {
-        if (blob.size > TEXT_ATTACHMENT_MAX_BYTES) throw new Error(`${attachment.name} 超过 20MB，当前文本模型附件需要压缩后再上传`);
-        return blobToDataUrl(blob);
-    }
-    if (/^https:\/\//i.test(attachmentUrl)) return attachmentUrl;
-    throw new Error(`${attachment.name} 无法读取，请重新上传后再试`);
-}
-
-function blobToDataUrl(blob: Blob) {
-    return new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result || ""));
-        reader.onerror = () => reject(reader.error || new Error("附件读取失败"));
-        reader.readAsDataURL(blob);
-    });
 }
 
 function isVideoAttachment(attachment: CreationAttachment): attachment is CreationAttachment & { url: string } {

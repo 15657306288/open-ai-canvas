@@ -1072,6 +1072,18 @@ func (r *Repository) DeleteAsset(userID string, id string) error {
 	return r.DeleteAssetAndResources(userID, id, nil, nil)
 }
 
+func (r *Repository) FindExpiredArchivedAssets(cutoff time.Time, limit int) ([]model.Asset, error) {
+	var assets []model.Asset
+	if limit <= 0 {
+		limit = 100
+	}
+	err := r.db.Where("status = ? AND updated_at <= ?", model.AssetVersionStatusArchived, cutoff).
+		Order("updated_at asc, id asc").
+		Limit(limit).
+		Find(&assets).Error
+	return assets, err
+}
+
 func (r *Repository) ReplaceAssets(userID string, assets []model.Asset) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Delete(&model.Asset{}, "user_id = ?", userID).Error; err != nil {
