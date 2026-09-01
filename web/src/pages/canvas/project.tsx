@@ -518,7 +518,7 @@ function InfiniteCanvasPage() {
             }
             Modal.confirm({
                 title: "取消生成任务？",
-                content: "任务会立即停止本地执行；如果已经提交到上游，系统会继续核对取消结果和积分状态。",
+                content: "任务会立即停止本地执行；如果已经提交到上游，系统会继续核对取消结果和余额状态。",
                 okText: "取消任务",
                 okButtonProps: { danger: true },
                 cancelText: "继续等待",

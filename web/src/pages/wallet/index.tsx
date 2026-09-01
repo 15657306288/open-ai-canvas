@@ -42,7 +42,7 @@ export default function WalletPage() {
             const nextWallet = await getWallet(targetPage, targetPageSize, filter);
             if (sequence === requestSequence.current) setWallet(nextWallet);
         } catch (error) {
-            if (sequence === requestSequence.current) message.error(error instanceof Error ? error.message : "读取积分记录失败");
+            if (sequence === requestSequence.current) message.error(error instanceof Error ? error.message : "读取余额记录失败");
         } finally {
             if (sequence === requestSequence.current) setLoading(false);
         }
@@ -65,7 +65,7 @@ export default function WalletPage() {
             setPage(1);
             await reload(1, pageSize);
             window.dispatchEvent(new CustomEvent("wallet:updated"));
-            message.success("兑换成功，积分已到账");
+            message.success("兑换成功，余额已到账");
         } catch (error) {
             message.error(error instanceof Error ? error.message : "兑换失败");
         } finally {
@@ -79,7 +79,7 @@ export default function WalletPage() {
             await checkinCredits();
             await reload(page, pageSize);
             window.dispatchEvent(new CustomEvent("wallet:updated"));
-            message.success("签到成功，积分已到账");
+            message.success("签到成功，余额已到账");
         } catch (error) {
             message.error(error instanceof Error ? error.message : "签到失败");
         } finally {
@@ -106,7 +106,7 @@ export default function WalletPage() {
             ),
         },
         {
-            title: "积分变化",
+            title: "余额变化",
             dataIndex: "amountMicrocredits",
             width: 145,
             align: "right",
@@ -122,7 +122,7 @@ export default function WalletPage() {
                     <motion.header initial={reducedMotion ? false : { opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: aceternityMotion.duration.panel, ease: aceternityMotion.easing.enter }} className="app-page-header flex flex-wrap items-start justify-between gap-4">
                         <div className="flex min-w-0 items-center gap-3">
                             <div className="min-w-0">
-                                <h1 className="text-[var(--fs-heading-lg)] font-semibold leading-7">积分中心</h1>
+                                <h1 className="text-[var(--fs-heading-lg)] font-semibold leading-7">余额中心</h1>
                                 <p className="mt-1 text-xs leading-5 text-foreground/58">模型调用、冻结与退款都在同一条可追溯流水中。</p>
                             </div>
                         </div>
@@ -147,16 +147,16 @@ export default function WalletPage() {
                             <div className="wallet-balance-primary">
                                 <div className="wallet-balance-heading">
                                     <span className="library-icon-tile wallet-balance-icon"><Coins /></span>
-                                    <div><strong>可用创作积分</strong><span>最近更新 {formatTime(account?.updatedAt)}</span></div>
+                                    <div><strong>可用创作余额</strong><span>最近更新 {formatTime(account?.updatedAt)}</span></div>
                                 </div>
                                 <div className="wallet-balance-number">
                                     <strong>{formatCredits(account?.availableMicrocredits || 0, 6)}</strong>
-                                    <span>积分</span>
+                                    <span>余额</span>
                                 </div>
                             </div>
                             <div className="wallet-balance-details">
                                 <span className="wallet-account-status"><ShieldCheck />账户正常</span>
-                                <BalanceMetric label="冻结积分" description="调用中或待核对" value={account?.reservedMicrocredits || 0} icon={<TicketCheck className="size-4" />} />
+                                <BalanceMetric label="冻结余额" description="调用中或待核对" value={account?.reservedMicrocredits || 0} icon={<TicketCheck className="size-4" />} />
                                 <BalanceMetric label="账户总额" description="可用与冻结合计" value={totalMicrocredits} icon={<Coins className="size-4" />} />
                             </div>
                         </div>
@@ -168,7 +168,7 @@ export default function WalletPage() {
                                 <TicketCheck className="size-4" />
                             </span>
                             <div>
-                                <h2 className="text-base font-semibold">兑换积分</h2>
+                                <h2 className="text-base font-semibold">兑换充值</h2>
                                 <p className="mt-1 text-xs leading-5 text-foreground/55">输入管理员发放的 32 位兑换码。</p>
                             </div>
                         </div>
@@ -181,7 +181,7 @@ export default function WalletPage() {
                             <span className="tabular-nums">{code.length} / 32</span>
                         </div>
                         <Button className="mt-5" type="primary" size="large" block loading={redeeming} disabled={code.length !== 32} onClick={() => void redeem()}>
-                            兑换积分
+                            兑换充值
                         </Button>
                     </motion.div>
                 </section>
@@ -189,7 +189,7 @@ export default function WalletPage() {
                 <section className="wallet-ledger-panel app-workspace-surface mt-9 rounded-lg p-4 backdrop-blur-xl sm:p-5">
                     <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                         <div>
-                            <h2 className="text-base font-semibold">积分流水</h2>
+                            <h2 className="text-base font-semibold">余额流水</h2>
                             <p className="mt-1 text-xs text-foreground/55">当前展示最近 {wallet?.entries.length || 0} 条记录。</p>
                         </div>
                         <Segmented
@@ -208,7 +208,7 @@ export default function WalletPage() {
                             <Table className="app-data-table wallet-ledger-table" rowKey="id" size="middle" loading={loading} columns={columns} dataSource={entries} pagination={false} tableLayout="fixed" scroll={{ x: 990 }} />
                         </TableSurface>
                     ) : (
-                        <div className="grid gap-1 overflow-hidden rounded-md bg-transparent">{entries.length ? entries.map((entry) => <LedgerMobileRow key={entry.id} config={config} entry={entry} />) : <WorkspaceState compact icon="wallet" title="没有匹配的积分记录" description="切换流水类型，或完成一次生成后再回来查看。" />}</div>
+                        <div className="grid gap-1 overflow-hidden rounded-md bg-transparent">{entries.length ? entries.map((entry) => <LedgerMobileRow key={entry.id} config={config} entry={entry} />) : <WorkspaceState compact icon="wallet" title="没有匹配的余额记录" description="切换流水类型，或完成一次生成后再回来查看。" />}</div>
                     )}
                     <PaginationBar
                         current={page}
@@ -278,13 +278,13 @@ function ledgerTypeMeta(type: CreditLedgerEntry["type"]) {
         redeem: { label: "兑换充值", tagColor: "default", icon: <ArrowDownLeft className="size-4" />, iconClass: "bg-foreground/8 text-foreground/70" },
         admin_grant: { label: "管理员充值", tagColor: "default", icon: <ArrowDownLeft className="size-4" />, iconClass: "bg-foreground/8 text-foreground/70" },
         consume: { label: "模型消费", tagColor: "error", icon: <Sparkles className="size-4" />, iconClass: "bg-rose-500/10 text-rose-600 dark:text-rose-300" },
-        reserve: { label: "积分冻结", tagColor: "warning", icon: <ArrowUpRight className="size-4" />, iconClass: "bg-amber-500/10 text-amber-600 dark:text-amber-300" },
+        reserve: { label: "余额冻结", tagColor: "warning", icon: <ArrowUpRight className="size-4" />, iconClass: "bg-amber-500/10 text-amber-600 dark:text-amber-300" },
         refund: { label: "消费退款", tagColor: "warning", icon: <RotateCcw className="size-4" />, iconClass: "bg-amber-500/10 text-amber-600 dark:text-amber-300" },
         admin_adjustment: { label: "管理员调账", tagColor: "default", icon: <SlidersHorizontal className="size-4" />, iconClass: "bg-foreground/8 text-foreground/70" },
         signup_bonus: { label: "注册奖励", tagColor: "default", icon: <Sparkles className="size-4" />, iconClass: "bg-foreground/8 text-foreground/70" },
         checkin_bonus: { label: "签到奖励", tagColor: "default", icon: <CalendarCheck className="size-4" />, iconClass: "bg-foreground/8 text-foreground/70" },
     } as const;
-    return values[type] || { label: "其他积分变动", tagColor: "default", icon: <ArrowUpRight className="size-4" />, iconClass: "bg-foreground/8 text-foreground/70" };
+    return values[type] || { label: "其他余额变动", tagColor: "default", icon: <ArrowUpRight className="size-4" />, iconClass: "bg-foreground/8 text-foreground/70" };
 }
 
 function ledgerTitle(entry: CreditLedgerEntry) {
@@ -293,7 +293,7 @@ function ledgerTitle(entry: CreditLedgerEntry) {
     if (entry.type === "consume") return "模型调用";
     if (entry.type === "signup_bonus") return "新用户注册奖励";
     if (entry.type === "checkin_bonus") return "每日签到奖励";
-    return entry.note || "积分调整";
+    return entry.note || "余额调整";
 }
 
 function ledgerModelName(config: AiConfig, entry: CreditLedgerEntry) {

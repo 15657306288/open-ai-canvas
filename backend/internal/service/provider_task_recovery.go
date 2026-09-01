@@ -166,8 +166,8 @@ func (s *Service) queryFailedVideoTask(ctx context.Context, task *model.Task, cl
 	billingSettled := true
 	if err := billing.SettleBilling(task.BillingOrderID, providerRequestID); err != nil {
 		billingSettled = false
-		uncertainErr := billing.MarkBillingUncertain(task.BillingOrderID, "人工查询确认生成成功，但积分结算失败："+err.Error())
-		_ = s.log(task.UserID, task.ID, "error", "任务恢复成功但积分结算失败，已进入待核对", err.Error())
+		uncertainErr := billing.MarkBillingUncertain(task.BillingOrderID, "人工查询确认生成成功，但余额结算失败："+err.Error())
+		_ = s.log(task.UserID, task.ID, "error", "任务恢复成功但余额结算失败，已进入待核对", err.Error())
 		if uncertainErr != nil {
 			return nil, errors.Join(err, fmt.Errorf("记录任务恢复后的计费待核对状态失败：%w", uncertainErr))
 		}

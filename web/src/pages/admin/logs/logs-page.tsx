@@ -97,7 +97,7 @@ export default function LogsPage() {
                 ),
         },
         { title: "耗时", dataIndex: "durationMs", width: 112, render: (value) => <span className="tabular-nums">{formatDuration(value)}</span> },
-        { title: "积分计费", width: 145, render: (_, log) => <BillingSummary log={log} /> },
+        { title: "余额计费", width: 145, render: (_, log) => <BillingSummary log={log} /> },
         {
             title: "Tokens",
             width: 166,
@@ -125,7 +125,7 @@ export default function LogsPage() {
     return (
         <AdminPageFrame
             title="请求明细"
-            description="上游调用与积分计费"
+            description="上游调用与余额计费"
             actions={
                 <AdminExportButton
                     exportFile={() => exportAdminApiLogs({ keyword: debouncedKeyword || undefined, status: status === "all" ? undefined : status })}
@@ -258,12 +258,12 @@ function formatDuration(value: number) {
 }
 
 function BillingSummary({ log }: { log: ApiCallLog }) {
-    if (!log.billingAvailable) return <span className="text-foreground/35">未扣积分</span>;
+    if (!log.billingAvailable) return <span className="text-foreground/35">未扣费</span>;
     const status = log.billingStatus || "reserved";
     const statusLabel = ({ settled: "已结算", refunded: "已退回", uncertain: "待核对", running: "运行中", reserved: "已预授权" } as const)[status];
     return (
         <div>
-            <div className="tabular-nums">{formatCredits(log.billingAmountMicrocredits)} 积分</div>
+            <div className="tabular-nums">{formatCredits(log.billingAmountMicrocredits)}</div>
             <div className="text-xs text-foreground/40">{statusLabel}</div>
         </div>
     );

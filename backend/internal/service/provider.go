@@ -1505,6 +1505,10 @@ func runImageTask(ctx context.Context, input canvasGenerationInput) (map[string]
 	if input.Config.InterfaceType == string(model.ChannelInterfaceGeminiImage) {
 		return runGeminiImageTask(ctx, input)
 	}
+	// 内置异步协议（如 hongniao-image、grsai-image）走通用适配器执行路径
+	if adapter, ok := hostAsyncAdapterForContext(ctx, input.Config.InterfaceType); ok {
+		return runProtocolAdapterTask(ctx, input, adapter)
+	}
 	var payload imageResponse
 	if input.Mask != nil {
 		// 蒙版编辑是强校验写路径：协议能力不明确时必须失败，不能静默退化为整图重绘。
@@ -2234,6 +2238,10 @@ func runAudioTask(ctx context.Context, input canvasGenerationInput) (map[string]
 	if _, ok := declarativeProtocolAdapterForContext(ctx, input.Config.InterfaceType); ok {
 		return runDeclarativeProtocolTask(ctx, input)
 	}
+	// 内置异步音频协议走通用适配器执行路径
+	if adapter, ok := hostAsyncAdapterForContext(ctx, input.Config.InterfaceType); ok {
+		return runProtocolAdapterTask(ctx, input, adapter)
+	}
 	if resolved, ok := input.Metadata["resolvedCharacterVersions"].([]interface{}); ok && len(resolved) > 0 {
 		voiceKey := metadataString(input.Metadata, "resolvedCharacterVoiceKey")
 		if voiceKey == "" || strings.TrimSpace(input.Config.AudioVoice) != voiceKey {
@@ -2766,6 +2774,10 @@ func runVideoTask(ctx context.Context, input canvasGenerationInput) (map[string]
 	}
 	if isSeedanceVideoConfig(input.Config) {
 		return runSeedanceVideosTask(ctx, input)
+	}
+	// 内置异步协议（如 hongniao-video）走通用适配器执行路径
+	if adapter, ok := hostAsyncAdapterForContext(ctx, input.Config.InterfaceType); ok {
+		return runProtocolAdapterTask(ctx, input, adapter)
 	}
 	if len(input.ReferenceVideos) > 0 || len(input.ReferenceAudios) > 0 {
 		return nil, errors.New("OpenAI 风格视频接口不支持参考视频或参考音频，请切换到 Seedance / Agent Plan 渠道")
