@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { canvasConnectionError } from "../src/lib/canvas/canvas-connection-policy";
 import { assertCanvasImageReferenceLimit, buildGenerationConfig, canvasImageReferenceLimitError, resolveCanvasGenerationModel } from "../src/lib/canvas/canvas-project-generation";
 import { defaultModelCapabilityConfig } from "../src/lib/model-capabilities";
-import { groupModelsByDisplayName, inferVideoOperation, modelCompatibilityError, modelGroupReferenceLimits, resolveCompatibleModel, resolveModelGenerationDefaults } from "../src/lib/model-selection";
+import { groupModelsByDisplayName, inferVideoOperation, modelCompatibilityError, modelGroupReferenceLimits, modelPromptLengthError, resolveCompatibleModel, resolveModelGenerationDefaults } from "../src/lib/model-selection";
 import { defaultConfig, normalizeModelOptionValue, type AiConfig, type ModelChannel } from "../src/stores/use-config-store";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData } from "../src/types/canvas";
 
@@ -53,6 +53,18 @@ function node(id: string, type: CanvasNodeType, generationMode?: "image" | "vide
 }
 
 describe("逻辑模型选择", () => {
+    test("技能上下文展开后按最终视频模型字符上限拒绝提交", () => {
+        const config = policyConfig();
+        const model = config.videoModels[0]!;
+        config.channels[0]!.modelCosts![0]!.capabilityConfig!.video!.references.promptMaxChars = 10_000;
+
+        const error = modelPromptLengthError(config, model, "video", "镜".repeat(23_142));
+
+        expect(error).toContain("最多 10000 个字符");
+        expect(error).toContain("完整提示词为 23142 个字符");
+        expect(error).toContain("不会自动截断");
+    });
+
     test("图片逻辑模型忽略全局视频时长，不应显示为不支持当前时长", () => {
         const model = "platform::gpt-image-2";
         const channel: ModelChannel = {
