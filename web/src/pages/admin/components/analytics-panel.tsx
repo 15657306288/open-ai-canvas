@@ -77,6 +77,7 @@ export default function AnalyticsPanel({ users, channels }: Props) {
     const [pricingWorkspaceOpen, setPricingWorkspaceOpen] = useState(false);
     const [pendingPricing, setPendingPricing] = useState<ModelPricing | null | undefined>(undefined);
     const [form] = Form.useForm<PricingFormValues>();
+    const pricingChannelId = Form.useWatch("channelId", form);
     const analyticsPageSize = 20;
 
     const filters = useMemo<AnalyticsFilters>(
@@ -148,11 +149,17 @@ export default function AnalyticsPanel({ users, channels }: Props) {
 
     const pricingModelOptions = useMemo(() => {
         const names = new Set<string>();
-        const sourceChannels = channels.filter((channel) => channel.enabled !== false);
+        const sourceChannels = channels.filter(
+            (channel) =>
+                channel.enabled !== false &&
+                (!pricingChannelId || channel.id === pricingChannelId),
+        );
         sourceChannels.forEach((channel) => channel.models?.forEach((name) => names.add(name)));
-        if (editingPricing?.model) names.add(editingPricing.model);
+        if (editingPricing?.model && (!pricingChannelId || editingPricing.channelId === pricingChannelId)) {
+            names.add(editingPricing.model);
+        }
         return [...names].sort().map((name) => ({ label: name, value: name }));
-    }, [channels, editingPricing?.model]);
+    }, [channels, editingPricing?.channelId, editingPricing?.model, pricingChannelId]);
 
     const preparePricingForm = (pricing: ModelPricing | null) => {
         setEditingPricing(pricing);

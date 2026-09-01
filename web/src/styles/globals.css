@@ -15598,28 +15598,38 @@ html:not(.dark) .creation-home .storyboard-workbench-bar-action:hover { backgrou
     .creation-home .creation-empty-suggest { grid-template-columns: 1fr; }
 }
 
-/* 空态布局收敛：banner 与下方对话列同宽，整组垂直居中；用首/末子项 auto margin 居中，
-   内容超高时自动 margin 归零、回到顶部对齐，避免 justify-content:center 在滚动容器里的裁切问题。 */
+/* 空态布局收敛：保持图片区、文案和输入区的文档流顺序，内容超高时由主区滚动承载。 */
+.creation-home .creation-empty-workspace {
+    justify-content: flex-start;
+}
+
+.creation-home .creation-empty-workspace > .creation-empty-art,
+.creation-home .creation-empty-workspace > .creation-chat-intro,
+.creation-home .creation-empty-workspace > .creation-empty-composer,
+.creation-home .creation-empty-workspace > .creation-empty-suggest {
+    flex: 0 0 auto;
+}
+
 .creation-empty-workspace > .creation-empty-art {
     width: min(820px, calc(100% - 28px));
     height: 200px;
-    margin: auto auto 20px;
+    margin: 0 auto 20px;
 }
 
 .creation-empty-workspace .creation-empty-art-frame.is-back { top: 18px; height: 146px; }
 .creation-empty-workspace .creation-empty-art-frame.is-main { top: 0; height: 182px; }
 .creation-empty-workspace .creation-empty-art-frame.is-front { top: 24px; height: 146px; }
 
-.creation-empty-workspace .creation-chat-intro { margin-top: 24px; margin-bottom: 18px; }
+.creation-empty-workspace .creation-chat-intro { margin: 0 auto 18px; }
 
-.creation-empty-workspace > .creation-empty-suggest { margin: 26px auto auto; }
+.creation-empty-workspace > .creation-empty-suggest { margin: 26px auto 0; }
 
 @media (max-width: 800px) {
     .creation-empty-workspace > .creation-empty-art { height: 168px; margin-bottom: 16px; }
     .creation-empty-workspace .creation-empty-art-frame.is-back { top: 14px; height: 122px; }
     .creation-empty-workspace .creation-empty-art-frame.is-main { top: 0; height: 152px; }
     .creation-empty-workspace .creation-empty-art-frame.is-front { top: 18px; height: 122px; }
-    .creation-empty-workspace .creation-chat-intro { margin-top: 18px; margin-bottom: 14px; }
+    .creation-empty-workspace .creation-chat-intro { margin-top: 0; margin-bottom: 14px; }
     .creation-empty-workspace > .creation-empty-suggest { margin-top: 20px; }
 }
 
