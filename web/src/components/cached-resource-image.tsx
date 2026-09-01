@@ -33,12 +33,15 @@ export function CachedResourceImage({ storageKey, src = "", fallback = null, eag
             setNearViewport(true);
             return;
         }
-        const observer = new IntersectionObserver((entries) => {
-            if (entries.some((entry) => entry.isIntersecting)) {
-                setNearViewport(true);
-                observer.disconnect();
-            }
-        }, { rootMargin: "240px" });
+        const observer = new IntersectionObserver(
+            (entries) => {
+                if (entries.some((entry) => entry.isIntersecting)) {
+                    setNearViewport(true);
+                    observer.disconnect();
+                }
+            },
+            { rootMargin: "240px" },
+        );
         observer.observe(image);
         return () => observer.disconnect();
     }, [eager, remoteResource]);
@@ -50,47 +53,61 @@ export function CachedResourceImage({ storageKey, src = "", fallback = null, eag
         if (remoteResource && storageKey) {
             if (!nearViewport) {
                 setCachedSrc("");
-                return () => { cancelled = true; };
+                return () => {
+                    cancelled = true;
+                };
             }
             setCachedSrc("");
             const resolve = cacheResourceObjectUrl(storageKey);
-            void resolve.then((url) => {
-                if (!cancelled) setCachedSrc(url || src);
-            }).catch(() => {
-                if (!cancelled) {
-                    setCacheFailed(true);
-                    setCachedSrc(src);
-                }
-            });
-            return () => { cancelled = true; };
+            void resolve
+                .then((url) => {
+                    if (!cancelled) setCachedSrc(url || src);
+                })
+                .catch(() => {
+                    if (!cancelled) {
+                        setCacheFailed(true);
+                        setCachedSrc(src);
+                    }
+                });
+            return () => {
+                cancelled = true;
+            };
         }
 
         if (localImageResource && storageKey) {
-            void resolveImageUrl(storageKey, src).then((url) => {
-                if (!cancelled) setCachedSrc(url || src);
-            }).catch(() => {
-                if (!cancelled) setCachedSrc(src);
-            });
-            return () => { cancelled = true; };
+            void resolveImageUrl(storageKey, src)
+                .then((url) => {
+                    if (!cancelled) setCachedSrc(url || src);
+                })
+                .catch(() => {
+                    if (!cancelled) setCachedSrc(src);
+                });
+            return () => {
+                cancelled = true;
+            };
         }
 
         setCachedSrc(src);
-        return () => { cancelled = true; };
+        return () => {
+            cancelled = true;
+        };
     }, [localImageResource, nearViewport, remoteResource, src, storageKey]);
 
     const handleImgError = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
         if (localImageResource && storageKey && cachedSrc.startsWith("blob:")) {
-            void resolveImageUrl(storageKey).then((url) => {
-                if (url && url !== cachedSrc) {
-                    setCachedSrc(url);
-                    return;
-                }
-                setCacheFailed(true);
-                onError?.(e);
-            }).catch(() => {
-                setCacheFailed(true);
-                onError?.(e);
-            });
+            void resolveImageUrl(storageKey)
+                .then((url) => {
+                    if (url && url !== cachedSrc) {
+                        setCachedSrc(url);
+                        return;
+                    }
+                    setCacheFailed(true);
+                    onError?.(e);
+                })
+                .catch(() => {
+                    setCacheFailed(true);
+                    onError?.(e);
+                });
             return;
         }
         setCacheFailed(true);

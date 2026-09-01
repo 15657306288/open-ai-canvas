@@ -172,9 +172,9 @@ export default function CanvasPage() {
                     const oldKey = node.metadata?.storageKey;
                     const mapped = oldKey ? storageKeyMap.get(oldKey) : undefined;
                     const isDeadBlob = (val?: string) => typeof val === "string" && val.startsWith("blob:");
-                    const nextStorageKey = mapped ? mapped.storageKey : (oldKey && !isDeadBlob(oldKey) ? oldKey : undefined);
-                    const content = mapped ? mapped.url : (isDeadBlob(node.metadata?.content) ? "" : node.metadata?.content);
-                    const previewContent = mapped ? mapped.url : (isDeadBlob(node.metadata?.previewContent) ? "" : node.metadata?.previewContent);
+                    const nextStorageKey = mapped ? mapped.storageKey : oldKey && !isDeadBlob(oldKey) ? oldKey : undefined;
+                    const content = mapped ? mapped.url : isDeadBlob(node.metadata?.content) ? "" : node.metadata?.content;
+                    const previewContent = mapped ? mapped.url : isDeadBlob(node.metadata?.previewContent) ? "" : node.metadata?.previewContent;
                     return {
                         ...node,
                         metadata: {
@@ -419,20 +419,17 @@ export default function CanvasPage() {
                     <CollectionGrid className="canvas-library-grid">
                         {showCreateCard ? <CanvasCreateCard disabled={!hydrated} onClick={createAndEnter} /> : null}
                         {visibleProjects.map((project) => (
-                            <CanvasFolderCard
-                                key={project.id}
-                                project={project}
-                                projectName={project.projectId ? projectNames.get(project.projectId) || "未同步项目" : undefined}
-                                onClick={() => enterProject(project.id)}
-                            />
+                            <CanvasFolderCard key={project.id} project={project} projectName={project.projectId ? projectNames.get(project.projectId) || "未同步项目" : undefined} onClick={() => enterProject(project.id)} />
                         ))}
                     </CollectionGrid>
                 ) : (
                     <WorkspaceState icon="canvas" title="没有匹配的画布" description="换一个画布名称或重置筛选条件。" />
                 )}
-                {hydrated && visibleProjects.length ? <div ref={loadMoreRef} className="library-load-more" aria-live="polite">
-                    {visibleProjects.length < filteredProjects.length ? `继续下滑加载更多（每页 50 条）` : `已加载全部 ${filteredProjects.length} 个画布`}
-                </div> : null}
+                {hydrated && visibleProjects.length ? (
+                    <div ref={loadMoreRef} className="library-load-more" aria-live="polite">
+                        {visibleProjects.length < filteredProjects.length ? `继续下滑加载更多（每页 50 条）` : `已加载全部 ${filteredProjects.length} 个画布`}
+                    </div>
+                ) : null}
             </div>
 
             <input ref={inputRef} type="file" accept="application/zip,.zip" className="hidden" onChange={(event) => void importCanvas(event.target.files?.[0])} />

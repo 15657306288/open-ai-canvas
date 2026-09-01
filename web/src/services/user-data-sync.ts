@@ -272,11 +272,7 @@ function collectLocalMediaKeys(value: unknown, set = new Set<string>()): string[
     return [...set];
 }
 
-async function ensureRemoteResourceReferences<T>(
-    value: T,
-    uploaded = new Map<string, string>(),
-    onUploaded?: () => void,
-): Promise<T> {
+async function ensureRemoteResourceReferences<T>(value: T, uploaded = new Map<string, string>(), onUploaded?: () => void): Promise<T> {
     if (!value || typeof value !== "object") return value;
     if (Array.isArray(value)) {
         const result: unknown[] = [];
