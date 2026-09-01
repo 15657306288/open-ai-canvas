@@ -3860,6 +3860,8 @@
     .canvas-folder-preview .canvas-project-media img { filter: saturate(.94) contrast(1.02); transition: transform 420ms var(--motion-ease-out), filter 240ms ease-out; }
     .canvas-folder-card:hover .canvas-folder-preview .canvas-project-media img { filter: saturate(1) contrast(1.04); transform: scale(1.025); }
     .canvas-folder-preview .canvas-project-preview-canvas { background: var(--canvas-cover-surface); }
+    .canvas-folder-opening { position: absolute; inset: 0; z-index: 2; display: flex; align-items: center; justify-content: center; gap: var(--space-2); background: color-mix(in srgb, var(--background) 78%, transparent); color: var(--foreground); font-size: var(--fs-caption); font-weight: 600; backdrop-filter: blur(3px); }
+    .canvas-folder-card.is-opening { pointer-events: none; }
 
     .canvas-folder-body {
         display: flex;
@@ -9322,6 +9324,13 @@
     [data-canvas-viewport-interacting="true"] .canvas-frame-shell,
     [data-canvas-viewport-interacting="true"] .aceternity-comet-card {
         transition: none !important;
+    }
+
+    /* 平移时优先保证世界层合成，暂时关闭每个媒体卡片的滤镜和阴影绘制。 */
+    [data-canvas-viewport-interacting="true"] :where(.canvas-node-shell, .canvas-frame-shell, .canvas-folder-preview, .canvas-folder-front, .aceternity-comet-card) {
+        box-shadow: none !important;
+        filter: none !important;
+        backdrop-filter: none !important;
     }
 
     /* 静止期用最终倍率重新排版 DOM，避免 Windows Chromium 复用交互期的低分辨率合成纹理。 */

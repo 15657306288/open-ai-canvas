@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { App, Button, Dropdown, Modal, Select } from "antd";
@@ -19,6 +19,7 @@ import { exportCanvasProjects } from "@/lib/canvas/canvas-export";
 import { saveCanvasDrawing, type CanvasDrawingRenderDraft } from "@/lib/canvas/canvas-drawing-storage";
 import { createCanvasProjectWithRemoteSync, saveRemoteUserDataNow } from "@/services/user-data-sync";
 import { listProjects } from "@/services/api/projects";
+import { loadCanvasProjectPage } from "@/lib/workspace-route-modules";
 
 export default function CanvasPage() {
     const { message } = App.useApp();
@@ -31,6 +32,8 @@ export default function CanvasPage() {
     const [projectFilter, setProjectFilter] = useState("all");
     const loadMoreRef = useRef<HTMLDivElement>(null);
     const [loadedProjectCount, setLoadedProjectCount] = useState(50);
+    const [openingProjectId, setOpeningProjectId] = useState("");
+    const openingProjectIdRef = useRef("");
     const hydrated = useCanvasStore((state) => state.hydrated);
     const projects = useCanvasStore((state) => state.projects);
     const importProject = useCanvasStore((state) => state.importProject);
@@ -45,9 +48,16 @@ export default function CanvasPage() {
     const agentMode = mode === "new" || mode === "recent" || mode === "choose";
     const handoffMode = mode === "handoff";
     const forwardedQuery = agentMode || handoffMode ? `?${searchParams.toString()}` : "";
-    const enterProject = (id: string) => {
-        navigate(`/canvas/${id}${forwardedQuery}`);
-    };
+    const preloadProject = useCallback(() => {
+        void loadCanvasProjectPage();
+    }, []);
+    const enterProject = useCallback((id: string) => {
+        if (openingProjectIdRef.current) return;
+        openingProjectIdRef.current = id;
+        setOpeningProjectId(id);
+        preloadProject();
+        window.requestAnimationFrame(() => navigate(`/canvas/${id}${forwardedQuery}`));
+    }, [forwardedQuery, navigate, preloadProject]);
     const createAndEnter = () => {
         void createCanvasProjectWithRemoteSync(`自由画布 ${projects.length + 1}`).then(({ id, syncError }) => {
             if (syncError) message.warning(syncError instanceof Error ? `画布已在本地创建，云端同步失败：${syncError.message}` : "画布已在本地创建，云端同步失败");
@@ -342,6 +352,8 @@ export default function CanvasPage() {
                                 project={project}
                                 projectName={project.projectId ? projectNames.get(project.projectId) || "未同步项目" : undefined}
                                 onClick={() => enterProject(project.id)}
+                                onPrefetch={preloadProject}
+                                opening={openingProjectId === project.id}
                             />
                         ))}
                     </CollectionGrid>

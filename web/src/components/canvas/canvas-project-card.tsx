@@ -12,6 +12,9 @@ import { resolveBackendApiUrl } from "@/stores/use-config-store";
 import { CachedResourceImage } from "@/components/cached-resource-image";
 import { cn } from "@/lib/utils";
 
+type ProjectPreviewMedia = { node: CanvasNodeData; url: string; storageKey?: string };
+const projectPreviewMediaCache = new WeakMap<CanvasNodeData[], { first?: ProjectPreviewMedia; latest?: ProjectPreviewMedia }>();
+
 export function CanvasCreateCard({ disabled, onClick }: { disabled?: boolean; onClick: () => void }) {
     return <button type="button" className="app-canvas-create-card" disabled={disabled} onClick={onClick}>
         <span className="app-canvas-create-preview"><Plus className="app-canvas-create-icon" /></span>
@@ -106,16 +109,7 @@ export function CanvasProjectCard({ project, projectName, variant = "library", r
 }
 
 export function ProjectPreview({ project, preferLatestImage = false }: { project: CanvasProject; preferLatestImage?: boolean }) {
-    const mediaNodes = project.nodes
-        .flatMap((node) => {
-            if (node.type !== CanvasNodeType.Image && node.type !== CanvasNodeType.Video) return [];
-            const url = getNodeMediaUrl(node);
-            return isPreviewUrl(url) ? [{ node, url, storageKey: node.metadata?.storageKey }] : [];
-        });
-    const imageNodes = mediaNodes.filter(({ node }) => node.type === CanvasNodeType.Image);
-    const media = preferLatestImage
-        ? imageNodes[imageNodes.length - 1] || mediaNodes[mediaNodes.length - 1]
-        : imageNodes[0] || mediaNodes[0];
+    const media = projectPreviewMedia(project.nodes, preferLatestImage);
     if (media) {
         const { node, url, storageKey } = media;
         return (
@@ -143,6 +137,31 @@ export function ProjectPreview({ project, preferLatestImage = false }: { project
             })}
         </div>
     );
+}
+
+export function projectPreviewMedia(nodes: CanvasNodeData[], preferLatestImage = false) {
+    let cached = projectPreviewMediaCache.get(nodes);
+    if (!cached) {
+        let firstMedia: ProjectPreviewMedia | undefined;
+        let firstImage: ProjectPreviewMedia | undefined;
+        let latestMedia: ProjectPreviewMedia | undefined;
+        let latestImage: ProjectPreviewMedia | undefined;
+        for (const node of nodes) {
+            if (node.type !== CanvasNodeType.Image && node.type !== CanvasNodeType.Video) continue;
+            const url = getNodeMediaUrl(node);
+            if (!isPreviewUrl(url)) continue;
+            const media = { node, url, storageKey: node.metadata?.storageKey };
+            firstMedia ||= media;
+            latestMedia = media;
+            if (node.type === CanvasNodeType.Image) {
+                firstImage ||= media;
+                latestImage = media;
+            }
+        }
+        cached = { first: firstImage || firstMedia, latest: latestImage || latestMedia };
+        projectPreviewMediaCache.set(nodes, cached);
+    }
+    return preferLatestImage ? cached.latest : cached.first;
 }
 
 function getNodeMediaUrl(node: CanvasNodeData) {
