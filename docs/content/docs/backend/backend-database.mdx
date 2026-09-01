@@ -128,10 +128,12 @@ description: 影策后端核心持久化表与状态边界
 
 | 表 | 用途 | 关键边界 |
 | --- | --- | --- |
-| `resources` | 保存资源元数据和实际存储位置引用 | S3 资源必须通过 `storage_setting_id` 固定绑定创建时的位置；浏览器默认经同源接口读取 |
+| `resources` | 保存资源元数据和实际存储位置引用 | `user_id + upload_key` 唯一约束保证逻辑上传幂等；S3 资源必须通过 `storage_setting_id` 固定绑定创建时的位置；浏览器默认经同源接口读取 |
 | `storage_locations` | 保存平台或个人 S3 位置版本、加密凭据和连接测试摘要 | Endpoint、Bucket、Region、PathStyle、PathPrefix、Provider 组成不可变位置；同位置只轮换凭据，位置变化创建新记录 |
 | `resource_deletion_jobs` | 在业务记录删除后可靠清理物理对象 | 固化资源的存储位置与对象键；删除失败保留任务并重试，S3 404 按幂等成功处理 |
 
 `storage_locations.value_json` 中的 Secret Key 和 Session Token 使用后端设置密钥加密。启用 S3 前，关键位置字段和凭据摘要必须与最近一次 Put、Range Get、Delete 连接测试结果一致；历史资源继续按绑定的位置读取和删除，不随当前配置切换。
+
+`resources.upload_key` 保存客户端 `X-Idempotency-Key` 的 SHA-256 摘要。相同用户重复提交同一逻辑上传时复用已有资源；失败重试继续使用原对象路径，避免对象存储已经接收请求但响应丢失时产生第二份物理对象。未提供幂等标识的后台生成资源保持 `NULL`，不参与该唯一约束。
 
 素材状态为 `archived` 时进入回收站。后台按“资源与请求策略”中的 `recycleBinRetentionDays` 定期扫描过期项；`0` 表示永久保留。自动清理与用户手动彻底删除复用同一 service 引用校验和 `resource_deletion_jobs` Outbox，仍被画布、项目、任务或其他业务记录引用的素材不会被删除。

@@ -306,13 +306,14 @@ export async function saveRemoteUserDataNow() {
 }
 
 async function drainRemoteUserDataChanges() {
+    const uploaded = new Map<string, string>();
     do {
         syncQueued = false;
-        await saveRemoteUserDataBatch();
+        await saveRemoteUserDataBatch(uploaded);
     } while (syncQueued);
 }
 
-async function saveRemoteUserDataBatch() {
+async function saveRemoteUserDataBatch(uploaded: Map<string, string>) {
     const currentProjects = useCanvasStore.getState().projects;
     const currentAssets = useAssetStore.getState().assets;
     const dirtyProjects = currentProjects.filter((project) => !sameEntitySnapshot(acknowledgedProjects.get(project.id), project));
@@ -323,7 +324,6 @@ async function saveRemoteUserDataBatch() {
     const deletedAssetIds = [...acknowledgedAssets.keys()].filter((id) => !currentAssetIds.has(id));
     if (!dirtyProjects.length && !dirtyAssets.length && !deletedProjectIds.length && !deletedAssetIds.length) return;
 
-    const uploaded = new Map<string, string>();
     // 转换后的 resource: 引用只属于发往服务端的 payload，不能反写整份实时 store。
     // 已确认快照记录的是本次上传所依据的本地实体；上传期间的新编辑会在下一轮继续提交。
     for (const source of dirtyProjects) {
@@ -419,7 +419,11 @@ async function ensureRemoteResourceReferences<T>(value: T, uploaded = new Map<st
     if (!isLocalStorageKey(storageKey)) {
         const inline = inlineMediaDataUrl(next);
         if (!inline) return next as T;
-        const resourceStorage = await uploadInlineDataUrl(inline);
+        const identity = await inlineMediaUploadIdentity(inline);
+        const cached = uploaded.get(identity);
+        if (cached) return applyResourceReference(next, cached) as T;
+        const resourceStorage = await uploadInlineDataUrl(inline, identity);
+        uploaded.set(identity, resourceStorage);
         onUploaded?.();
         return applyResourceReference(next, resourceStorage) as T;
     }
@@ -453,13 +457,18 @@ function inlineMediaDataUrl(payload: Record<string, unknown>) {
     return "";
 }
 
-async function uploadInlineDataUrl(dataUrl: string) {
+async function uploadInlineDataUrl(dataUrl: string, identity: string) {
     const response = await fetch(dataUrl);
     if (!response.ok) throw new Error("内嵌媒体读取失败");
     const blob = await response.blob();
     const kind: "image" | "video" | "audio" | "file" = blob.type.startsWith("image/") ? "image" : blob.type.startsWith("video/") ? "video" : blob.type.startsWith("audio/") ? "audio" : "file";
-    const resource = await uploadResourceFile(blob, kind);
+    const resource = await uploadResourceFile(blob, kind, { idempotencyKey: identity });
     return resourceStorageKey(resource.id);
+}
+
+async function inlineMediaUploadIdentity(dataUrl: string) {
+    const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(dataUrl));
+    return `inline:${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
 async function uploadLocalStorageKey(storageKey: string, payload: Record<string, unknown>) {
@@ -470,6 +479,7 @@ async function uploadLocalStorageKey(storageKey: string, payload: Record<string,
         width: numberValue(payload.naturalWidth) || numberValue(payload.width),
         height: numberValue(payload.naturalHeight) || numberValue(payload.height),
         durationMs: numberValue(payload.durationMs),
+        idempotencyKey: storageKey,
     });
     return resourceStorageKey(resource.id);
 }

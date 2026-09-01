@@ -4258,6 +4258,7 @@ test("remote resource preparation never overwrites an edit made while upload is 
     const previousAssets = useAssetStore.getState().assets;
     const indexedValues = new Map<string, string>();
     const remoteWrites: Asset[] = [];
+    let resourceUploads = 0;
     let releaseUpload!: () => void;
     const uploadReleased = new Promise<void>((resolve) => {
         releaseUpload = resolve;
@@ -4287,6 +4288,7 @@ test("remote resource preparation never overwrites an edit made while upload is 
             return { data: { code: 0, data: { projects: [], assets: [] }, msg: "" }, status: 200, statusText: "OK", headers: {}, config };
         }
         if (method === "post" && url === "/resources") {
+            resourceUploads += 1;
             uploadStartedResolve();
             await uploadReleased;
             return {
@@ -4350,6 +4352,7 @@ test("remote resource preparation never overwrites an edit made while upload is 
 
         expect(useAssetStore.getState().assets.find((item) => item.id === asset.id)?.title).toBe("edited during upload");
         expect(remoteWrites.at(-1)?.title).toBe("edited during upload");
+        expect(resourceUploads).toBe(1);
     } finally {
         releaseUpload();
         resetRemoteUserDataSync();
