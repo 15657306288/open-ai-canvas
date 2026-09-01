@@ -54,7 +54,6 @@ export type CanvasNodeContentProps = {
     onToggleBatch?: () => void;
     reduceMediaEffects?: boolean;
     mediaActive?: boolean;
-    hydrateMediaPreview?: boolean;
 };
 
 export function CanvasNodeContent(props: CanvasNodeContentProps) {
@@ -417,10 +416,11 @@ function EmptyImageContent({ node, theme, isBatchRoot, batchCount, batchExpanded
     return content;
 }
 
-function VideoNodeContent({ node, theme, reduceMediaEffects, mediaActive = false, hydrateMediaPreview = false }: CanvasNodeContentProps) {
+function VideoNodeContent({ node, theme, reduceMediaEffects, mediaActive = false }: CanvasNodeContentProps) {
     const playerBoxRef = useRef<HTMLDivElement>(null);
     const { updateMediaNode } = useCanvasNodeActions();
-    const { url, loading } = useNodeResourceUrl(node, mediaActive);
+    const hasPassivePreview = Boolean(canvasNodeVideoPreviewUrl(node));
+    const { url, loading } = useNodeResourceUrl(node, mediaActive || !hasPassivePreview);
     const subtitleEntries = node.metadata?.subtitleEntries || [];
     const subtitleStyle = node.metadata?.subtitleStyle || createDefaultSubtitleStyle();
     const [currentTimeMs, setCurrentTimeMs] = useState(0);
@@ -449,7 +449,7 @@ function VideoNodeContent({ node, theme, reduceMediaEffects, mediaActive = false
     }, [node.id, node.metadata?.naturalHeight, node.metadata?.naturalWidth, subtitleEntries.length, updateMediaNode, url]);
 
     if (!node.metadata?.content) return <EmptyMediaContent icon={<Video className="size-7 opacity-35" />} label="空视频节点" color={theme.node.placeholder} />;
-    if (!mediaActive) return <InactiveVideoPreview node={node} theme={theme} hydrateMediaPreview={hydrateMediaPreview} />;
+    if (!mediaActive) return <InactiveVideoPreview node={node} theme={theme} sourceUrl={url} sourceLoading={loading} />;
     if (!url) return <MediaLoadingState icon={<LoaderCircle className="size-5 animate-spin" />} label={loading ? "正在加载视频" : "视频资源不可用"} />;
 
     const sourceRatio = (videoSize?.width || node.metadata?.naturalWidth || node.width) / Math.max(1, videoSize?.height || node.metadata?.naturalHeight || node.height);
@@ -484,18 +484,18 @@ function AudioNodeContent({ node, theme }: CanvasNodeContentProps) {
     return <CanvasAudioPlayer node={node} theme={theme} />;
 }
 
-function InactiveVideoPreview({ node, theme, hydrateMediaPreview = false }: Pick<CanvasNodeContentProps, "node" | "theme" | "hydrateMediaPreview">) {
+function InactiveVideoPreview({ node, theme, sourceUrl, sourceLoading }: Pick<CanvasNodeContentProps, "node" | "theme"> & { sourceUrl: string; sourceLoading: boolean }) {
     const previewUrl = canvasNodeVideoPreviewUrl(node);
     const { updateMetadata } = useCanvasNodeActions();
     const updateMetadataRef = useRef(updateMetadata);
-    const [hydrating, setHydrating] = useState(false);
+    const [hydrating, setHydrating] = useState(() => !previewUrl && Boolean(node.metadata?.content));
 
     useEffect(() => {
         updateMetadataRef.current = updateMetadata;
     }, [updateMetadata]);
 
     useEffect(() => {
-        if (previewUrl || !hydrateMediaPreview || !node.metadata?.content || !updateMetadataRef.current) {
+        if (previewUrl || !node.metadata?.content || !updateMetadataRef.current) {
             setHydrating(false);
             return;
         }
@@ -510,12 +510,32 @@ function InactiveVideoPreview({ node, theme, hydrateMediaPreview = false }: Pick
                 if (!controller.signal.aborted) setHydrating(false);
             });
         return () => controller.abort();
-    }, [hydrateMediaPreview, node.id, node.metadata?.content, node.metadata?.storageKey, previewUrl]);
+    }, [node.id, node.metadata?.content, node.metadata?.storageKey, previewUrl]);
 
     if (previewUrl) {
         return <div className="relative size-full overflow-hidden rounded-[var(--node-radius)] bg-black"><img src={previewUrl} alt={`${node.title || "视频"} 静态预览`} loading="lazy" decoding="async" draggable={false} className="pointer-events-none size-full select-none object-contain" /></div>;
     }
-    return <InactiveMediaCard icon={<Video className="size-7" />} title={node.title || "视频"} hint={hydrating ? "正在生成首帧" : "选择后加载视频"} theme={theme} />;
+    if (sourceUrl) {
+        return <div className="relative size-full overflow-hidden rounded-[var(--node-radius)] bg-black">
+            <video
+                src={sourceUrl}
+                aria-label={`${node.title || "视频"} 首帧预览`}
+                muted
+                playsInline
+                preload="auto"
+                draggable={false}
+                className="pointer-events-none size-full select-none object-contain"
+                onLoadedMetadata={(event) => primePassiveVideoFrame(event.currentTarget)}
+                onLoadedData={(event) => primePassiveVideoFrame(event.currentTarget)}
+            />
+            {hydrating ? <span className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-black/55 px-2 py-1 text-[var(--fs-tiny)] text-white/70 backdrop-blur">正在保存首帧</span> : null}
+        </div>;
+    }
+    return <InactiveMediaCard icon={<Video className="size-7" />} title={node.title || "视频"} hint={sourceLoading || hydrating ? "正在加载首帧" : "视频资源暂不可用"} theme={theme} />;
+}
+
+function primePassiveVideoFrame(video: HTMLVideoElement) {
+    if (video.currentTime === 0 && Number.isFinite(video.duration) && video.duration > 0) video.currentTime = Math.min(0.001, video.duration);
 }
 
 function InactiveMediaCard({ icon, title, hint, theme }: { icon: ReactNode; title: string; hint: string; theme: CanvasTheme }) {

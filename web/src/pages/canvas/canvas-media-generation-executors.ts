@@ -5,6 +5,7 @@ import { canGenerateMediaInPlace } from "@/lib/canvas/canvas-generation-layout";
 import { nodeSizeFromRatio } from "@/lib/canvas/canvas-node-size";
 import { nextCanvasVersionLabel } from "@/lib/canvas/canvas-layout";
 import { buildAudioGenerationMetadata, buildVideoGenerationMetadata, generationReferenceUrls, runCanvasGenerationTaskToConsumer } from "@/lib/canvas/canvas-project-generation";
+import { canvasGenerationPromptMetadata } from "@/lib/canvas/canvas-generation-submission";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 
 import type { CanvasGenerationExecution } from "./canvas-generation-executor-types";
@@ -15,6 +16,7 @@ const NODE_STATUS_SUCCESS = "success" as const;
 export async function executeVideoGeneration({
     nodeId,
     sourceNode,
+    prompt,
     effectivePrompt,
     generationConfig,
     generationContext,
@@ -49,7 +51,7 @@ export async function executeVideoGeneration({
         height: reuseSourceNode ? sourceNode!.height : spec.height,
         metadata: {
             ...(reuseSourceNode ? sourceNode?.metadata || {} : {}),
-            prompt: effectivePrompt,
+            ...canvasGenerationPromptMetadata(prompt, effectivePrompt),
             status: NODE_STATUS_LOADING,
             errorDetails: undefined,
             generationErrorCode: undefined,
@@ -130,6 +132,7 @@ export async function executeVideoGeneration({
 export async function executeAudioGeneration({
     nodeId,
     sourceNode,
+    prompt,
     effectivePrompt,
     generationConfig,
     generationContext,
@@ -157,7 +160,7 @@ export async function executeAudioGeneration({
         position: isEmptyAudioNode ? sourceNode.position : { x: parent.x + (sourceNode?.width || spec.width) + 96, y: parent.y + ((sourceNode?.height || spec.height) - spec.height) / 2 },
         width: isEmptyAudioNode ? sourceNode.width : spec.width,
         height: isEmptyAudioNode ? sourceNode.height : spec.height,
-        metadata: { prompt: effectivePrompt, status: NODE_STATUS_LOADING, ...buildAudioGenerationMetadata(generationConfig), ...skillMetadata },
+        metadata: { ...canvasGenerationPromptMetadata(prompt, effectivePrompt), status: NODE_STATUS_LOADING, ...buildAudioGenerationMetadata(generationConfig), ...skillMetadata },
     };
     registerPendingNodeIds([audioId]);
     setNodes((current) =>

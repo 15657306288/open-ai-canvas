@@ -14,6 +14,7 @@ const canvasNodeContentSource = readFileSync(resolve(import.meta.dir, "../src/co
 const canvasAudioPlayerSource = readFileSync(resolve(import.meta.dir, "../src/components/canvas/canvas-audio-player.tsx"), "utf8");
 const canvasMentionSource = readFileSync(resolve(import.meta.dir, "../src/components/canvas/canvas-resource-mention-textarea.tsx"), "utf8");
 const canvasNodeSource = readFileSync(resolve(import.meta.dir, "../src/components/canvas/canvas-node.tsx"), "utf8");
+const canvasVideoPreviewSource = readFileSync(resolve(import.meta.dir, "../src/services/canvas-video-preview.ts"), "utf8");
 const videoPlayerSource = readFileSync(resolve(import.meta.dir, "../src/components/video-player.tsx"), "utf8");
 const canvasProjectSource = readFileSync(resolve(import.meta.dir, "../src/pages/canvas/project.tsx"), "utf8");
 const globalStylesSource = readFileSync(resolve(import.meta.dir, "../src/styles/globals.css"), "utf8");
@@ -66,6 +67,20 @@ describe("large canvas media rendering", () => {
 
     test("keeps node shells visible while panning and zooming", () => {
         expect(globalStylesSource).not.toMatch(/\[data-canvas-viewport-interacting="true"\]\s+\.canvas-node-shell\s*\{[^}]*content-visibility:\s*hidden/);
+    });
+
+    test("lets inactive video nodes hydrate their own first-frame preview", () => {
+        expect(canvasNodeContentSource).toContain("if (previewUrl || !node.metadata?.content || !updateMetadataRef.current)");
+        expect(canvasNodeContentSource).not.toContain("hydrateMediaPreview");
+        expect(canvasNodeContentSource).toContain("mediaActive || !hasPassivePreview");
+        expect(canvasNodeContentSource).toContain('muted\n                playsInline\n                preload="auto"');
+        expect(canvasNodeContentSource).toContain("onLoadedMetadata={(event) => primePassiveVideoFrame(event.currentTarget)}");
+        expect(canvasNodeContentSource).toContain("video.currentTime = Math.min(0.001, video.duration)");
+    });
+
+    test("allows failed or empty first-frame requests to retry", () => {
+        expect(canvasVideoPreviewSource).toContain("if (!preview) previewRequests.delete(requestKey)");
+        expect(canvasVideoPreviewSource).toContain("previewRequests.delete(requestKey);");
     });
 });
 

@@ -144,7 +144,6 @@ export const CanvasProjectWorldLayers = memo(function CanvasProjectWorldLayers(p
                         scale={viewportScale}
                         isSelected={props.selectedNodeIds.has(node.id)}
                         mediaActive={activeMediaNodeId === node.id}
-                        hydrateMediaPreview={activeMediaNodeId === null && !props.reduceMediaEffects}
                         isRelated={props.relatedNodeIds.has(node.id)}
                         isFocusRelated={props.activeNodeId === node.id}
                         isConnectionTarget={props.connectionTargetNodeId === node.id || props.batchConnectionPreview?.targetNodeId === node.id}
