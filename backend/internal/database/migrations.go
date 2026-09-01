@@ -93,22 +93,27 @@ func migrateSchemaV3(tx *gorm.DB) error {
 
 func migrateSchemaV4(tx *gorm.DB) error {
 	// 将价格字段从 bigint 改为 numeric(20,6)，支持小数价格
-	priceColumns := []string{
+	// channel_models 和 billing_orders 表使用 _token_price_ 命名
+	tokenPriceColumns := []string{
 		"unit_price_microcredits",
 		"input_token_price_microcredits",
 		"output_token_price_microcredits",
 		"cached_token_price_microcredits",
 	}
-	tables := []string{"channel_models", "billing_orders", "logical_models"}
-	for _, table := range tables {
-		for _, col := range priceColumns {
+	for _, table := range []string{"channel_models", "billing_orders"} {
+		for _, col := range tokenPriceColumns {
 			if err := tx.Exec(fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s TYPE numeric(20,6)", table, col)).Error; err != nil {
 				return fmt.Errorf("修改 %s.%s 字段类型：%w", table, col, err)
 			}
 		}
 	}
-	// logical_models 表的价格字段名不同
-	logicalPriceColumns := []string{"input_price_microcredits", "output_price_microcredits", "cached_price_microcredits"}
+	// logical_models 表使用 _price_ 命名（没有 _token_）
+	logicalPriceColumns := []string{
+		"unit_price_microcredits",
+		"input_price_microcredits",
+		"output_price_microcredits",
+		"cached_price_microcredits",
+	}
 	for _, col := range logicalPriceColumns {
 		if err := tx.Exec(fmt.Sprintf("ALTER TABLE logical_models ALTER COLUMN %s TYPE numeric(20,6)", col)).Error; err != nil {
 			return fmt.Errorf("修改 logical_models.%s 字段类型：%w", col, err)
