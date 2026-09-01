@@ -19,6 +19,7 @@ let remoteOperationTail: Promise<void> = Promise.resolve();
 let subscriptionsInstalled = false;
 let acknowledgedAssets = new Map<string, Asset>();
 let acknowledgedProjects = new Map<string, CanvasProject>();
+const resolvedResourceReferences = new Map<string, string>();
 
 const LOCAL_STORAGE_KEY_PATTERN = /^(image|video|audio|file|video-reference|audio-reference):/;
 
@@ -27,6 +28,7 @@ export async function syncRemoteUserData(userId?: string | null) {
         activeRemoteUserId = userId || "";
         acknowledgedProjects.clear();
         acknowledgedAssets.clear();
+        resolvedResourceReferences.clear();
         if (!activeRemoteUserId) {
             remoteUserDataPhase = "inactive";
             return;
@@ -67,6 +69,7 @@ export function resetRemoteUserDataSync() {
     remoteUserDataPhase = "inactive";
     acknowledgedAssets.clear();
     acknowledgedProjects.clear();
+    resolvedResourceReferences.clear();
     if (syncTimer) {
         window.clearTimeout(syncTimer);
         syncTimer = null;
@@ -219,13 +222,18 @@ async function ensureRemoteResourceReferences<T>(value: T, uploaded = new Map<st
     if (!isLocalStorageKey(storageKey)) {
         const inline = inlineMediaDataUrl(next);
         if (!inline) return next as T;
-        const resourceStorage = await uploadInlineDataUrl(inline);
+        const identity = await inlineMediaUploadIdentity(inline);
+        const cached = uploaded.get(identity) || resolvedResourceReferences.get(identity);
+        const resourceStorage = cached || (await uploadInlineDataUrl(inline, identity));
+        uploaded.set(identity, resourceStorage);
+        resolvedResourceReferences.set(identity, resourceStorage);
         return applyResourceReference(next, resourceStorage) as T;
     }
 
-    const cached = uploaded.get(storageKey);
+    const cached = uploaded.get(storageKey) || resolvedResourceReferences.get(storageKey);
     const resourceStorage = cached || (await uploadLocalStorageKey(storageKey, next));
     uploaded.set(storageKey, resourceStorage);
+    resolvedResourceReferences.set(storageKey, resourceStorage);
     return applyResourceReference(next, resourceStorage) as T;
 }
 
@@ -246,13 +254,18 @@ function inlineMediaDataUrl(payload: Record<string, unknown>) {
     return "";
 }
 
-async function uploadInlineDataUrl(dataUrl: string) {
+async function uploadInlineDataUrl(dataUrl: string, identity: string) {
     const response = await fetch(dataUrl);
     if (!response.ok) throw new Error("内嵌媒体读取失败");
     const blob = await response.blob();
     const kind: "image" | "video" | "audio" | "file" = blob.type.startsWith("image/") ? "image" : blob.type.startsWith("video/") ? "video" : blob.type.startsWith("audio/") ? "audio" : "file";
-    const resource = await uploadResourceFile(blob, kind);
+    const resource = await uploadResourceFile(blob, kind, { idempotencyKey: identity });
     return resourceStorageKey(resource.id);
+}
+
+async function inlineMediaUploadIdentity(dataUrl: string) {
+    const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(dataUrl));
+    return `inline:${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
 async function uploadLocalStorageKey(storageKey: string, payload: Record<string, unknown>) {
@@ -263,6 +276,7 @@ async function uploadLocalStorageKey(storageKey: string, payload: Record<string,
         width: numberValue(payload.naturalWidth) || numberValue(payload.width),
         height: numberValue(payload.naturalHeight) || numberValue(payload.height),
         durationMs: numberValue(payload.durationMs),
+        idempotencyKey: storageKey,
     });
     return resourceStorageKey(resource.id);
 }

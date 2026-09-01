@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { defaultConfig } from "../src/stores/use-config-store";
+import { defaultConfig, type AiConfig } from "../src/stores/use-config-store";
 import { runBackendGenerationTask, runBackendGenerationTaskBatch } from "../src/services/api/generation-task";
 import { deleteGenerationTask, formatTaskLog, listGenerationTasks, projectBackendSafeTaskLog, splitGenerationTaskObservationIds, type GenerationTask } from "../src/services/api/task-center";
 import { isLocalDreaminaBackgroundTask, localDreaminaCancellationCopy, localDreaminaDetachOutcome, projectLocalDreaminaTask } from "../src/services/local-dreamina-task-projection";
@@ -22,6 +22,27 @@ function sourceSection(source: string, startMarker: string, endMarker: string) {
     expect(start).toBeGreaterThanOrEqual(0);
     expect(end).toBeGreaterThan(start);
     return compactSource(source.slice(start, end));
+}
+
+function remoteBackendConfig(model: string, overrides: Partial<AiConfig> = {}): AiConfig {
+    const modelName = model.includes("::") ? model.slice(model.indexOf("::") + 2) : model;
+    return {
+        ...defaultConfig,
+        ...overrides,
+        model,
+        channels: [
+            {
+                id: "default",
+                name: "Backend test channel",
+                baseUrl: "https://api.example.com",
+                apiKey: "test-key",
+                apiFormat: "openai",
+                interfaceType: "newapi-channel-2",
+                models: [modelName],
+                scope: "user",
+            },
+        ],
+    };
 }
 
 test("Dreamina submit failure categories have bounded user-facing messages", () => {
@@ -1286,7 +1307,7 @@ test("remote provider keeps Create resolution semantics and still creates one Ba
         {
             mode: "video",
             prompt: "A remote test clip",
-            config: { ...defaultConfig, model: "default::grok-imagine-video", vquality: "720", quality: "auto" },
+            config: remoteBackendConfig("default::grok-imagine-video", { vquality: "720", quality: "auto" }),
         },
         {
             createTask: async (input) => {
@@ -1354,7 +1375,7 @@ test("remote image video and audio references keep Backend parity without Dreami
             {
                 mode: item.mode,
                 prompt: "Remote parity fixture",
-                config: { ...defaultConfig, model: "default::provider-neutral-model" },
+                config: remoteBackendConfig("default::provider-neutral-model"),
                 ...item.references,
             },
             {
@@ -1673,7 +1694,7 @@ test("Create audio upload converts, previews, removes, and submits through the s
             projectId: running.projectId,
             mode: "video",
             prompt: running.prompt,
-            config: { ...defaultConfig, model: "remote-video-audio-fixture", videoModel: "remote-video-audio-fixture" },
+            config: remoteBackendConfig("remote-video-audio-fixture", { videoModel: "remote-video-audio-fixture" }),
             ...references,
         } as Parameters<typeof runBackendGenerationTask>[0],
         {
