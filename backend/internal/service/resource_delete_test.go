@@ -257,6 +257,61 @@ func TestResourceDeletionWorkerRemovesObjectAndCompletesOutbox(t *testing.T) {
 	}
 }
 
+func TestExpiredArchivedAssetCleanupRespectsCanvasReferencesAndUsesDeletionOutbox(t *testing.T) {
+	svc, db, _ := newResourceDeletionTestService(t)
+	old := time.Now().Add(-45 * 24 * time.Hour)
+	resource := model.Resource{
+		ID: "resource-expired-archive", UserID: "user-1", Provider: "unsupported-test-provider",
+		ObjectKey: "users/user-1/image/expired.png", Status: model.ResourceStatusReady,
+	}
+	asset := model.Asset{
+		ID: "asset-expired-archive", UserID: "user-1", Title: "过期回收站素材",
+		Status: model.AssetVersionStatusArchived, PayloadJSON: `{"data":{"storageKey":"resource:resource-expired-archive"}}`,
+		CreatedAt: old, UpdatedAt: old,
+	}
+	canvas := model.CanvasProject{
+		ID: "canvas-expired-archive", UserID: "user-1", Title: "仍引用回收站素材的画布",
+		PayloadJSON: `{"nodes":[{"data":{"storageKey":"resource:resource-expired-archive"}}]}`,
+	}
+	for _, item := range []any{&resource, &asset, &canvas} {
+		if err := db.Create(item).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	svc.cleanupExpiredArchivedAssets()
+	var assetCount, resourceCount, jobCount int64
+	if err := db.Model(&model.Asset{}).Where("id = ?", asset.ID).Count(&assetCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&model.Resource{}).Where("id = ?", resource.ID).Count(&resourceCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&model.ResourceDeletionJob{}).Where("resource_id = ?", resource.ID).Count(&jobCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if assetCount != 1 || resourceCount != 1 || jobCount != 0 {
+		t.Fatalf("referenced archived asset cleanup changed data: asset=%d resource=%d jobs=%d", assetCount, resourceCount, jobCount)
+	}
+
+	if err := db.Delete(&model.CanvasProject{}, "id = ? AND user_id = ?", canvas.ID, canvas.UserID).Error; err != nil {
+		t.Fatal(err)
+	}
+	svc.cleanupExpiredArchivedAssets()
+	if err := db.Model(&model.Asset{}).Where("id = ?", asset.ID).Count(&assetCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&model.Resource{}).Where("id = ?", resource.ID).Count(&resourceCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&model.ResourceDeletionJob{}).Where("resource_id = ?", resource.ID).Count(&jobCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if assetCount != 0 || resourceCount != 0 || jobCount != 1 {
+		t.Fatalf("unreferenced archived asset did not use deletion outbox: asset=%d resource=%d jobs=%d", assetCount, resourceCount, jobCount)
+	}
+}
+
 func newResourceDeletionTestService(t *testing.T) (*Service, *gorm.DB, string) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open("file:"+newID()+"?mode=memory&cache=shared"), &gorm.Config{})

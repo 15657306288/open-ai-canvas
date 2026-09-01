@@ -157,15 +157,12 @@ export function useCanvasRenderModel({
     const nodeSpatialIndexRef = useRef<{ source: CanvasNodeData[]; index: CanvasSpatialIndex<string> } | null>(null);
     const nodeSpatialIndex = useMemo(() => {
         const previous = nodeSpatialIndexRef.current;
-        const geometryUnchanged = previous
-            && previous.source.length === nodes.length
-            && nodes.every((node, index) => {
+        const geometryUnchanged =
+            previous &&
+            previous.source.length === nodes.length &&
+            nodes.every((node, index) => {
                 const old = previous.source[index];
-                return old.id === node.id
-                    && old.position.x === node.position.x
-                    && old.position.y === node.position.y
-                    && old.width === node.width
-                    && old.height === node.height;
+                return old.id === node.id && old.position.x === node.position.x && old.position.y === node.position.y && old.width === node.width && old.height === node.height;
             });
         if (geometryUnchanged) return previous.index;
         const index = buildCanvasSpatialIndex(nodes.map((node) => ({ id: node.id, bounds: canvasNodeBounds(node), value: node.id })));
@@ -179,7 +176,8 @@ export function useCanvasRenderModel({
         const renderedNodeIds = renderedNodeIdsRef.current;
         const renderBudget = canvasNodeRenderBudget(viewport.k);
         const forcedNodeIds = new Set([...selectedNodeIds, ...(dragPreview?.nodeIds || [])].slice(0, renderBudget));
-        const candidates = nodeSpatialIndex.query(renderBounds.retain, renderBudget + forcedNodeIds.size)
+        const candidates = nodeSpatialIndex
+            .query(renderBounds.retain, renderBudget + forcedNodeIds.size)
             .map((nodeId) => nodeById.get(nodeId))
             .filter((node): node is CanvasNodeData => Boolean(node));
         const candidateIds = new Set(candidates.map((node) => node.id));
@@ -193,10 +191,7 @@ export function useCanvasRenderModel({
         [...prioritized, ...remaining].forEach((node) => {
             if (renderHiddenNodeIds.has(node.id)) return;
             const retained = forcedNodeIds.has(node.id) || renderedNodeIds.has(node.id);
-            const insideEnterBounds = node.position.x + node.width > renderBounds.enter.left
-                && node.position.x < renderBounds.enter.right
-                && node.position.y + node.height > renderBounds.enter.top
-                && node.position.y < renderBounds.enter.bottom;
+            const insideEnterBounds = node.position.x + node.width > renderBounds.enter.left && node.position.x < renderBounds.enter.right && node.position.y + node.height > renderBounds.enter.top && node.position.y < renderBounds.enter.bottom;
             if (!retained && !insideEnterBounds) return;
             (isFrameNode(node) ? frames : regular).push(node);
         });
@@ -206,7 +201,7 @@ export function useCanvasRenderModel({
         renderedNodeIdsRef.current = new Set(visibleNodes.map((node) => node.id));
     }, [visibleNodes]);
 
-    const imageAssets = useMemo(() => assets.filter((asset): asset is ImageAsset => asset.kind === "image"), [assets]);
+    const imageAssets = useMemo(() => assets.filter((asset): asset is ImageAsset => asset.kind === "image" && asset.status !== "archived"), [assets]);
     const semanticNodesRef = useRef(nodes);
     const semanticNodes = useMemo(() => {
         const previous = semanticNodesRef.current;
@@ -239,9 +234,7 @@ export function useCanvasRenderModel({
 
     const selectedNodeBounds = useMemo(() => {
         if (selectedNodeIds.size < 2) return null;
-        const selectedNodes = [...selectedNodeIds]
-            .map((nodeId) => nodeById.get(nodeId))
-            .filter((node): node is CanvasNodeData => Boolean(node && !renderHiddenNodeIds.has(node.id)));
+        const selectedNodes = [...selectedNodeIds].map((nodeId) => nodeById.get(nodeId)).filter((node): node is CanvasNodeData => Boolean(node && !renderHiddenNodeIds.has(node.id)));
         if (selectedNodes.length < 2) return null;
         const left = Math.min(...selectedNodes.map((node) => node.position.x));
         const top = Math.min(...selectedNodes.map((node) => node.position.y));
@@ -249,14 +242,18 @@ export function useCanvasRenderModel({
         const bottom = Math.max(...selectedNodes.map((node) => node.position.y + node.height));
         return { left, top, width: right - left, height: bottom - top, count: selectedNodes.length };
     }, [nodeById, renderHiddenNodeIds, selectedNodeIds]);
-    const selectedVideoNodes = useMemo(() => [...selectedNodeIds]
-        .map((nodeId) => nodeById.get(nodeId))
-        .filter((node): node is CanvasNodeData => Boolean(node && node.type === CanvasNodeType.Video && node.metadata?.content && !renderHiddenNodeIds.has(node.id)))
-        .sort((a, b) => {
-            const shotA = a.metadata?.shotIndex ?? Number.MAX_SAFE_INTEGER;
-            const shotB = b.metadata?.shotIndex ?? Number.MAX_SAFE_INTEGER;
-            return shotA - shotB || a.position.y - b.position.y || a.position.x - b.position.x;
-        }), [nodeById, renderHiddenNodeIds, selectedNodeIds]);
+    const selectedVideoNodes = useMemo(
+        () =>
+            [...selectedNodeIds]
+                .map((nodeId) => nodeById.get(nodeId))
+                .filter((node): node is CanvasNodeData => Boolean(node && node.type === CanvasNodeType.Video && node.metadata?.content && !renderHiddenNodeIds.has(node.id)))
+                .sort((a, b) => {
+                    const shotA = a.metadata?.shotIndex ?? Number.MAX_SAFE_INTEGER;
+                    const shotB = b.metadata?.shotIndex ?? Number.MAX_SAFE_INTEGER;
+                    return shotA - shotB || a.position.y - b.position.y || a.position.x - b.position.x;
+                }),
+        [nodeById, renderHiddenNodeIds, selectedNodeIds],
+    );
     const relatedHighlight = useMemo(() => {
         const nodeIds = new Set<string>();
         const connectionIds = new Set<string>();
@@ -344,7 +341,10 @@ export function useCanvasRenderModel({
         }
         return targetNodes;
     }, [activeNodeId, dialogNodeId, nodeById, visibleNodes]);
-    const canvasResourceReferences = useMemo(() => buildCanvasResourceReferences(semanticNodes, connections, dialogNodeId || activeNodeId, resourceReferenceTargetNodes), [activeNodeId, connections, dialogNodeId, resourceReferenceTargetNodes, semanticNodes]);
+    const canvasResourceReferences = useMemo(
+        () => buildCanvasResourceReferences(semanticNodes, connections, dialogNodeId || activeNodeId, resourceReferenceTargetNodes),
+        [activeNodeId, connections, dialogNodeId, resourceReferenceTargetNodes, semanticNodes],
+    );
     const resourceReferenceByNodeId = useMemo(() => new Map(canvasResourceReferences.map((reference) => [reference.nodeId, reference])), [canvasResourceReferences]);
     const skillMentionReferences = useMemo(() => buildSkillMentionReferences(addedSkills), [addedSkills]);
     const mentionReferencesByNodeId = useMemo(() => {

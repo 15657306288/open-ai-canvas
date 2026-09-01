@@ -8,6 +8,7 @@ import { flushAssetStorePersistence, useAssetStore } from "@/stores/use-asset-st
 import type { CanvasProject } from "@/stores/canvas/use-canvas-store";
 import { flushCanvasStorePersistence, useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { useSyncProgressStore } from "@/stores/use-sync-progress-store";
+import { useCanvasHistoryStore } from "@/stores/canvas/use-canvas-history-store";
 
 let activeRemoteUserId = "";
 type RemoteUserDataPhase = "inactive" | "hydrating" | "ready" | "failed";
@@ -134,16 +135,31 @@ export async function deleteCanvasProjectsWithRemoteSync(ids: string[]) {
     if (!projectIds.length) return;
     await withRemoteUserDataSyncExclusive(async () => {
         if (activeRemoteUserId) requireRemoteUserDataBaseline();
+        const currentProjects = useCanvasStore.getState().projects;
+        const projectById = new Map(currentProjects.map((project) => [project.id, project]));
+        const deletedProjectIds: string[] = [];
+        const deletedProjectObjects: CanvasProject[] = [];
+        let deletionError: unknown;
         for (const id of projectIds) {
-            if (activeRemoteUserId) {
-                await deleteRemoteCanvasProject(id);
-                acknowledgedProjects.delete(id);
+            try {
+                if (activeRemoteUserId) {
+                    await deleteRemoteCanvasProject(id);
+                    acknowledgedProjects.delete(id);
+                }
+                useCanvasStore.getState().deleteProjects([id]);
+                // 批量删除允许部分成功；每个已成功远端删除的实体都立即落实到本地 durable cache。
+                await flushCanvasStorePersistence();
+                deletedProjectIds.push(id);
+                const project = projectById.get(id);
+                if (project) deletedProjectObjects.push(project);
+            } catch (error) {
+                deletionError = error;
+                break;
             }
-            useCanvasStore.getState().deleteProjects([id]);
-            // 批量删除允许部分成功；每个已成功远端删除的实体都立即落实到本地 durable cache。
-            await flushCanvasStorePersistence();
         }
-        // 清理仅属于被删除画布的自动生成素材
+        if (deletedProjectObjects.length > 0) useCanvasHistoryStore.getState().recordDeletedProjects(deletedProjectObjects);
+
+        // 将属于被删除画布的所有媒体节点安全归档至素材库回收站 (status = "archived")
         const currentAssets = useAssetStore.getState().assets;
         const remainingProjects = useCanvasStore.getState().projects;
         const activeAssetIds = new Set<string>();
@@ -152,25 +168,122 @@ export async function deleteCanvasProjectsWithRemoteSync(ids: string[]) {
                 if (node.metadata?.assetId) activeAssetIds.add(node.metadata.assetId);
             }
         }
-        const assetsToRemove = currentAssets.filter((asset) => {
+        let assetChanged = false;
+        // 1. 已存在的关联素材标记为 archived
+        const assetsToArchive = currentAssets.filter((asset) => {
             const canvasId = asset.metadata?.canvasId as string | undefined;
-            const source = asset.metadata?.source as string | undefined;
-            return canvasId && projectIds.includes(canvasId) && source === "canvas-generation" && !activeAssetIds.has(asset.id);
+            return canvasId && deletedProjectIds.includes(canvasId) && !activeAssetIds.has(asset.id) && asset.status !== "archived";
         });
-        for (const asset of assetsToRemove) {
-            if (activeRemoteUserId) {
-                try {
-                    await deleteRemoteAsset(asset.id);
-                    acknowledgedAssets.delete(asset.id);
-                } catch {
-                    // 忽略远端删除失败，继续本地清理
+        for (const asset of assetsToArchive) {
+            useAssetStore.getState().updateAsset(asset.id, { status: "archived" });
+            assetChanged = true;
+        }
+
+        // 2. 对于画布中尚未入库的媒体节点，直接归档为回收站素材
+        for (const project of deletedProjectObjects) {
+            for (const node of project.nodes || []) {
+                const isMedia = node.type === "image" || node.type === "video" || node.type === "audio";
+                const content = typeof node.metadata?.content === "string" ? node.metadata.content : "";
+                const storageKey = typeof node.metadata?.storageKey === "string" ? node.metadata.storageKey : undefined;
+                if (!isMedia || (!content && !storageKey)) continue;
+
+                const existingAsset = node.metadata?.assetId ? currentAssets.find((a) => a.id === node.metadata?.assetId) : undefined;
+                if (existingAsset) {
+                    const owningCanvasId = existingAsset.metadata?.canvasId as string | undefined;
+                    if (owningCanvasId === project.id && !activeAssetIds.has(existingAsset.id) && existingAsset.status !== "archived") {
+                        useAssetStore.getState().updateAsset(existingAsset.id, { status: "archived" });
+                        assetChanged = true;
+                    }
+                    continue;
+                }
+
+                const title = node.title || `${project.title} - ${node.type === "image" ? "图片" : node.type === "video" ? "视频" : "音频"}`;
+                const prompt = typeof node.metadata?.prompt === "string" ? node.metadata.prompt : "";
+                if (node.type === "image") {
+                    useAssetStore.getState().addAsset({
+                        kind: "image",
+                        title,
+                        coverUrl: content || "",
+                        tags: prompt ? [prompt.slice(0, 16)] : ["画布生成"],
+                        category: "other",
+                        status: "archived",
+                        source: `已删除画布：${project.title}`,
+                        data: {
+                            dataUrl: content || "",
+                            storageKey,
+                            width: Number(node.width) || 1024,
+                            height: Number(node.height) || 1024,
+                            bytes: Number(node.metadata?.bytes) || 0,
+                            mimeType: (node.metadata?.mimeType as string) || "image/png",
+                        },
+                        metadata: {
+                            canvasId: project.id,
+                            sourceNodeId: node.id,
+                        },
+                    });
+                    assetChanged = true;
+                } else if (node.type === "video") {
+                    useAssetStore.getState().addAsset({
+                        kind: "video",
+                        title,
+                        coverUrl: content || "",
+                        tags: prompt ? [prompt.slice(0, 16)] : ["画布视频"],
+                        category: "other",
+                        status: "archived",
+                        source: `已删除画布：${project.title}`,
+                        data: {
+                            url: content || "",
+                            storageKey,
+                            width: Number(node.width) || 1280,
+                            height: Number(node.height) || 720,
+                            durationMs: Number(node.metadata?.durationMs) || 0,
+                            bytes: Number(node.metadata?.bytes) || 0,
+                            mimeType: (node.metadata?.mimeType as string) || "video/mp4",
+                        },
+                        metadata: {
+                            canvasId: project.id,
+                            sourceNodeId: node.id,
+                        },
+                    });
+                    assetChanged = true;
+                } else if (node.type === "audio") {
+                    useAssetStore.getState().addAsset({
+                        kind: "audio",
+                        title,
+                        coverUrl: "",
+                        tags: ["画布音频"],
+                        category: "other",
+                        status: "archived",
+                        source: `已删除画布：${project.title}`,
+                        data: {
+                            url: content || "",
+                            storageKey,
+                            durationMs: Number(node.metadata?.durationMs) || 0,
+                            bytes: Number(node.metadata?.bytes) || 0,
+                            mimeType: (node.metadata?.mimeType as string) || "audio/mpeg",
+                        },
+                        metadata: {
+                            canvasId: project.id,
+                            sourceNodeId: node.id,
+                        },
+                    });
+                    assetChanged = true;
                 }
             }
-            await useAssetStore.getState().removeAsset(asset.id);
         }
-        if (assetsToRemove.length > 0) {
+
+        if (assetChanged) {
             await flushAssetStorePersistence();
+            if (activeRemoteUserId) {
+                try {
+                    await drainRemoteUserDataChanges();
+                } catch (syncErr) {
+                    scheduleRemoteUserDataSync();
+                    console.warn("回收站素材云端同步警告:", syncErr);
+                }
+            }
         }
+        if (deletionError) throw deletionError;
     });
 }
 
