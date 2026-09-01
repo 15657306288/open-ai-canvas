@@ -13,12 +13,17 @@ import { setImageBlob } from "@/services/image-storage";
 import { CanvasCreateCard } from "@/components/canvas/canvas-project-card";
 import { CanvasFolderCard } from "@/components/canvas/canvas-folder-card";
 import type { CanvasExportFile } from "@/types/canvas-export";
-import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
+import type { CanvasNodeData } from "@/types/canvas";
+import { flushCanvasStorePersistence, useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { useCanvasUiStore } from "@/stores/canvas/use-canvas-ui-store";
 import { exportCanvasProjects } from "@/lib/canvas/canvas-export";
 import { saveCanvasDrawing, type CanvasDrawingRenderDraft } from "@/lib/canvas/canvas-drawing-storage";
 import { createCanvasProjectWithRemoteSync, saveRemoteUserDataNow } from "@/services/user-data-sync";
 import { listProjects } from "@/services/api/projects";
+import { resourceFileUrl, resourceStorageKey, uploadResourceFile } from "@/services/api/resources";
+import { primeResourceBlobCache } from "@/services/resource-blob-cache";
+import { useSyncProgressStore } from "@/stores/use-sync-progress-store";
+import { upsertRemoteCanvasProject } from "@/services/api/user-data";
 
 export default function CanvasPage() {
     const { message } = App.useApp();
@@ -101,72 +106,149 @@ export default function CanvasPage() {
     };
     const importCanvas = async (file?: File) => {
         if (!file) return;
+        const hideLoading = message.loading({ content: "正在解压并准备导入画布...", duration: 0 });
         try {
             const zip = await readZip(file);
             const projectFile = zip.get("projects.json");
-            if (!projectFile) throw new Error("missing projects.json");
+            if (!projectFile) throw new Error("缺少 projects.json 元数据文件");
             const data = JSON.parse(await projectFile.text()) as CanvasExportFile;
-            await Promise.all(
-                data.projects.flatMap((project) =>
-                    project.files.map(async (item) => {
-                        const blob = zip.get(item.path);
-                        if (!blob) return;
-                        const typedBlob = blob.type ? blob : blob.slice(0, blob.size, item.mimeType);
-                        await (item.storageKey.startsWith("image:") ? setImageBlob(item.storageKey, typedBlob) : setMediaBlob(item.storageKey, typedBlob));
-                    }),
-                ),
-            );
-            await Promise.all(
-                data.projects.map(async (item) => {
-                    const drawingEngineById = new Map((item.drawingDocuments || []).map((document) => [document.drawingId, document.engine || "tldraw"]));
-                    const importedProjectId = importProject({
-                        ...item.project,
-                        nodes: item.project.nodes.map((node) =>
-                            node.type === "drawing" && node.metadata?.drawingId ? { ...node, metadata: { ...node.metadata, drawingEngine: drawingEngineById.get(node.metadata.drawingId) || node.metadata.drawingEngine || "tldraw" } } : node,
-                        ),
+            hideLoading();
+
+            for (const item of data.projects) {
+                const totalFiles = item.files.length;
+                const importedProjectId = importProject({
+                    ...item.project,
+                    title: item.project.title || "导入画布",
+                    nodes: item.project.nodes || [],
+                });
+
+                if (totalFiles > 0) {
+                    useSyncProgressStore.getState().setProjectProgress(importedProjectId, {
+                        projectId: importedProjectId,
+                        total: totalFiles,
+                        completed: 0,
+                        phase: "uploading",
+                        message: "正在上传媒体至云端",
                     });
-                    await Promise.all(
-                        (item.drawingDocuments || []).map((document) => {
-                            const previewFile = document.previewPath ? zip.get(document.previewPath) : undefined;
-                            const preview = previewFile && !previewFile.type ? previewFile.slice(0, previewFile.size, "image/png") : previewFile;
-                            const renderFile = document.generationRender?.path ? zip.get(document.generationRender.path) : undefined;
-                            const renderBlob = renderFile && !renderFile.type ? renderFile.slice(0, renderFile.size, document.generationRender?.mimeType || "image/png") : renderFile;
-                            const render =
-                                renderBlob && document.generationRender
-                                    ? ({
-                                          blob: renderBlob,
-                                          pageId: document.generationRender.pageId,
-                                          width: document.generationRender.width,
-                                          height: document.generationRender.height,
-                                          mimeType: document.generationRender.mimeType,
-                                          background: document.generationRender.background,
-                                      } satisfies CanvasDrawingRenderDraft)
-                                    : undefined;
-                            const engine = document.engine || "tldraw";
-                            return saveCanvasDrawing(
-                                importedProjectId,
-                                document.drawingId,
+                }
+
+                const storageKeyMap = new Map<string, { storageKey: string; url: string }>();
+                const concurrency = 4;
+                let fileIndex = 0;
+                const workers = new Array(Math.min(item.files.length, concurrency)).fill(null).map(async () => {
+                    while (fileIndex < item.files.length) {
+                        const current = fileIndex++;
+                        const fileItem = item.files[current];
+                        const blob = zip.get(fileItem.path);
+                        if (!blob) {
+                            useSyncProgressStore.getState().incrementProjectCompleted(importedProjectId);
+                            continue;
+                        }
+                        const mime = fileItem.mimeType || blob.type || "image/png";
+                        const typedBlob = blob.type ? blob : blob.slice(0, blob.size, mime);
+                        const kind: "image" | "video" | "audio" | "file" = mime.startsWith("image/") ? "image" : mime.startsWith("video/") ? "video" : mime.startsWith("audio/") ? "audio" : "file";
+
+                        try {
+                            const resource = await uploadResourceFile(typedBlob, kind, { fileName: fileItem.path.split("/").pop() });
+                            const newStorageKey = resourceStorageKey(resource.id);
+                            const newUrl = resourceFileUrl(resource.id);
+                            await primeResourceBlobCache(newStorageKey, typedBlob).catch(() => "");
+                            storageKeyMap.set(fileItem.storageKey, { storageKey: newStorageKey, url: newUrl });
+                        } catch (uploadErr) {
+                            console.warn("上传资源到后端失败，降级保存本地", uploadErr);
+                            const localUrl = await (fileItem.storageKey.startsWith("image:") ? setImageBlob(fileItem.storageKey, typedBlob) : setMediaBlob(fileItem.storageKey, typedBlob));
+                            if (localUrl) {
+                                storageKeyMap.set(fileItem.storageKey, { storageKey: fileItem.storageKey, url: localUrl });
+                            }
+                        } finally {
+                            useSyncProgressStore.getState().incrementProjectCompleted(importedProjectId);
+                        }
+                    }
+                });
+                await Promise.all(workers);
+
+                const drawingEngineById = new Map((item.drawingDocuments || []).map((document) => [document.drawingId, document.engine || "tldraw"]));
+                const remapNodeMedia = (node: CanvasNodeData): CanvasNodeData => {
+                    const oldKey = node.metadata?.storageKey;
+                    const mapped = oldKey ? storageKeyMap.get(oldKey) : undefined;
+                    const isDeadBlob = (val?: string) => typeof val === "string" && val.startsWith("blob:");
+                    const nextStorageKey = mapped ? mapped.storageKey : (oldKey && !isDeadBlob(oldKey) ? oldKey : undefined);
+                    const content = mapped ? mapped.url : (isDeadBlob(node.metadata?.content) ? "" : node.metadata?.content);
+                    const previewContent = mapped ? mapped.url : (isDeadBlob(node.metadata?.previewContent) ? "" : node.metadata?.previewContent);
+                    return {
+                        ...node,
+                        metadata: {
+                            ...node.metadata,
+                            ...(nextStorageKey !== undefined ? { storageKey: nextStorageKey } : {}),
+                            ...(content !== undefined ? { content } : {}),
+                            ...(previewContent !== undefined ? { previewContent } : {}),
+                            drawingEngine: node.type === "drawing" && node.metadata?.drawingId ? drawingEngineById.get(node.metadata.drawingId) || node.metadata.drawingEngine || "tldraw" : node.metadata?.drawingEngine,
+                        },
+                    };
+                };
+
+                const remappedNodes = item.project.nodes.map(remapNodeMedia);
+                updateProject(importedProjectId, { nodes: remappedNodes });
+
+                await Promise.all(
+                    (item.drawingDocuments || []).map((document) => {
+                        const previewFile = document.previewPath ? zip.get(document.previewPath) : undefined;
+                        const preview = previewFile && !previewFile.type ? previewFile.slice(0, previewFile.size, "image/png") : previewFile;
+                        const renderFile = document.generationRender?.path ? zip.get(document.generationRender.path) : undefined;
+                        const renderBlob = renderFile && !renderFile.type ? renderFile.slice(0, renderFile.size, document.generationRender?.mimeType || "image/png") : renderFile;
+                        const render =
+                            renderBlob && document.generationRender
+                                ? ({
+                                      blob: renderBlob,
+                                      pageId: document.generationRender.pageId,
+                                      width: document.generationRender.width,
+                                      height: document.generationRender.height,
+                                      mimeType: document.generationRender.mimeType,
+                                      background: document.generationRender.background,
+                                  } satisfies CanvasDrawingRenderDraft)
+                                : undefined;
+                        const engine = document.engine || "tldraw";
+                        return saveCanvasDrawing(
+                            importedProjectId,
+                            document.drawingId,
+                            engine,
+                            document.snapshot,
+                            {
+                                version: 2,
                                 engine,
-                                document.snapshot,
-                                {
-                                    version: 2,
-                                    engine,
-                                    snapshot: document.snapshot,
-                                    revision: Math.max(0, document.revision - 1),
-                                    updatedAt: document.updatedAt,
-                                    shapeCount: document.shapeCount,
-                                    pageCount: document.pageCount,
-                                },
-                                preview,
-                                render,
-                            );
-                        }),
-                    );
-                }),
-            );
-            message.success(`已导入 ${data.projects.length} 个画布`);
-        } catch {
-            message.error("导入失败，请选择有效的画布压缩包");
+                                snapshot: document.snapshot,
+                                revision: Math.max(0, document.revision - 1),
+                                updatedAt: document.updatedAt,
+                                shapeCount: document.shapeCount,
+                                pageCount: document.pageCount,
+                            },
+                            preview,
+                            render,
+                        );
+                    }),
+                );
+
+                useSyncProgressStore.getState().setProjectProgress(importedProjectId, {
+                    phase: "saving",
+                    message: "正在保存画布结构",
+                });
+                const fullProject = useCanvasStore.getState().projects.find((p) => p.id === importedProjectId);
+                if (fullProject) {
+                    try {
+                        await upsertRemoteCanvasProject(fullProject);
+                    } catch (syncErr) {
+                        console.warn("同步至云端警告:", syncErr);
+                    }
+                }
+                useSyncProgressStore.getState().setProjectProgress(importedProjectId, null);
+            }
+
+            await flushCanvasStorePersistence();
+            message.success(`已导入 ${data.projects.length} 个画布并完成云端同步`);
+        } catch (error) {
+            hideLoading();
+            console.error("导入画布失败", error);
+            message.error(error instanceof Error ? `导入失败：${error.message}` : "导入失败，请选择有效的画布压缩包");
         } finally {
             if (inputRef.current) inputRef.current.value = "";
         }
