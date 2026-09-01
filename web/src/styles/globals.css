@@ -10561,13 +10561,15 @@ html:not(.dark) .app-workspace-shell.is-creation-workspace .app-workspace-stage 
 .creation-home .creation-reference-panel { width: fit-content; min-width: 0; max-width: 100%; margin: -2px 0 var(--space-2); }
 .creation-home .creation-reference-panel.is-expanded { width: 100%; }
 .creation-home .creation-reference-panel-header { display: flex; min-height: var(--space-8); flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); margin-bottom: var(--space-2); }
-.creation-home .creation-reference-filter-tabs { display: flex; min-width: 0; flex: 1 1 auto; align-items: center; gap: var(--space-1); overflow-x: auto; scrollbar-width: none; }
+.creation-home .creation-reference-filter-tabs { display: flex; min-width: 0; flex: 1 1 auto; align-items: center; gap: var(--space-3); overflow-x: auto; scrollbar-width: none; }
 .creation-home .creation-reference-filter-tabs::-webkit-scrollbar { display: none; }
 .creation-home .creation-reference-filter-tabs button,
-.creation-home .creation-reference-panel-actions button { min-height: var(--space-7); border: 0; border-radius: var(--r-md); background: transparent; color: var(--creation-muted); padding: 0 var(--space-3); font-size: var(--fs-caption); line-height: 1; white-space: nowrap; transition: background-color var(--motion-dur-fast-calc) ease, color var(--motion-dur-fast-calc) ease; }
+.creation-home .creation-reference-panel-actions button { min-height: var(--space-7); border: 0; border-radius: 0; background: transparent; color: var(--creation-muted); padding: 0 2px; font-size: var(--fs-caption); line-height: 1; white-space: nowrap; transition: color var(--motion-dur-fast-calc) ease, opacity var(--motion-dur-fast-calc) ease; }
 .creation-home .creation-reference-filter-tabs button:hover,
 .creation-home .creation-reference-filter-tabs button.is-active,
-.creation-home .creation-reference-panel-actions button:hover:not(:disabled) { background: var(--creation-surface-hover); color: var(--creation-text); }
+.creation-home .creation-reference-panel-actions button:hover:not(:disabled) { color: var(--creation-text); }
+.creation-home .creation-reference-filter-tabs button { position: relative; }
+.creation-home .creation-reference-filter-tabs button.is-active::after { position: absolute; right: 2px; bottom: -1px; left: 2px; height: 2px; border-radius: var(--r-full); background: var(--creation-text); content: ""; }
 .creation-home .creation-reference-filter-tabs button:focus-visible,
 .creation-home .creation-reference-panel-actions button:focus-visible,
 .creation-home .creation-reference-panel-expand:focus-visible { outline: var(--stroke-2) solid var(--control-focus-ring); outline-offset: var(--space-half); }
@@ -10646,9 +10648,10 @@ html:not(.dark) .app-workspace-shell.is-creation-workspace .app-workspace-stage 
 .creation-home .creation-reference-card-preview video { width: 100%; height: 100%; object-fit: cover; transition: transform var(--motion-dur-fast-calc) var(--motion-ease-out); }
 .creation-home .creation-reference-card-preview:hover img,
 .creation-home .creation-reference-card-preview:hover video { transform: scale(1.04); }
-.creation-home .creation-reference-card-preview > span { position: absolute; right: var(--space-1); bottom: var(--space-1); display: grid; width: var(--space-5); height: var(--space-5); place-items: center; border-radius: var(--r-xs); background: color-mix(in srgb, var(--color-neutral-950) 72%, transparent); color: var(--color-neutral-0); opacity: 0; transition: opacity var(--motion-dur-fast-calc) ease; }
-.creation-home .creation-reference-card-preview:hover > span,
-.creation-home .creation-reference-card-preview:focus-visible > span { opacity: 1; }
+.creation-home .creation-reference-card-preview > span:not(.cached-resource-image-shell) { position: absolute; right: var(--space-1); bottom: var(--space-1); display: grid; width: var(--space-5); height: var(--space-5); place-items: center; border-radius: var(--r-xs); background: color-mix(in srgb, var(--color-neutral-950) 72%, transparent); color: var(--color-neutral-0); opacity: 0; transition: opacity var(--motion-dur-fast-calc) ease; }
+.creation-home .creation-reference-card-preview:hover > span:not(.cached-resource-image-shell),
+.creation-home .creation-reference-card-preview:focus-visible > span:not(.cached-resource-image-shell) { opacity: 1; }
+.creation-home .creation-reference-card-preview > .cached-resource-image-shell { position: static; display: grid; width: 100%; height: 100%; place-items: center; }
 .creation-home .creation-reference-card-preview:focus-visible { outline: var(--stroke-2) solid var(--control-focus-ring); outline-offset: calc(-1 * var(--stroke-2)); }
 .creation-home .creation-reference-card-remove { position: absolute; top: var(--space-1); right: var(--space-1); z-index: 1; display: grid; width: var(--space-5); height: var(--space-5); place-items: center; border: 0; border-radius: var(--r-xs); background: color-mix(in srgb, var(--color-neutral-950) 76%, transparent); color: var(--color-neutral-0); padding: 0; opacity: 0; transition: opacity var(--motion-dur-fast-calc) ease, background-color var(--motion-dur-fast-calc) ease; }
 .creation-home .creation-reference-stack-card:hover .creation-reference-card-remove,
@@ -10844,10 +10847,14 @@ html:not(.dark) .creation-home .creation-chat-composer .creation-model-picker.ca
 .creation-user-message-references { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
 .creation-user-message-reference { display: inline-flex; min-width: 0; max-width: 180px; height: 25px; align-items: center; gap: 5px; border-radius: 6px; background: rgba(255, 255, 255, .075); padding: 0 7px; color: var(--creation-muted); font-size: 10px; line-height: 1; }
 .creation-user-message-reference img, .creation-user-message-reference video { width: 17px; height: 17px; flex: 0 0 auto; border-radius: 4px; object-fit: cover; }
+.creation-user-message-reference .cached-resource-image-shell { display: block; width: 17px; height: 17px; flex: 0 0 17px; overflow: hidden; border-radius: 4px; }
+.creation-user-message-reference .cached-resource-image-shell > img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .creation-user-message-reference svg { width: 12px; height: 12px; flex: 0 0 auto; }
 .creation-user-message-reference span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 html:not(.dark) .creation-user-message-reference { background: rgba(28, 32, 37, .07); }
 .creation-user-message-attachments button { position: relative; width: 44px; height: 44px; flex: 0 0 auto; overflow: hidden; border: 0; border-radius: 7px; background: transparent; padding: 0; }
+.creation-user-message-attachments button > .cached-resource-image-shell { display: block; width: 100%; height: 100%; }
+.creation-user-message-attachments button > .cached-resource-image-shell > img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .creation-user-message-attachments button:focus-visible { outline: 2px solid var(--creation-text); outline-offset: 2px; }
 .creation-user-message-attachments button > span { position: absolute; right: 3px; bottom: 3px; display: grid; width: 17px; height: 17px; place-items: center; border-radius: 5px; background: rgba(0, 0, 0, .68); color: #fff; opacity: 0; transition: opacity 140ms ease; }
 .creation-user-message-attachments button:hover > span,

@@ -226,7 +226,7 @@ export function ModelPicker({
                                             theme={theme}
                                             creationVariant={creationVariant}
                                             showConfiguredModelName={showConfiguredModelName}
-                                            showPrice={creditsEnabled}
+                                            showPrice={showSelectedPrice && creditsEnabled}
                                             disabledReason={disabledReason}
                                         />
                                         {selected ? <Check className="canvas-model-picker-option-check" style={{ color: theme.node.activeStroke }} /> : null}
