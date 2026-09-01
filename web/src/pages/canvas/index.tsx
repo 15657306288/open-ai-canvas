@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { App, Button, Dropdown, Modal, Select } from "antd";
-import { ArrowDownAZ, Clock3, Download, FileUp, ListFilter, MoreHorizontal, Plus, Search, SlidersHorizontal, Trash2, X } from "lucide-react";
+import { ArrowDownAZ, Clock3, Download, FileUp, History, ListFilter, MoreHorizontal, Plus, Search, SlidersHorizontal, Trash2, X } from "lucide-react";
 
 import { CollectionGrid, PageHeader, WorkspacePage } from "@/components/layout/workspace-page";
 import { WorkspaceLoadingState, WorkspaceState } from "@/components/layout/workspace-state";
@@ -12,6 +12,7 @@ import { setMediaBlob } from "@/services/file-storage";
 import { setImageBlob } from "@/services/image-storage";
 import { CanvasCreateCard } from "@/components/canvas/canvas-project-card";
 import { CanvasFolderCard } from "@/components/canvas/canvas-folder-card";
+import { CanvasHistoryDrawer } from "@/components/canvas/canvas-history-drawer";
 import type { CanvasExportFile } from "@/types/canvas-export";
 import type { CanvasNodeData } from "@/types/canvas";
 import { flushCanvasStorePersistence, useCanvasStore } from "@/stores/canvas/use-canvas-store";
@@ -42,6 +43,7 @@ export default function CanvasPage() {
     const selectedIds = useCanvasUiStore((state) => state.selectedProjectIds);
     const setDeleteIds = useCanvasUiStore((state) => state.setDeleteProjectIds);
     const updateProject = useCanvasStore((state) => state.updateProject);
+    const [historyOpen, setHistoryOpen] = useState(false);
     const [associationOpen, setAssociationOpen] = useState(false);
     const [associationProjectId, setAssociationProjectId] = useState("");
     const projectQuery = useQuery({ queryKey: ["projects"], queryFn: () => listProjects() });
@@ -172,9 +174,9 @@ export default function CanvasPage() {
                     const oldKey = node.metadata?.storageKey;
                     const mapped = oldKey ? storageKeyMap.get(oldKey) : undefined;
                     const isDeadBlob = (val?: string) => typeof val === "string" && val.startsWith("blob:");
-                    const nextStorageKey = mapped ? mapped.storageKey : (oldKey && !isDeadBlob(oldKey) ? oldKey : undefined);
-                    const content = mapped ? mapped.url : (isDeadBlob(node.metadata?.content) ? "" : node.metadata?.content);
-                    const previewContent = mapped ? mapped.url : (isDeadBlob(node.metadata?.previewContent) ? "" : node.metadata?.previewContent);
+                    const nextStorageKey = mapped ? mapped.storageKey : oldKey && !isDeadBlob(oldKey) ? oldKey : undefined;
+                    const content = mapped ? mapped.url : isDeadBlob(node.metadata?.content) ? "" : node.metadata?.content;
+                    const previewContent = mapped ? mapped.url : isDeadBlob(node.metadata?.previewContent) ? "" : node.metadata?.previewContent;
                     return {
                         ...node,
                         metadata: {
@@ -357,6 +359,10 @@ export default function CanvasPage() {
                                 <span>{sortLabel}</span>
                             </button>
                         </Dropdown>
+                        <button type="button" className="canvas-library-filter flex items-center gap-1.5" onClick={() => setHistoryOpen(true)} aria-label="查看画布创建与变更历史时间线" title="查看画布创建与变更历史时间线">
+                            <History className="size-3.5 text-[var(--workspace-accent)]" />
+                            <span>历史</span>
+                        </button>
                         {keyword || projectFilter !== "all" || sort !== "updated" ? (
                             <button
                                 type="button"
@@ -419,20 +425,17 @@ export default function CanvasPage() {
                     <CollectionGrid className="canvas-library-grid">
                         {showCreateCard ? <CanvasCreateCard disabled={!hydrated} onClick={createAndEnter} /> : null}
                         {visibleProjects.map((project) => (
-                            <CanvasFolderCard
-                                key={project.id}
-                                project={project}
-                                projectName={project.projectId ? projectNames.get(project.projectId) || "未同步项目" : undefined}
-                                onClick={() => enterProject(project.id)}
-                            />
+                            <CanvasFolderCard key={project.id} project={project} projectName={project.projectId ? projectNames.get(project.projectId) || "未同步项目" : undefined} onClick={() => enterProject(project.id)} />
                         ))}
                     </CollectionGrid>
                 ) : (
                     <WorkspaceState icon="canvas" title="没有匹配的画布" description="换一个画布名称或重置筛选条件。" />
                 )}
-                {hydrated && visibleProjects.length ? <div ref={loadMoreRef} className="library-load-more" aria-live="polite">
-                    {visibleProjects.length < filteredProjects.length ? `继续下滑加载更多（每页 50 条）` : `已加载全部 ${filteredProjects.length} 个画布`}
-                </div> : null}
+                {hydrated && visibleProjects.length ? (
+                    <div ref={loadMoreRef} className="library-load-more" aria-live="polite">
+                        {visibleProjects.length < filteredProjects.length ? `继续下滑加载更多（每页 50 条）` : `已加载全部 ${filteredProjects.length} 个画布`}
+                    </div>
+                ) : null}
             </div>
 
             <input ref={inputRef} type="file" accept="application/zip,.zip" className="hidden" onChange={(event) => void importCanvas(event.target.files?.[0])} />
@@ -454,6 +457,7 @@ export default function CanvasPage() {
                     onChange={setAssociationProjectId}
                 />
             </Modal>
+            <CanvasHistoryDrawer open={historyOpen} onClose={() => setHistoryOpen(false)} />
         </WorkspacePage>
     );
 }

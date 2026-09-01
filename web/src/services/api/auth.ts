@@ -318,6 +318,7 @@ export type RuntimeResourcePolicy = {
     sessionCount: number;
     taskCount: number;
     apiCallLogCount: number;
+    recycleBinRetentionDays?: number;
 };
 
 export type RuntimeTaskPolicy = {

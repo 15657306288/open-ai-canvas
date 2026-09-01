@@ -1072,6 +1072,17 @@ func (r *Repository) DeleteAsset(userID string, id string) error {
 	return r.DeleteAssetAndResources(userID, id, nil, nil)
 }
 
+func (r *Repository) FindExpiredArchivedAssets(cutoff time.Time, limit int) ([]model.Asset, error) {
+	var assets []model.Asset
+	if limit <= 0 {
+		limit = 100
+	}
+	err := r.db.Where("status = ? AND updated_at <= ?", model.AssetVersionStatusArchived, cutoff).
+		Limit(limit).
+		Find(&assets).Error
+	return assets, err
+}
+
 func (r *Repository) ReplaceAssets(userID string, assets []model.Asset) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Delete(&model.Asset{}, "user_id = ?", userID).Error; err != nil {
@@ -1102,6 +1113,15 @@ func (r *Repository) CanvasProjectForUser(userID string, id string) (*model.Canv
 		return nil, err
 	}
 	return &project, nil
+}
+
+func (r *Repository) CanvasProjectTasks(userID string, projectIDs []string) ([]model.Task, error) {
+	var tasks []model.Task
+	if len(projectIDs) == 0 {
+		return tasks, nil
+	}
+	err := r.db.Where("user_id = ? AND project_id IN ?", userID, projectIDs).Find(&tasks).Error
+	return tasks, err
 }
 
 func (r *Repository) UpsertCanvasProject(project *model.CanvasProject) error {

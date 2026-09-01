@@ -22,6 +22,7 @@ export type RuntimeLimits = {
     activeTaskLimit: number;
     resourceUploadMB: number;
     sessionUploadMB: number;
+    recycleBinRetentionDays?: number;
 };
 
 export type FeatureAvailability = {

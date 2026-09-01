@@ -15,22 +15,49 @@ func (s *Service) startResourceDeletionWorker(ctx context.Context) {
 	s.runWorkerLoop(func(ctx context.Context) {
 		s.drainResourceDeletionJobs(32)
 		s.cleanupStaleAnnouncementImageDrafts()
+		s.cleanupExpiredArchivedAssets()
 		ticker := time.NewTicker(15 * time.Second)
 		defer ticker.Stop()
-		lastDraftCleanup := time.Now()
+		lastPeriodicCleanup := time.Now()
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
 				s.drainResourceDeletionJobs(32)
-				if time.Since(lastDraftCleanup) >= time.Hour {
+				if time.Since(lastPeriodicCleanup) >= time.Hour {
 					s.cleanupStaleAnnouncementImageDrafts()
-					lastDraftCleanup = time.Now()
+					s.cleanupExpiredArchivedAssets()
+					lastPeriodicCleanup = time.Now()
 				}
 			}
 		}
 	})
+}
+
+func (s *Service) cleanupExpiredArchivedAssets() {
+	policy, err := s.RuntimePolicy()
+	if err != nil {
+		return
+	}
+	retentionDays := policy.Resource.RecycleBinRetentionDays
+	if retentionDays <= 0 {
+		return
+	}
+	cutoff := time.Now().Add(-time.Duration(retentionDays) * 24 * time.Hour)
+	expired, err := s.repo.FindExpiredArchivedAssets(cutoff, 100)
+	if err != nil {
+		log.Printf("expired archived assets query failed: %v", err)
+		return
+	}
+	for _, asset := range expired {
+		if err := s.repo.DeleteAsset(asset.UserID, asset.ID); err != nil {
+			log.Printf("expired archived asset delete failed for %s: %v", asset.ID, err)
+		}
+	}
+	if len(expired) > 0 {
+		log.Printf("recycle bin cleanup: deleted %d expired assets (retention: %d days)", len(expired), retentionDays)
+	}
 }
 
 func (s *Service) drainResourceDeletionJobs(limit int) {

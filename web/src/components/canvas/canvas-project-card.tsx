@@ -14,11 +14,15 @@ import { cn } from "@/lib/utils";
 import { useSyncProgressStore } from "@/stores/use-sync-progress-store";
 
 export function CanvasCreateCard({ disabled, onClick }: { disabled?: boolean; onClick: () => void }) {
-    return <button type="button" className="app-canvas-create-card" disabled={disabled} onClick={onClick}>
-        <span className="app-canvas-create-preview"><Plus className="app-canvas-create-icon" /></span>
-        <span className="app-canvas-create-title">新建画布</span>
-        <span className="app-canvas-create-meta">从空白开始</span>
-    </button>;
+    return (
+        <button type="button" className="app-canvas-create-card" disabled={disabled} onClick={onClick}>
+            <span className="app-canvas-create-preview">
+                <Plus className="app-canvas-create-icon" />
+            </span>
+            <span className="app-canvas-create-title">新建画布</span>
+            <span className="app-canvas-create-meta">从空白开始</span>
+        </button>
+    );
 }
 
 export function CanvasProjectCard({ project, projectName, variant = "library", readOnly = false, footer }: { project: CanvasProject; projectName?: string; variant?: "library" | "recent"; readOnly?: boolean; footer?: ReactNode }) {
@@ -55,14 +59,27 @@ export function CanvasProjectCard({ project, projectName, variant = "library", r
                 >
                     <ProjectPreview project={project} />
                 </button>
-                {!compact && !readOnly ? <span className={`canvas-project-select ${selected ? "is-visible" : ""}`} onClick={(event) => event.stopPropagation()}><input type="checkbox" checked={selected} onChange={(event) => toggleSelected(project.id, event.target.checked)} className="app-canvas-project-checkbox" aria-label={`选择 ${project.title}`} /></span> : null}
-                <div className="canvas-project-cover-meta" aria-hidden="true"><span className="canvas-project-node-count">{project.nodes.length} 节点</span></div>
+                {!compact && !readOnly ? (
+                    <span className={`canvas-project-select ${selected ? "is-visible" : ""}`} onClick={(event) => event.stopPropagation()}>
+                        <input type="checkbox" checked={selected} onChange={(event) => toggleSelected(project.id, event.target.checked)} className="app-canvas-project-checkbox" aria-label={`选择 ${project.title}`} />
+                    </span>
+                ) : null}
+                <div className="canvas-project-cover-meta" aria-hidden="true">
+                    <span className="canvas-project-node-count">{project.nodes.length} 节点</span>
+                </div>
             </div>
 
             <div className={cn("app-canvas-project-body", compact ? "is-compact" : "")}>
                 <div className="canvas-project-heading-row">
                     {editing && !readOnly ? (
-                        <Input className="canvas-project-title-input" value={editingTitle} onClick={(event) => event.stopPropagation()} onChange={(event) => setEditingTitle(event.target.value)} onKeyDown={(event) => event.key === "Enter" && saveTitle()} autoFocus />
+                        <Input
+                            className="canvas-project-title-input"
+                            value={editingTitle}
+                            onClick={(event) => event.stopPropagation()}
+                            onChange={(event) => setEditingTitle(event.target.value)}
+                            onKeyDown={(event) => event.key === "Enter" && saveTitle()}
+                            autoFocus
+                        />
                     ) : (
                         <button
                             type="button"
@@ -77,12 +94,18 @@ export function CanvasProjectCard({ project, projectName, variant = "library", r
                     )}
                     {editing && !readOnly ? (
                         <div className="canvas-project-actions" onClick={(event) => event.stopPropagation()}>
-                            <button type="button" onClick={saveTitle} aria-label="保存名称"><Check className="size-3.5" /></button>
-                            <button type="button" onClick={stopEditing} aria-label="取消重命名"><X className="size-3.5" /></button>
+                            <button type="button" onClick={saveTitle} aria-label="保存名称">
+                                <Check className="size-3.5" />
+                            </button>
+                            <button type="button" onClick={stopEditing} aria-label="取消重命名">
+                                <X className="size-3.5" />
+                            </button>
                         </div>
                     ) : !readOnly ? (
                         <div className="canvas-project-actions" onClick={(event) => event.stopPropagation()}>
-                            <button type="button" onClick={() => startEditing(project.id, project.title)} aria-label={`重命名 ${project.title}`} title="重命名"><Pencil className="size-3.5" /></button>
+                            <button type="button" onClick={() => startEditing(project.id, project.title)} aria-label={`重命名 ${project.title}`} title="重命名">
+                                <Pencil className="size-3.5" />
+                            </button>
                             <Dropdown
                                 trigger={["click"]}
                                 menu={{
@@ -94,13 +117,23 @@ export function CanvasProjectCard({ project, projectName, variant = "library", r
                                     ],
                                 }}
                             >
-                                <button type="button" aria-label={`${project.title} 画布操作`} title="更多操作"><MoreHorizontal className="size-4" /></button>
+                                <button type="button" aria-label={`${project.title} 画布操作`} title="更多操作">
+                                    <MoreHorizontal className="size-4" />
+                                </button>
                             </Dropdown>
                         </div>
                     ) : null}
                 </div>
-                <div className="canvas-project-stats"><span>{projectName || "自由画布"}</span><span aria-hidden="true">·</span><time dateTime={project.updatedAt}>{formatProjectTime(project.updatedAt)}</time></div>
-                {footer ? <div className="canvas-project-card-footer" onClick={(event) => event.stopPropagation()}>{footer}</div> : null}
+                <div className="canvas-project-stats">
+                    <span>{projectName || "自由画布"}</span>
+                    <span aria-hidden="true">·</span>
+                    <time dateTime={project.updatedAt}>{formatProjectTime(project.updatedAt)}</time>
+                </div>
+                {footer ? (
+                    <div className="canvas-project-card-footer" onClick={(event) => event.stopPropagation()}>
+                        {footer}
+                    </div>
+                ) : null}
             </div>
         </article>
     );
@@ -109,26 +142,31 @@ export function CanvasProjectCard({ project, projectName, variant = "library", r
 export function ProjectPreview({ project, preferLatestImage = false }: { project: CanvasProject; preferLatestImage?: boolean }) {
     const syncProgress = useSyncProgressStore((state) => state.syncingProjects[project.id]);
     const isSyncing = Boolean(syncProgress && (syncProgress.phase === "uploading" || syncProgress.phase === "saving"));
-    const mediaNodes = project.nodes
-        .flatMap((node) => {
-            if (node.type !== CanvasNodeType.Image && node.type !== CanvasNodeType.Video) return [];
-            const url = getNodeMediaUrl(node);
-            const storageKey = node.metadata?.storageKey;
-            return isPreviewUrl(url) || Boolean(storageKey) ? [{ node, url, storageKey }] : [];
-        });
+    const mediaNodes = project.nodes.flatMap((node) => {
+        if (node.type !== CanvasNodeType.Image && node.type !== CanvasNodeType.Video) return [];
+        const url = getNodeMediaUrl(node);
+        const storageKey = node.metadata?.storageKey;
+        return isPreviewUrl(url) || Boolean(storageKey) ? [{ node, url, storageKey }] : [];
+    });
     const imageNodes = mediaNodes.filter(({ node }) => node.type === CanvasNodeType.Image);
-    const media = preferLatestImage
-        ? imageNodes[imageNodes.length - 1] || mediaNodes[mediaNodes.length - 1]
-        : imageNodes[0] || mediaNodes[0];
+    const media = preferLatestImage ? imageNodes[imageNodes.length - 1] || mediaNodes[mediaNodes.length - 1] : imageNodes[0] || mediaNodes[0];
 
     const content = media ? (
         <div className="canvas-project-media size-full">
-            {media.node.type === CanvasNodeType.Video
-                ? <div className="canvas-project-video size-full"><Video className="size-8" aria-label={media.node.title || "项目视频"} /></div>
-                : <CachedResourceImage storageKey={media.storageKey} src={media.url} alt={media.node.title || "项目图片"} loading="lazy" decoding="async" className="size-full min-h-0 object-cover" />}
+            {media.node.type === CanvasNodeType.Video ? (
+                <div className="canvas-project-video size-full">
+                    <Video className="size-8" aria-label={media.node.title || "项目视频"} />
+                </div>
+            ) : (
+                <CachedResourceImage storageKey={media.storageKey} src={media.url} alt={media.node.title || "项目图片"} loading="lazy" decoding="async" className="size-full min-h-0 object-cover" />
+            )}
         </div>
     ) : !project.nodes.length ? (
-        <div className="canvas-project-empty size-full"><Plus className="canvas-project-empty-icon" /><span>空白画布</span><small>等待第一幕</small></div>
+        <div className="canvas-project-empty size-full">
+            <Plus className="canvas-project-empty-icon" />
+            <span>空白画布</span>
+            <small>等待第一幕</small>
+        </div>
     ) : (
         <div className="canvas-project-preview-canvas relative size-full overflow-hidden">
             {buildNodePreviewLayout(project.nodes.slice(0, 8)).map(({ node, style }) => {
@@ -147,10 +185,7 @@ export function ProjectPreview({ project, preferLatestImage = false }: { project
         <div className="relative size-full overflow-hidden">
             {content}
             {isSyncing && syncProgress ? (
-                <div
-                    className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-stone-950/75 p-3 text-center backdrop-blur-sm transition-all duration-300 pointer-events-none select-none"
-                    onClick={(e) => e.stopPropagation()}
-                >
+                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-stone-950/75 p-3 text-center backdrop-blur-sm transition-all duration-300 pointer-events-none select-none" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center gap-1.5 text-amber-400">
                         <CloudUpload className="size-4 animate-bounce" />
                         <span className="text-xs font-medium tracking-wide">云端同步中</span>
@@ -230,7 +265,7 @@ function getNodePresentation(node: CanvasNodeData) {
 }
 
 function isPreviewUrl(value?: string) {
-    return Boolean(value && (/^(https?:|blob:|data:image\/|data:video\/|\/api\/)/.test(value)));
+    return Boolean(value && /^(https?:|blob:|data:image\/|data:video\/|\/api\/)/.test(value));
 }
 
 export function formatProjectTime(value: string) {
