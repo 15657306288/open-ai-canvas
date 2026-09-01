@@ -248,6 +248,8 @@ export function defaultImageParamsForModel(config: AiConfig, model: string): Pic
 
 export type ModelGenerationDefaults = Pick<AiConfig, "size" | "quality" | "transparentBackground" | "count" | "videoSeconds" | "vquality" | "videoGenerateAudio" | "videoWatermark">;
 
+type ModelVideoBooleanOptions = Pick<AiConfig, "videoGenerateAudio" | "videoWatermark">;
+
 export function resolveModelGenerationDefaults(
     config: AiConfig,
     model: string,
@@ -292,6 +294,20 @@ export function resolveModelGenerationDefaults(
     }
 
     return {};
+}
+
+export function resolveModelVideoBooleanOptions(
+    config: AiConfig,
+    model: string,
+    explicit: Partial<ModelVideoBooleanOptions> = {},
+    fallback: Partial<ModelVideoBooleanOptions> = {},
+): ModelVideoBooleanOptions {
+    const profile = modelCapabilityConfigFor(config, model).video!;
+    const defaults = resolveModelGenerationDefaults(config, model, "video", explicit, fallback);
+    return {
+        videoGenerateAudio: profile.generateAudio.supported ? defaults.videoGenerateAudio ?? String(profile.generateAudio.default) : "false",
+        videoWatermark: profile.watermark.supported ? defaults.videoWatermark ?? String(profile.watermark.default) : "false",
+    };
 }
 
 export function maxModelInputCapacity(config: AiConfig, capability: "image" | "video", kind: "image" | "video" | "audio") {
