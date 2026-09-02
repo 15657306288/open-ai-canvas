@@ -258,7 +258,7 @@ func ValidateManifest(manifest Manifest) error {
 		return fmt.Errorf("plugin must declare at least one contribution")
 	}
 	if len(manifest.Contributes.Providers) == 0 {
-		return nil
+		return validatePaymentProviderContributions(manifest)
 	}
 	providerIDs := make(map[string]struct{}, len(manifest.Contributes.Providers))
 	for index, provider := range manifest.Contributes.Providers {
@@ -316,6 +316,33 @@ func ValidateManifest(manifest Manifest) error {
 			}
 		}
 	}
+	return validatePaymentProviderContributions(manifest)
+}
+
+func validatePaymentProviderContributions(manifest Manifest) error {
+	seen := make(map[string]struct{}, len(manifest.Contributes.PaymentProviders))
+	for index, provider := range manifest.Contributes.PaymentProviders {
+		provider.ID = strings.TrimSpace(provider.ID)
+		if provider.ID == "" || strings.TrimSpace(provider.Label) == "" || !validManifestIdentifier(provider.ID) {
+			return fmt.Errorf("payment provider contribution %d requires a valid id and label", index)
+		}
+		if _, exists := seen[provider.ID]; exists {
+			return fmt.Errorf("duplicate payment provider contribution %q", provider.ID)
+		}
+		seen[provider.ID] = struct{}{}
+		if strings.TrimSpace(provider.Icon) == "" {
+			return fmt.Errorf("payment provider contribution %q requires an icon", provider.ID)
+		}
+		switch provider.CheckoutMode {
+		case "qr_code", "redirect":
+		default:
+			return fmt.Errorf("payment provider contribution %q has unsupported checkout mode %q", provider.ID, provider.CheckoutMode)
+		}
+		policy := provider.ExpiryPolicy
+		if policy.MinMinutes <= 0 || policy.DefaultMinutes < policy.MinMinutes || policy.MaxMinutes < policy.DefaultMinutes {
+			return fmt.Errorf("payment provider contribution %q has invalid expiry policy", provider.ID)
+		}
+	}
 	return nil
 }
 
@@ -358,7 +385,7 @@ func normalizeManifestForProvider(manifest *Manifest, index int) error {
 }
 
 func hasNonProviderContribution(contributes ManifestContributions) bool {
-	return len(contributes.Workflows) > 0 || len(contributes.CanvasNodes) > 0 || len(contributes.Transforms) > 0 || len(contributes.Commands) > 0 || len(contributes.AssetSources) > 0 || len(contributes.UsageObservers) > 0 || len(contributes.AICapabilities) > 0 || len(contributes.Agents) > 0 || len(contributes.ImportExport) > 0
+	return len(contributes.PaymentProviders) > 0 || len(contributes.Workflows) > 0 || len(contributes.CanvasNodes) > 0 || len(contributes.Transforms) > 0 || len(contributes.Commands) > 0 || len(contributes.AssetSources) > 0 || len(contributes.UsageObservers) > 0 || len(contributes.AICapabilities) > 0 || len(contributes.Agents) > 0 || len(contributes.ImportExport) > 0
 }
 
 func operationSummary(operation ManifestOperation) string {
