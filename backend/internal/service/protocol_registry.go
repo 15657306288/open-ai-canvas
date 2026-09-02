@@ -265,6 +265,9 @@ func (s *Service) InstallPluginForAdmin(actor *model.User, data []byte, fileName
 	if _, reserved := officialApplicationPolicies[parsed.Manifest.Metadata.ID]; reserved {
 		return PluginView{}, fmt.Errorf("插件 ID %q 由官方应用保留", parsed.Manifest.Metadata.ID)
 	}
+	if _, reserved := systemPaymentPolicies[parsed.Manifest.Metadata.ID]; reserved {
+		return PluginView{}, fmt.Errorf("插件 ID %q 由系统支付插件保留", parsed.Manifest.Metadata.ID)
+	}
 	plugin, err := s.InstallPlugin(data, fileName)
 	if err != nil {
 		return PluginView{}, err
