@@ -8520,7 +8520,7 @@
 
 .admin-price-tier-controls {
     display: grid !important;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
     gap: 10px !important;
 }
 
@@ -8528,7 +8528,7 @@
     display: flex;
     min-width: 0;
     min-height: 58px;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
     gap: 10px;
     border: 1px solid var(--admin-card-border);
@@ -8539,6 +8539,7 @@
 
 .admin-price-tier-toggle > div {
     display: grid;
+    flex: 1 1 auto;
     min-width: 0;
     gap: 2px;
 }
@@ -8551,12 +8552,11 @@
 }
 
 .admin-price-tier-toggle span {
-    overflow: hidden;
+    overflow-wrap: anywhere;
     color: var(--admin-text-muted);
     font-size: 9px;
     line-height: 1.4;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    white-space: normal;
 }
 
 .admin-model-editor-add-tier.ant-btn {
