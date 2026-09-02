@@ -1,4 +1,4 @@
-package payment
+package paymentplugins
 
 import (
 	"context"
@@ -36,7 +36,7 @@ func NewWeChatProvider(client *http.Client, baseURL string) *WeChatProvider {
 }
 
 func (p *WeChatProvider) Descriptor() Descriptor {
-	return Descriptor{ID: ProviderWeChatNative, PluginID: PluginWeChatNative, Name: "微信支付 Native", Icon: "brand:wechat-pay", CheckoutMode: "qr_code"}
+	return Descriptor{ID: ProviderWeChatNative, PluginID: PluginWeChatNative, PluginVersion: "1.0.0", Name: "微信支付 Native", Icon: "brand:wechat-pay", CheckoutMode: "qr_code", IdentityFields: []string{"appId", "mchId"}, NotificationSuccess: NotificationResponse{Status: 204}, NotificationFailure: NotificationResponse{Status: 400}}
 }
 
 func (p *WeChatProvider) ValidateConfig(config Config) error {

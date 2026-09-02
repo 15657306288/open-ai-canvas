@@ -1,4 +1,4 @@
-package payment
+package paymentplugins
 
 import (
 	"context"
@@ -29,7 +29,7 @@ func NewAlipayProvider(client *http.Client) *AlipayProvider {
 }
 
 func (p *AlipayProvider) Descriptor() Descriptor {
-	return Descriptor{ID: ProviderAlipayPage, PluginID: PluginAlipayPage, Name: "支付宝电脑网站支付", Icon: "brand:alipay", CheckoutMode: "redirect"}
+	return Descriptor{ID: ProviderAlipayPage, PluginID: PluginAlipayPage, PluginVersion: "1.0.0", Name: "支付宝电脑网站支付", Icon: "brand:alipay", CheckoutMode: "redirect", IdentityFields: []string{"appId", "sellerId"}, NotificationSuccess: NotificationResponse{Status: 200, ContentType: "text/plain; charset=utf-8", Body: "success"}, NotificationFailure: NotificationResponse{Status: 400, ContentType: "text/plain; charset=utf-8", Body: "failure"}}
 }
 
 func (p *AlipayProvider) ValidateConfig(config Config) error {

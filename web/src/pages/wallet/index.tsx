@@ -455,12 +455,12 @@ export default function WalletPage() {
                                             onClick={() => setSelectedProviderId(provider.id)}
                                         >
                                             <PaymentBrandIcon providerId={provider.id} />
-                                            <span className="min-w-0 truncate text-sm font-medium">{provider.id === "wechat-native" ? "微信支付" : "支付宝"}</span>
+                                            <span className="min-w-0 truncate text-sm font-medium">{provider.name}</span>
                                         </button>
                                     ))}
                                 </div>
                                 <Button className="mt-3" type="primary" size="large" block loading={paymentCreating} disabled={!selectedProduct || !selectedProvider} onClick={() => void startPayment()}>
-                                    {selectedProvider?.checkoutMode === "qr_code" ? "生成支付二维码" : "前往支付宝支付"}
+                                    {selectedProvider?.checkoutMode === "qr_code" ? "生成支付二维码" : `前往${selectedProvider?.name || "支付"}`}
                                 </Button>
                             </div>
                         </div>
@@ -514,7 +514,7 @@ export default function WalletPage() {
 
             <Modal
                 open={paymentModalOpen}
-                title={paymentOrder?.status === "credited" ? "充值完成" : paymentOrder?.checkout.mode === "qr_code" ? "微信扫码支付" : "确认支付结果"}
+                title={paymentOrder?.status === "credited" ? "充值完成" : paymentOrder?.checkout.mode === "qr_code" ? "扫码支付" : "确认支付结果"}
                 onCancel={() => setPaymentModalOpen(false)}
                 footer={
                     paymentOrder?.status === "pending"
@@ -532,7 +532,7 @@ export default function WalletPage() {
                                     稍后处理
                                 </Button>,
                                 <Button key="retry" type="primary" loading={paymentQuerying} onClick={() => void retryPaymentCheckout()}>
-                                    {paymentOrder.checkout.mode === "redirect" ? "重新打开支付宝" : "重新生成二维码"}
+                                    {paymentOrder.checkout.mode === "redirect" ? "重新打开收银台" : "重新生成二维码"}
                                 </Button>,
                             ]
                           : [
@@ -555,7 +555,7 @@ export default function WalletPage() {
                         {paymentOrder.status === "pending" && paymentOrder.checkout.mode === "qr_code" && paymentOrder.checkout.value ? (
                             <div className="mt-5 flex flex-col items-center">
                                 <QRCode value={paymentOrder.checkout.value} size={208} bordered={false} />
-                                <p className="mt-3 text-sm font-medium">请打开微信扫一扫完成支付</p>
+                                <p className="mt-3 text-sm font-medium">请使用支付应用扫码完成支付</p>
                                 <p className="mt-1 text-xs text-foreground/45">请勿保存二维码后长按识别</p>
                             </div>
                         ) : null}
@@ -646,7 +646,7 @@ function ledgerTitle(entry: CreditLedgerEntry) {
 function PaymentBrandIcon({ providerId, size = "normal" }: { providerId: string; size?: "normal" | "large" }) {
     const className = size === "large" ? "text-3xl" : "text-xl";
     if (providerId === "wechat-native") return <WechatFilled className={`${className} text-[#07C160]`} aria-label="微信支付" />;
-    return <AlipayCircleFilled className={`${className} text-[#1677FF]`} aria-label="支付宝" />;
+    return <CreditCard className={`${className} text-foreground/60`} aria-label="支付" />;
 }
 
 function PaymentOrderStatus({ order, now }: { order: PaymentOrder; now: number }) {
@@ -654,7 +654,7 @@ function PaymentOrderStatus({ order, now }: { order: PaymentOrder; now: number }
     if (order.status === "credited") return <div className="mt-5 rounded-lg bg-emerald-500/8 px-4 py-3 text-sm font-medium text-emerald-600 dark:text-emerald-300">支付已确认，积分已经到账</div>;
     if (order.status === "closed") return <div className="mt-5 rounded-lg bg-foreground/5 px-4 py-3 text-sm text-foreground/60">订单已关闭，未产生积分充值</div>;
     if (order.status === "create_failed") {
-        const action = order.checkout.mode === "redirect" ? "重新打开支付宝收银台" : "重新生成支付二维码";
+        const action = order.checkout.mode === "redirect" ? "重新打开收银台" : "重新生成支付二维码";
         return <div className="mt-5 rounded-lg bg-rose-500/8 px-4 py-3 text-sm text-rose-600 dark:text-rose-300">创建渠道订单失败，可使用下方按钮{action}</div>;
     }
     return <div className="mt-5 text-xs text-foreground/48">订单剩余支付时间 {formatCountdown(remainingSeconds)}，页面将自动确认支付结果</div>;

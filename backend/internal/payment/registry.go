@@ -2,10 +2,8 @@ package payment
 
 import (
 	"fmt"
-	"net/http"
 	"sort"
 	"strings"
-	"time"
 )
 
 type Registry struct {
@@ -30,18 +28,6 @@ func NewRegistry(providers ...Provider) (*Registry, error) {
 	return registry, nil
 }
 
-func Builtins() *Registry {
-	client := &http.Client{Timeout: 60 * time.Second}
-	registry, err := NewRegistry(
-		NewWeChatProvider(client, "https://api.mch.weixin.qq.com"),
-		NewAlipayProvider(client),
-	)
-	if err != nil {
-		panic(err)
-	}
-	return registry
-}
-
 func (r *Registry) Get(id string) (Provider, bool) {
 	if r == nil {
 		return nil, false
@@ -59,5 +45,16 @@ func (r *Registry) Descriptors() []Descriptor {
 		items = append(items, provider.Descriptor())
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
+	return items
+}
+
+func (r *Registry) Providers() []Provider {
+	if r == nil {
+		return nil
+	}
+	items := make([]Provider, 0, len(r.providers))
+	for _, provider := range r.providers {
+		items = append(items, provider)
+	}
 	return items
 }

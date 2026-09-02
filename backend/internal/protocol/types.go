@@ -266,8 +266,9 @@ func (m *Manifest) UnmarshalJSON(data []byte) error {
 }
 
 type ManifestRuntime struct {
-	Backend string `json:"backend,omitempty"`
-	Web     string `json:"web,omitempty"`
+	Backend      string `json:"backend,omitempty"`
+	BackendEntry string `json:"backendEntry,omitempty"`
+	Web          string `json:"web,omitempty"`
 }
 
 type ManifestConfiguration struct {
@@ -300,17 +301,26 @@ type ManifestContributions struct {
 }
 
 type ManifestPaymentProvider struct {
-	ID           string                      `json:"id"`
-	Label        string                      `json:"label"`
-	Icon         string                      `json:"icon"`
-	CheckoutMode string                      `json:"checkoutMode"`
-	ExpiryPolicy ManifestPaymentExpiryPolicy `json:"expiryPolicy"`
+	ID                  string                      `json:"id"`
+	Label               string                      `json:"label"`
+	Icon                string                      `json:"icon"`
+	CheckoutMode        string                      `json:"checkoutMode"`
+	ExpiryPolicy        ManifestPaymentExpiryPolicy `json:"expiryPolicy"`
+	IdentityFields      []string                    `json:"identityFields,omitempty"`
+	NotificationSuccess ManifestPaymentResponse     `json:"notificationSuccess,omitempty"`
+	NotificationFailure ManifestPaymentResponse     `json:"notificationFailure,omitempty"`
 }
 
 type ManifestPaymentExpiryPolicy struct {
 	DefaultMinutes int `json:"defaultMinutes"`
 	MinMinutes     int `json:"minMinutes"`
 	MaxMinutes     int `json:"maxMinutes"`
+}
+
+type ManifestPaymentResponse struct {
+	Status      int    `json:"status,omitempty"`
+	ContentType string `json:"contentType,omitempty"`
+	Body        string `json:"body,omitempty"`
 }
 
 type ManifestProvider struct {

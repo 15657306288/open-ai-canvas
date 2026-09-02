@@ -59,6 +59,29 @@ func TestCompletePaymentOrderGrantsCreditsExactlyOnce(t *testing.T) {
 	}
 }
 
+func TestActivePaymentOrderCountForPluginScopesVersionAndState(t *testing.T) {
+	db := openPaymentTestDB(t)
+	repo := New(db)
+	orders := []model.PaymentOrder{
+		{ID: "plugin-v1-pending", UserID: "u1", IdempotencyKey: "i1", MerchantOrderNo: "m1", ProviderID: "p1", PluginID: "plugin", PluginVersion: "1.0.0", Status: model.PaymentOrderPending},
+		{ID: "plugin-legacy-pending", UserID: "u5", IdempotencyKey: "i5", MerchantOrderNo: "m5", ProviderID: "p1", PluginID: "plugin", Status: model.PaymentOrderPending},
+		{ID: "plugin-v1-credited", UserID: "u2", IdempotencyKey: "i2", MerchantOrderNo: "m2", ProviderID: "p1", PluginID: "plugin", PluginVersion: "1.0.0", Status: model.PaymentOrderCredited},
+		{ID: "plugin-v2-pending", UserID: "u3", IdempotencyKey: "i3", MerchantOrderNo: "m3", ProviderID: "p1", PluginID: "plugin", PluginVersion: "2.0.0", Status: model.PaymentOrderPending},
+		{ID: "other-pending", UserID: "u4", IdempotencyKey: "i4", MerchantOrderNo: "m4", ProviderID: "p2", PluginID: "other", PluginVersion: "1.0.0", Status: model.PaymentOrderPending},
+	}
+	if err := db.Create(&orders).Error; err != nil {
+		t.Fatal(err)
+	}
+	count, err := repo.ActivePaymentOrderCountForPlugin("plugin", "1.0.0")
+	if err != nil || count != 2 {
+		t.Fatalf("version-scoped active count = %d, error = %v", count, err)
+	}
+	count, err = repo.ActivePaymentOrderCountForPlugin("plugin", "")
+	if err != nil || count != 3 {
+		t.Fatalf("all-version active count = %d, error = %v", count, err)
+	}
+}
+
 func TestCompletePaymentOrderRejectsAmountMismatchWithoutGrant(t *testing.T) {
 	db := openPaymentTestDB(t)
 	repo := New(db)

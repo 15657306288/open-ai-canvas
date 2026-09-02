@@ -29,7 +29,24 @@ func TestPluginViewIncludesDocumentationForEveryOfficialProtocol(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bundledCount := len(bundledWorkflowPluginManifests()) + len(bundledPaymentPluginManifests())
+	bundledCount := len(bundledWorkflowPluginManifests())
+	packageIDs := make(map[string]bool, len(packages))
+	for _, packagePath := range packages {
+		data, err := os.ReadFile(packagePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pkg, err := protocol.ParsePluginPackage(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		packageIDs[pkg.Manifest.Metadata.ID] = true
+	}
+	for _, manifest := range bundledPaymentPluginManifests() {
+		if !packageIDs[manifest.Metadata.ID] {
+			bundledCount++
+		}
+	}
 	if len(plugins) != len(packages)+bundledCount {
 		t.Fatalf("plugin views = %d, official packages plus bundled plugins = %d", len(plugins), len(packages)+bundledCount)
 	}
@@ -47,8 +64,12 @@ func TestPluginViewIncludesDocumentationForEveryOfficialProtocol(t *testing.T) {
 			t.Errorf("fresh runtime did not install official plugin %q", pkg.Manifest.Metadata.ID)
 			continue
 		}
-		if plugin.Source != PluginOriginOfficial {
-			t.Errorf("plugin %q source = %q, want official", plugin.Manifest.ID, plugin.Source)
+		expectedSource := PluginOriginOfficial
+		if isSystemPaymentPluginID(plugin.Manifest.ID) {
+			expectedSource = PluginOriginSystem
+		}
+		if plugin.Source != expectedSource {
+			t.Errorf("plugin %q source = %q, want %s", plugin.Manifest.ID, plugin.Source, expectedSource)
 		}
 		expected := strings.TrimSpace(string(pkg.Files["README.md"])) + "\n\n---\n\n" + strings.TrimSpace(string(pkg.Files["docs/interface.md"]))
 		if strings.TrimSpace(plugin.Manifest.Documentation) != expected {

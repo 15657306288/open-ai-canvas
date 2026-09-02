@@ -154,6 +154,25 @@ func (r *Repository) PaymentOrderCountForProvider(providerID string) (int64, err
 	return count, err
 }
 
+// ActivePaymentOrderCountForPlugin reports orders that still need the plugin
+// runtime for create retries, callbacks, queries or close operations.
+func (r *Repository) ActivePaymentOrderCountForPlugin(pluginID, pluginVersion string) (int64, error) {
+	query := r.db.Model(&model.PaymentOrder{}).Where("plugin_id = ? AND status IN ?", strings.TrimSpace(pluginID), []model.PaymentOrderStatus{
+		model.PaymentOrderCreated, model.PaymentOrderPending, model.PaymentOrderClosing, model.PaymentOrderCreateFailed,
+	})
+	if strings.TrimSpace(pluginVersion) != "" {
+		// Rows created before plugin version pinning have an empty version. Keep
+		// them protected during upgrades because they still depend on this
+		// plugin's historical runtime.
+		query = query.Where("(plugin_version = ? OR plugin_version = '' OR plugin_version IS NULL)", strings.TrimSpace(pluginVersion))
+	}
+	var count int64
+	if err := query.Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 func (r *Repository) SaveVerifiedPaymentNotification(notification *model.PaymentNotification) (bool, error) {
 	created := r.db.Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "provider_id"}, {Name: "provider_event_id"}}, DoNothing: true,

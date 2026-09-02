@@ -8,7 +8,6 @@ import (
 )
 
 func TestBundledPaymentPluginsMatchHostProviders(t *testing.T) {
-	registry := payment.Builtins()
 	manifests := bundledPaymentPluginManifests()
 	if len(manifests) != 2 {
 		t.Fatalf("payment plugin manifests = %d", len(manifests))
@@ -25,13 +24,8 @@ func TestBundledPaymentPluginsMatchHostProviders(t *testing.T) {
 			t.Fatalf("plugin %s payment contributions = %d", manifest.Metadata.ID, len(manifest.Contributes.PaymentProviders))
 		}
 		contribution := manifest.Contributes.PaymentProviders[0]
-		provider, ok := registry.Get(contribution.ID)
-		if !ok {
-			t.Fatalf("plugin %s has no host provider %s", manifest.Metadata.ID, contribution.ID)
-		}
-		descriptor := provider.Descriptor()
-		if descriptor.PluginID != manifest.Metadata.ID || descriptor.Icon != contribution.Icon || descriptor.CheckoutMode != contribution.CheckoutMode {
-			t.Fatalf("plugin/provider mismatch: manifest=%#v descriptor=%#v", contribution, descriptor)
+		if contribution.ID == "" || contribution.Icon == "" || contribution.CheckoutMode == "" {
+			t.Fatalf("plugin %s has incomplete payment contribution: %#v", manifest.Metadata.ID, contribution)
 		}
 	}
 }
@@ -52,6 +46,51 @@ func TestBundledPaymentPluginsLoadFromSystemSource(t *testing.T) {
 		}
 		if plugin.Source != PluginOriginSystem || !plugin.Manifest.Trusted {
 			t.Fatalf("system payment plugin %s = %#v", manifest.Metadata.ID, plugin)
+		}
+	}
+}
+
+func TestSystemPaymentPluginsRegisterRPCProviders(t *testing.T) {
+	center, err := newPluginRuntime(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := center.paymentRegistrySnapshot()
+	if registry == nil {
+		t.Fatal("payment registry is nil")
+	}
+	for _, providerID := range []string{PaymentProviderAlipay, PaymentProviderWeChat} {
+		provider, ok := registry.Get(providerID)
+		if !ok {
+			t.Fatalf("payment provider %q is missing", providerID)
+		}
+		if _, ok := provider.(*payment.RPCProvider); !ok {
+			t.Fatalf("payment provider %q has type %T, want *payment.RPCProvider", providerID, provider)
+		}
+		if provider.Descriptor().PluginID == "" || provider.Descriptor().PluginVersion == "" {
+			t.Fatalf("payment provider %q is missing plugin identity: %#v", providerID, provider.Descriptor())
+		}
+	}
+}
+
+func TestPaymentRegistryFailsClosedWhenOfficialPackagesAreMissing(t *testing.T) {
+	t.Setenv("CANVAS_OFFICIAL_PLUGIN_DIR", t.TempDir())
+	center, err := newPluginRuntime(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := center.paymentRegistrySnapshot()
+	if registry == nil {
+		t.Fatal("payment registry is nil")
+	}
+	for _, providerID := range []string{PaymentProviderAlipay, PaymentProviderWeChat} {
+		if _, ok := registry.Get(providerID); ok {
+			t.Fatalf("payment provider %q unexpectedly came from host fallback", providerID)
+		}
+	}
+	for _, plugin := range center.list() {
+		if plugin.Management.Kind == PluginKindPayment && plugin.Status != "invalid" {
+			t.Fatalf("missing package payment plugin %q status = %q, want invalid", plugin.Manifest.ID, plugin.Status)
 		}
 	}
 }

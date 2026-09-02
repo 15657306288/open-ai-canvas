@@ -1,110 +1,35 @@
 package payment
 
 import (
-	"context"
-	"errors"
-	"net/http"
-	"time"
+	"infinite-canvas/backend/internal/protocol"
+	paymentsdk "infinite-canvas/backend/payment-sdk"
 )
 
-const (
-	ProviderWeChatNative = "wechat-native"
-	ProviderAlipayPage   = "alipay-page-pay"
-
-	PluginWeChatNative = "official-payment-wechat-native"
-	PluginAlipayPage   = "official-payment-alipay-page"
-)
+type Config = paymentsdk.Config
+type Descriptor = paymentsdk.Descriptor
+type NotificationResponse = paymentsdk.NotificationResponse
+type CreateRequest = paymentsdk.CreateRequest
+type Checkout = paymentsdk.Checkout
+type QueryRequest = paymentsdk.QueryRequest
+type CloseRequest = paymentsdk.CloseRequest
+type Result = paymentsdk.Result
+type Notification = paymentsdk.Notification
+type BillRecord = paymentsdk.BillRecord
+type Provider = paymentsdk.Provider
+type ProviderError = paymentsdk.ProviderError
 
 var (
-	ErrOrderNotFound     = errors.New("payment provider order not found")
-	ErrOrderNotPaid      = errors.New("payment provider order is not paid")
-	ErrTradeBillNotFound = errors.New("payment provider trade bill not found")
+	ErrOrderNotFound     = paymentsdk.ErrOrderNotFound
+	ErrOrderNotPaid      = paymentsdk.ErrOrderNotPaid
+	ErrTradeBillNotFound = paymentsdk.ErrTradeBillNotFound
 )
 
-type Config map[string]string
-
-type Descriptor struct {
-	ID           string `json:"id"`
-	PluginID     string `json:"pluginId"`
-	Name         string `json:"name"`
-	Icon         string `json:"icon"`
-	CheckoutMode string `json:"checkoutMode"`
-}
-
-type CreateRequest struct {
-	MerchantOrderNo string
-	Description     string
-	AmountFen       int64
-	Currency        string
-	ExpiresAt       time.Time
-	NotifyURL       string
-	ReturnURL       string
-}
-
-type Checkout struct {
-	Mode      string
-	Value     string
-	ExpiresAt time.Time
-}
-
-type QueryRequest struct {
-	MerchantOrderNo string
-}
-
-type CloseRequest struct {
-	MerchantOrderNo string
-}
-
-type Result struct {
-	MerchantOrderNo string    `json:"merchantOrderNo"`
-	ProviderTradeNo string    `json:"providerTradeNo,omitempty"`
-	ProviderStatus  string    `json:"providerStatus"`
-	AmountFen       int64     `json:"amountFen"`
-	Currency        string    `json:"currency"`
-	Paid            bool      `json:"paid"`
-	Closed          bool      `json:"closed"`
-	PaidAt          time.Time `json:"paidAt,omitempty"`
-}
-
-type Notification struct {
-	EventID string `json:"eventId"`
-	Result
-}
-
-type BillRecord struct {
-	MerchantOrderNo string
-	ProviderTradeNo string
-	ProviderStatus  string
-	AmountFen       int64
-	Currency        string
-	PaidAt          time.Time
-}
-
-type Provider interface {
-	Descriptor() Descriptor
-	ValidateConfig(Config) error
-	CreateOrder(context.Context, Config, CreateRequest) (Checkout, error)
-	QueryOrder(context.Context, Config, QueryRequest) (Result, error)
-	CloseOrder(context.Context, Config, CloseRequest) (Result, error)
-	VerifyNotification(context.Context, Config, http.Header, []byte) (Notification, error)
-	DownloadTradeBill(context.Context, Config, time.Time) ([]BillRecord, error)
-}
-
-type ProviderError struct {
-	Code      string
-	Message   string
-	Temporary bool
-	Cause     error
-}
-
-func (e *ProviderError) Error() string {
-	if e == nil {
-		return ""
+func DescriptorFromManifest(manifest protocol.Manifest, provider protocol.ManifestPaymentProvider) Descriptor {
+	return Descriptor{
+		ID: provider.ID, PluginID: manifest.Metadata.ID, PluginVersion: manifest.Metadata.Version, Name: provider.Label,
+		Icon: provider.Icon, CheckoutMode: provider.CheckoutMode,
+		IdentityFields:      append([]string(nil), provider.IdentityFields...),
+		NotificationSuccess: NotificationResponse{Status: provider.NotificationSuccess.Status, ContentType: provider.NotificationSuccess.ContentType, Body: provider.NotificationSuccess.Body},
+		NotificationFailure: NotificationResponse{Status: provider.NotificationFailure.Status, ContentType: provider.NotificationFailure.ContentType, Body: provider.NotificationFailure.Body},
 	}
-	if e.Message != "" {
-		return e.Message
-	}
-	return e.Code
 }
-
-func (e *ProviderError) Unwrap() error { return e.Cause }

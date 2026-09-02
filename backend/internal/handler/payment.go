@@ -149,7 +149,7 @@ func RegisterPaymentRoutes(r *gin.RouterGroup, svc *service.Service) {
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, paymentNotificationMaxBytes)
 		rawBody, err := io.ReadAll(c.Request.Body)
 		if err != nil {
-			writePaymentNotificationFailure(c, c.Param("providerId"), http.StatusBadRequest)
+			writePaymentNotificationFailure(c, svc, c.Param("providerId"), http.StatusBadRequest)
 			return
 		}
 		err = svc.AcceptPaymentNotification(c.Request.Context(), c.Param("providerId"), c.Param("configId"), c.Request.Header.Clone(), rawBody)
@@ -159,16 +159,17 @@ func RegisterPaymentRoutes(r *gin.RouterGroup, svc *service.Service) {
 			if errors.As(err, &appErr) && appErr.Status < http.StatusInternalServerError {
 				status = http.StatusBadRequest
 			}
-			writePaymentNotificationFailure(c, c.Param("providerId"), status)
+			writePaymentNotificationFailure(c, svc, c.Param("providerId"), status)
 			return
 		}
-		if c.Param("providerId") == service.PaymentProviderAlipay {
-			c.Data(http.StatusOK, "text/plain; charset=utf-8", []byte("success"))
+		status, contentType, body := svc.PaymentNotificationResponse(c.Param("providerId"), true)
+		if body != "" {
+			c.Data(status, contentType, []byte(body))
 			return
 		}
-		c.Status(http.StatusNoContent)
+		c.Status(status)
 	})
-	r.GET("/payments/return/alipay", func(c *gin.Context) {
+	r.GET("/payments/return/:providerId", func(c *gin.Context) {
 		orderID := strings.ToLower(strings.TrimSpace(c.Query("orderId")))
 		if !paymentOrderIDPattern.MatchString(orderID) {
 			c.Redirect(http.StatusFound, "/wallet?payment=invalid")
@@ -349,10 +350,11 @@ func RegisterPaymentRoutes(r *gin.RouterGroup, svc *service.Service) {
 	})
 }
 
-func writePaymentNotificationFailure(c *gin.Context, providerID string, status int) {
-	if providerID == service.PaymentProviderAlipay {
-		c.Data(status, "text/plain; charset=utf-8", []byte("failure"))
+func writePaymentNotificationFailure(c *gin.Context, svc *service.Service, providerID string, status int) {
+	responseStatus, contentType, body := svc.PaymentNotificationFailureResponse(providerID, status)
+	if body != "" {
+		c.Data(responseStatus, contentType, []byte(body))
 		return
 	}
-	c.JSON(status, gin.H{"code": "FAIL", "message": http.StatusText(status)})
+	c.JSON(responseStatus, gin.H{"code": "FAIL", "message": http.StatusText(responseStatus)})
 }

@@ -1,15 +1,14 @@
 package service
 
 import (
-	"infinite-canvas/backend/internal/payment"
 	"infinite-canvas/backend/internal/protocol"
 )
 
 const (
-	PaymentPluginWeChatNative = payment.PluginWeChatNative
-	PaymentPluginAlipayPage   = payment.PluginAlipayPage
-	PaymentProviderWeChat     = payment.ProviderWeChatNative
-	PaymentProviderAlipay     = payment.ProviderAlipayPage
+	PaymentPluginWeChatNative = "official-payment-wechat-native"
+	PaymentPluginAlipayPage   = "official-payment-alipay-page"
+	PaymentProviderWeChat     = "wechat-native"
+	PaymentProviderAlipay     = "alipay-page-pay"
 )
 
 func bundledPaymentPluginManifests() []protocol.Manifest {
@@ -53,9 +52,36 @@ func paymentPluginManifest(pluginID, providerID, name, vendor, description, runt
 		Configuration: configuration,
 		Contributes: protocol.ManifestContributions{PaymentProviders: []protocol.ManifestPaymentProvider{{
 			ID: providerID, Label: name, Icon: icon, CheckoutMode: checkoutMode,
+			IdentityFields:      paymentIdentityFields(providerID),
+			NotificationSuccess: paymentNotificationSuccess(providerID), NotificationFailure: paymentNotificationFailure(providerID),
 			ExpiryPolicy: protocol.ManifestPaymentExpiryPolicy{DefaultMinutes: 30, MinMinutes: 5, MaxMinutes: 1440},
 		}}},
 	}
+}
+
+func paymentIdentityFields(providerID string) []string {
+	switch providerID {
+	case PaymentProviderWeChat:
+		return []string{"appId", "mchId"}
+	case PaymentProviderAlipay:
+		return []string{"appId", "sellerId"}
+	default:
+		return nil
+	}
+}
+
+func paymentNotificationSuccess(providerID string) protocol.ManifestPaymentResponse {
+	if providerID == PaymentProviderAlipay {
+		return protocol.ManifestPaymentResponse{Status: 200, ContentType: "text/plain; charset=utf-8", Body: "success"}
+	}
+	return protocol.ManifestPaymentResponse{Status: 204}
+}
+
+func paymentNotificationFailure(providerID string) protocol.ManifestPaymentResponse {
+	if providerID == PaymentProviderAlipay {
+		return protocol.ManifestPaymentResponse{Status: 400, ContentType: "text/plain; charset=utf-8", Body: "failure"}
+	}
+	return protocol.ManifestPaymentResponse{Status: 400}
 }
 
 func wechatPaymentConfiguration() protocol.ManifestConfiguration {

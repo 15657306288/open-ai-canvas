@@ -107,6 +107,44 @@ type AdminPaymentOrderPage struct {
 	Limit  int                `json:"limit"`
 }
 
+func (s *Service) PaymentNotificationResponse(providerID string, success bool) (int, string, string) {
+	return PaymentNotificationResponseForWithRegistry(s.paymentRegistry, providerID, success, http.StatusInternalServerError)
+}
+
+func (s *Service) PaymentNotificationFailureResponse(providerID string, status int) (int, string, string) {
+	return PaymentNotificationResponseForWithRegistry(s.paymentRegistry, providerID, false, status)
+}
+
+func PaymentNotificationResponseFor(providerID string, success bool, failureStatus int) (int, string, string) {
+	registry, _ := payment.NewRegistry()
+	return PaymentNotificationResponseForWithRegistry(registry, providerID, success, failureStatus)
+}
+
+func PaymentNotificationResponseForWithRegistry(registry *payment.Registry, providerID string, success bool, failureStatus int) (int, string, string) {
+	if registry != nil {
+		if provider, ok := registry.Get(providerID); ok {
+			descriptor := provider.Descriptor()
+			response := descriptor.NotificationFailure
+			if success {
+				response = descriptor.NotificationSuccess
+			}
+			status := response.Status
+			if status == 0 {
+				status = failureStatus
+			}
+			contentType, body := response.ContentType, response.Body
+			if contentType == "" {
+				contentType = "text/plain; charset=utf-8"
+			}
+			return status, contentType, body
+		}
+	}
+	if success {
+		return http.StatusNoContent, "", ""
+	}
+	return failureStatus, "", ""
+}
+
 func (s *Service) PaymentProviders(actor *model.User) ([]PaymentProviderView, error) {
 	if actor == nil {
 		return nil, Unauthorized("请先登录")
@@ -186,7 +224,7 @@ func (s *Service) UpdatePaymentProviderConfig(actor *model.User, providerID stri
 		if err != nil {
 			return nil, err
 		}
-		for _, field := range paymentProviderIdentityFields(providerID) {
+		for _, field := range descriptor.IdentityFields {
 			previousIdentity[field] = strings.TrimSpace(values[field])
 		}
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -242,7 +280,7 @@ func (s *Service) UpdatePaymentProviderConfig(actor *model.User, providerID stri
 	}
 	digest := sha256.Sum256(plain)
 	config := &model.PaymentProviderConfig{
-		ID: newID(), ProviderID: descriptor.ID, PluginID: descriptor.PluginID,
+		ID: newID(), ProviderID: descriptor.ID, PluginID: descriptor.PluginID, PluginVersion: descriptor.PluginVersion,
 		Enabled: request.Enabled, CloseAfterMinutes: request.CloseAfterMinutes,
 		ConfigCipher: ciphertext, ConfigDigest: hex.EncodeToString(digest[:]), CreatedBy: actor.ID,
 	}
@@ -264,17 +302,6 @@ func (s *Service) UpdatePaymentProviderConfig(actor *model.User, providerID stri
 		}
 	}
 	return nil, errors.New("保存支付渠道配置后未找到渠道")
-}
-
-func paymentProviderIdentityFields(providerID string) []string {
-	switch strings.TrimSpace(providerID) {
-	case PaymentProviderWeChat:
-		return []string{"appId", "mchId"}
-	case PaymentProviderAlipay:
-		return []string{"appId", "sellerId"}
-	default:
-		return nil
-	}
 }
 
 func (s *Service) paymentProviderView(descriptor payment.Descriptor) (PaymentProviderView, *model.PaymentProviderConfig, error) {
@@ -457,7 +484,7 @@ func (s *Service) CreatePaymentOrder(ctx context.Context, actor *model.User, req
 	order := &model.PaymentOrder{
 		ID: newID(), UserID: actor.ID, IdempotencyKey: idempotencyKey, MerchantOrderNo: newID(),
 		ProductID: product.ID, ProductName: product.Name, ProviderID: provider.Descriptor().ID,
-		PluginID: provider.Descriptor().PluginID, ProviderConfigID: config.ID, ProviderConfigVersion: config.Version,
+		PluginID: provider.Descriptor().PluginID, PluginVersion: provider.Descriptor().PluginVersion, ProviderConfigID: config.ID, ProviderConfigVersion: config.Version,
 		AmountFen: product.AmountFen, Currency: "CNY", CreditsMicrocredits: product.CreditsMicrocredits,
 		Status: model.PaymentOrderCreated, CheckoutMode: provider.Descriptor().CheckoutMode,
 		ExpiresAt: now.Add(time.Duration(config.CloseAfterMinutes) * time.Minute),
@@ -480,7 +507,7 @@ func (s *Service) CreatePaymentOrder(ctx context.Context, actor *model.User, req
 		MerchantOrderNo: order.MerchantOrderNo, Description: product.Name, AmountFen: order.AmountFen,
 		Currency: order.Currency, ExpiresAt: order.ExpiresAt,
 		NotifyURL: baseURL + "/api/payments/notify/" + url.PathEscape(order.ProviderID) + "/" + url.PathEscape(config.ID),
-		ReturnURL: baseURL + "/api/payments/return/alipay?orderId=" + url.QueryEscape(order.ID),
+		ReturnURL: baseURL + "/api/payments/return/" + url.PathEscape(order.ProviderID) + "?orderId=" + url.QueryEscape(order.ID),
 	})
 	if err != nil {
 		_ = s.repo.SetPaymentOrderCreateFailure(order.ID, safePaymentError(err))
@@ -564,7 +591,7 @@ func (s *Service) RefreshPaymentCheckout(ctx context.Context, actor *model.User,
 		MerchantOrderNo: order.MerchantOrderNo, Description: order.ProductName, AmountFen: order.AmountFen,
 		Currency: order.Currency, ExpiresAt: order.ExpiresAt,
 		NotifyURL: baseURL + "/api/payments/notify/" + url.PathEscape(order.ProviderID) + "/" + url.PathEscape(config.ID),
-		ReturnURL: baseURL + "/api/payments/return/alipay?orderId=" + url.QueryEscape(order.ID),
+		ReturnURL: baseURL + "/api/payments/return/" + url.PathEscape(order.ProviderID) + "?orderId=" + url.QueryEscape(order.ID),
 	})
 	if err != nil {
 		return nil, WrapAppError(http.StatusBadGateway, "刷新支付收银台失败，请稍后重试", err)
@@ -810,7 +837,7 @@ func (s *Service) paymentRuntimeForOrder(order *model.PaymentOrder) (payment.Pro
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	if config.ProviderID != order.ProviderID || config.PluginID != order.PluginID || config.Version != order.ProviderConfigVersion {
+	if config.ProviderID != order.ProviderID || config.PluginID != order.PluginID || (config.PluginVersion != "" && order.PluginVersion != "" && config.PluginVersion != order.PluginVersion) || config.Version != order.ProviderConfigVersion {
 		return nil, nil, nil, repository.ErrPaymentOrderStateConflict
 	}
 	values, err := s.decryptPaymentConfig(config)

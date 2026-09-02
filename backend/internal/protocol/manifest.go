@@ -257,6 +257,9 @@ func ValidateManifest(manifest Manifest) error {
 	if len(manifest.Contributes.Providers) == 0 && !hasNonProviderContribution(manifest.Contributes) {
 		return fmt.Errorf("plugin must declare at least one contribution")
 	}
+	if backend := strings.TrimSpace(manifest.Runtime.Backend); backend != "" && backend != "declarative" && backend != "rpc" && backend != "wasm" && backend != "trusted-backend" && !strings.HasPrefix(backend, "host:") {
+		return fmt.Errorf("unsupported plugin backend %q", backend)
+	}
 	if len(manifest.Contributes.Providers) == 0 {
 		return validatePaymentProviderContributions(manifest)
 	}
@@ -341,6 +344,16 @@ func validatePaymentProviderContributions(manifest Manifest) error {
 		policy := provider.ExpiryPolicy
 		if policy.MinMinutes <= 0 || policy.DefaultMinutes < policy.MinMinutes || policy.MaxMinutes < policy.DefaultMinutes {
 			return fmt.Errorf("payment provider contribution %q has invalid expiry policy", provider.ID)
+		}
+		for _, field := range provider.IdentityFields {
+			if strings.TrimSpace(field) == "" || len(field) > 80 {
+				return fmt.Errorf("payment provider contribution %q has invalid identity field %q", provider.ID, field)
+			}
+		}
+		for _, response := range []ManifestPaymentResponse{provider.NotificationSuccess, provider.NotificationFailure} {
+			if response.Status < 0 || response.Status > 599 {
+				return fmt.Errorf("payment provider contribution %q has invalid notification response status", provider.ID)
+			}
 		}
 	}
 	return nil

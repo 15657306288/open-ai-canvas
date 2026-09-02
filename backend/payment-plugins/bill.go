@@ -1,4 +1,4 @@
-package payment
+package paymentplugins
 
 import (
 	"archive/zip"

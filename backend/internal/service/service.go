@@ -110,7 +110,13 @@ func New(repo *repository.Repository, dataDir string) *Service {
 func NewWithRuntimeCapabilities(repo *repository.Repository, dataDir string, capabilities RuntimeCapabilities) *Service {
 	coordinator, err := newRuntimeCoordinator(repo.Dialect())
 	pluginRuntime, pluginRuntimeErr := newPluginRuntime(dataDir)
-	service := &Service{repo: repo, dataDir: dataDir, runtimeCapabilities: capabilities, activeStorageTests: make(map[string]bool), activeCancels: make(map[string]context.CancelFunc), coordinator: coordinator, runtimeErr: err, pluginRuntime: pluginRuntime, pluginRuntimeErr: pluginRuntimeErr, paymentRegistry: payment.Builtins(), workerID: newID(), routeCatalogTTL: 30 * time.Second, routeCatalogMaxStale: 5 * time.Minute, routeHealthBlocked: make(map[string]time.Time)}
+	paymentRegistry, _ := payment.NewRegistry()
+	if pluginRuntime != nil {
+		if dynamic := pluginRuntime.paymentRegistrySnapshot(); dynamic != nil {
+			paymentRegistry = dynamic
+		}
+	}
+	service := &Service{repo: repo, dataDir: dataDir, runtimeCapabilities: capabilities, activeStorageTests: make(map[string]bool), activeCancels: make(map[string]context.CancelFunc), coordinator: coordinator, runtimeErr: err, pluginRuntime: pluginRuntime, pluginRuntimeErr: pluginRuntimeErr, paymentRegistry: paymentRegistry, workerID: newID(), routeCatalogTTL: 30 * time.Second, routeCatalogMaxStale: 5 * time.Minute, routeHealthBlocked: make(map[string]time.Time)}
 	service.taskBillingCoordinator = newTaskBillingCoordinator(service.repo)
 	service.taskTerminalCoordinator = newTaskTerminalCoordinator(service)
 	service.taskRouteExecutor = newTaskRouteExecutor(service)

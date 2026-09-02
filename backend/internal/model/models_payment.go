@@ -54,6 +54,7 @@ type PaymentProviderConfig struct {
 	ID                string    `json:"id" gorm:"primaryKey;size:36"`
 	ProviderID        string    `json:"providerId" gorm:"size:80;index;uniqueIndex:idx_payment_provider_version,priority:1"`
 	PluginID          string    `json:"pluginId" gorm:"size:120;index"`
+	PluginVersion     string    `json:"pluginVersion" gorm:"size:40"`
 	Version           int64     `json:"version" gorm:"uniqueIndex:idx_payment_provider_version,priority:2"`
 	Enabled           bool      `json:"enabled" gorm:"index"`
 	CloseAfterMinutes int       `json:"closeAfterMinutes"`
@@ -72,6 +73,7 @@ type PaymentOrder struct {
 	ProductName           string             `json:"productName" gorm:"size:120"`
 	ProviderID            string             `json:"providerId" gorm:"size:80;index;uniqueIndex:idx_payment_provider_trade,priority:1"`
 	PluginID              string             `json:"pluginId" gorm:"size:120;index"`
+	PluginVersion         string             `json:"pluginVersion" gorm:"size:40"`
 	ProviderConfigID      string             `json:"providerConfigId" gorm:"size:36;index"`
 	ProviderConfigVersion int64              `json:"providerConfigVersion"`
 	AmountFen             int64              `json:"amountFen"`
