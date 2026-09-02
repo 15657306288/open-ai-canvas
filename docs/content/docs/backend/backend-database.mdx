@@ -15,7 +15,7 @@ description: 影策后端核心持久化表与状态边界
 
 容器内命令 `migrate-schema up` 应用缺失迁移，`migrate-schema status` 输出当前和期望版本，`migrate-schema verify` 只检查兼容性。`CANVAS_AUTO_MIGRATE=true` 仅用于开发和旧部署兼容；受管生产部署设置为 `false`，并由 Compose 的一次性 `migrate` 服务先完成迁移。后续迁移必须新增版本，不得修改已经发布迁移的实现或校验和。
 
-当前结构版本为 5。版本 2 为 `schema_migrations.applied_at` 增加 `idx_schema_migrations_applied_at` 索引；版本 3 `asset_taxonomy_candidate_identity` 为资产候选增加规范化名称和来源，收敛资产分类，并为待确认候选建立项目内部分唯一索引；版本 4 `resource_upload_key` 为资源上传幂等补充 `resources.upload_key` 列和用户维度唯一索引；版本 5 `payment_topup` 创建积分充值、支付通知和对账所需结构。
+当前结构版本为 6。版本 2 为 `schema_migrations.applied_at` 增加 `idx_schema_migrations_applied_at` 索引；版本 3 `asset_taxonomy_candidate_identity` 为资产候选增加规范化名称和来源，收敛资产分类，并为待确认候选建立项目内部分唯一索引；版本 4 `resource_upload_key` 为资源上传幂等补充 `resources.upload_key` 列和用户维度唯一索引；版本 5 `payment_topup` 创建积分充值、支付通知和对账所需结构；版本 6 `asset_library_folders` 增加用户素材自定义分类及 `assets.folder_id`。
 
 版本 3 会将 `wardrobe`、`weapon`、`accessory` 迁移为 `prop`，将 `style` 迁移为 `material`，并把原先归入 `other` 的图片、视频、音频和 3D 模型迁移为 `material`。迁移只合并重复的待确认候选：保留最早记录，其余标记为 `ignored`；已经确认的资产不会被自动删除或归并。
 
@@ -52,7 +52,7 @@ description: 影策后端核心持久化表与状态边界
 | --- | --- | --- |
 | `projects` | 保存短剧项目基础设置、画幅、画风快照、项目主图和默认图片/视频模型 | `default_image_model` / `default_video_model` 保存前端模型选择器的渠道限定引用；模型下架或渠道停用时前端回退当前全局默认。`cover_resource_id` 只能引用当前用户已就绪的图片资源；资源删除检查会阻止仍被项目主图使用的图片被回收 |
 | `project_units` | 保存项目章节或集数的正文、排序和状态 | `word_count` 在正文创建、导入和更新时同步维护，项目详情只返回摘要和字数，不批量返回长篇正文；升级时会为旧正文回填字数 |
-| `assets` / `asset_versions` / `project_asset_links` | 保存用户资产、不可变版本及项目引用 | 业务分类统一为 `character`、`environment`、`prop`、`material`、`other`；服饰、武器与配饰属于道具，图片/视频/音频等通用媒体默认属于素材 |
+| `assets` / `asset_folders` / `asset_versions` / `project_asset_links` | 保存用户资产、自定义分类、不可变版本及项目引用 | 业务分类统一为 `character`、`environment`、`prop`、`material`、`other`；自定义分类通过用户级 `asset_folders` 与 `assets.folder_id` 表达，不改变业务分类语义 |
 | `project_asset_candidates` | 保存章节或 Agent 提取后等待用户确认的资产候选 | `name_key` 保存规范化名称，`source` 记录提取入口；角色候选只允许来自 `chapter_character_extract` 且必须关联章节，同一项目、分类和规范化名称的待确认候选保持唯一 |
 | `shots` | 保存章节内稳定的镜头身份、排序和当前版本指针 | 不保存完整生成历史；`current_revision_id` 指向当前采用的分镜脚本版本 |
 | `shot_revisions` | 保存画面、动作、台词、景别、机位、运镜、提示词和动作节拍 | 每次编辑创建新版本；历史版本不可被静默覆盖 |

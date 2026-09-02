@@ -10,10 +10,12 @@ export type AssetStorageDocument = {
 
 export function normalizeAssetRecord(asset: Asset): Asset {
     const category = normalizeAssetCategory(asset.category, defaultAssetCategoryForKind(asset.kind));
-    if (Array.isArray(asset.tags) && asset.tags.every((tag) => typeof tag === "string") && asset.category === category) return asset;
+    const folderId = typeof asset.folderId === "string" ? asset.folderId.trim() : "";
+    if (Array.isArray(asset.tags) && asset.tags.every((tag) => typeof tag === "string") && asset.category === category && (asset.folderId || "") === folderId) return asset;
     return {
         ...asset,
         tags: Array.isArray(asset.tags) ? asset.tags.filter((tag): tag is string => typeof tag === "string") : [],
+        folderId: folderId || undefined,
         category,
     };
 }

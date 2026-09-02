@@ -1082,7 +1082,7 @@ func (r *Repository) Assets(userID string) ([]model.Asset, error) {
 
 func (r *Repository) AssetSummaries(userID string) ([]model.Asset, error) {
 	var assets []model.Asset
-	err := r.db.Select("id", "kind", "category", "status", "primary_version_id", "title", "created_at", "updated_at").Order("updated_at desc").Find(&assets, "user_id = ?", userID).Error
+	err := r.db.Select("id", "folder_id", "kind", "category", "status", "primary_version_id", "title", "created_at", "updated_at").Order("updated_at desc").Find(&assets, "user_id = ?", userID).Error
 	return assets, err
 }
 
@@ -1106,7 +1106,7 @@ func (r *Repository) AssetsForUserIDs(userID string, ids []string) ([]model.Asse
 func (r *Repository) UpsertAsset(asset *model.Asset) error {
 	result := r.db.Model(&model.Asset{}).
 		Where("id = ? AND user_id = ?", asset.ID, asset.UserID).
-		Updates(map[string]any{"kind": asset.Kind, "category": asset.Category, "status": asset.Status, "primary_version_id": asset.PrimaryVersionID, "title": asset.Title, "payload_json": asset.PayloadJSON, "updated_at": asset.UpdatedAt})
+		Updates(map[string]any{"folder_id": asset.FolderID, "kind": asset.Kind, "category": asset.Category, "status": asset.Status, "primary_version_id": asset.PrimaryVersionID, "title": asset.Title, "payload_json": asset.PayloadJSON, "updated_at": asset.UpdatedAt})
 	if result.Error != nil || result.RowsAffected > 0 {
 		return result.Error
 	}
