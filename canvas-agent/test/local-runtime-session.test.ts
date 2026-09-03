@@ -191,7 +191,7 @@ test("scope mismatch, stale timestamp, and body substitution fail closed", () =>
         (error: unknown) => error instanceof LocalRuntimeSessionError && error.code === "scope_denied",
     );
     assert.throws(
-        () => manager.verifyRequest({ ...valid, timestamp: now - 31_000 }),
+        () => manager.verifyRequest({ ...valid, timestamp: now - 61_000 }),
         (error: unknown) => error instanceof LocalRuntimeSessionError && error.code === "request_stale",
     );
     assert.throws(
@@ -238,6 +238,7 @@ test("session absolute TTL schedules revocation without waiting for another requ
         trustedOrigins: [origin],
         registrations,
         now: () => now,
+        sessionTtlMs: 10 * 60_000,
         onSessionRevoked: (sessionId: string) => revoked.push(sessionId),
         timers: {
             setTimeout(callback: () => void, delayMs: number) {
@@ -351,6 +352,7 @@ function signedRequest(
         body: Buffer;
         scope: string;
     },
+    timestamp = now,
 ) {
     const requestNonce = crypto.randomBytes(16).toString("base64url");
     const payload = createRuntimeRequestPayload({
@@ -364,7 +366,7 @@ function signedRequest(
         endpoint: LOCAL_RUNTIME_ENDPOINT,
         runtimeInstanceId: "runtime-instance-fixture",
         requestNonce,
-        timestamp: now,
+        timestamp,
         sessionExpiresAt: session.expiresAt,
     });
     const proof = crypto.sign("sha256", Buffer.from(canonicalRuntimeJson(payload)), {
@@ -379,8 +381,119 @@ function signedRequest(
         body: request.body,
         lastEventId: null,
         requestNonce,
-        timestamp: now,
+        timestamp,
         proof,
         scope: request.scope,
     };
 }
+
+test("[connector] sliding renewal keeps an active session alive without changing the public expiresAt", () => {
+    const key = browserKey();
+    const registrations = [registration(key.publicJwk)];
+    let current = now;
+    let scheduledDelay = 0;
+    const manager = new LocalRuntimeSessionManager({
+        endpoint: LOCAL_RUNTIME_ENDPOINT,
+        runtimeInstanceId: "runtime-instance-fixture",
+        trustedOrigins: [origin],
+        registrations,
+        now: () => current,
+        sessionTtlMs: 60_000,
+        sessionAbsoluteTtlMs: 10 * 60_000,
+        timers: {
+            setTimeout(callback: () => void, delayMs: number) {
+                scheduledDelay = delayMs;
+                return `t${delayMs}`;
+            },
+            clearTimeout() { /* noop */ },
+        },
+    });
+    const session = exchangeRegistered(manager, key);
+    const publicExpiresAt = session.expiresAt;
+    const base = {
+        method: "GET" as const,
+        pathAndQuery: "/dreamina/status",
+        body: Buffer.alloc(0),
+        scope: "dreamina:status",
+    };
+    // 首次请求：剩余恰好 TTL，不触发续期
+    manager.verifyRequest(signedRequest(key.privateKey, session, base, current));
+    assert.equal(scheduledDelay, 60_000);
+    // 走到剩余 20s（< TTL/2=30s）→ 触发续期，内部延长并重新计时
+    current = now + 40_000;
+    manager.verifyRequest(signedRequest(key.privateKey, session, base, current));
+    assert.equal(scheduledDelay, 60_000);
+    // 对外 expiresAt 保持不变（保证签名载荷一致性、协议零破坏）
+    assert.equal(session.expiresAt, publicExpiresAt);
+    // 续期后走到 now+90s（已超过原 60s 过期点）会话仍有效
+    current = now + 90_000;
+    assert.doesNotThrow(() => manager.verifyRequest(signedRequest(key.privateKey, session, base, current)));
+    manager.dispose();
+});
+
+test("[connector] sliding renewal respects the absolute session cap", () => {
+    const key = browserKey();
+    const registrations = [registration(key.publicJwk)];
+    let current = now;
+    const manager = new LocalRuntimeSessionManager({
+        endpoint: LOCAL_RUNTIME_ENDPOINT,
+        runtimeInstanceId: "runtime-instance-fixture",
+        trustedOrigins: [origin],
+        registrations,
+        now: () => current,
+        sessionTtlMs: 60_000,
+        sessionAbsoluteTtlMs: 120_000,
+        timers: {
+            setTimeout() { return "t"; },
+            clearTimeout() { /* noop */ },
+        },
+    });
+    const session = exchangeRegistered(manager, key);
+    const base = {
+        method: "GET" as const,
+        pathAndQuery: "/dreamina/status",
+        body: Buffer.alloc(0),
+        scope: "dreamina:status",
+    };
+    // 多次续期后内部过期时刻顶到绝对上限 120s，不再延长
+    for (let offset = 0; offset <= 100; offset += 20) {
+        current = now + offset;
+        manager.verifyRequest(signedRequest(key.privateKey, session, base, current));
+    }
+    // 走到 121s：超过绝对上限 → 会话必须失效（强制重新握手）
+    current = now + 121_000;
+    assert.throws(
+        () => manager.verifyRequest(signedRequest(key.privateKey, session, base, current)),
+        (error: unknown) => error instanceof LocalRuntimeSessionError && error.code === "session_invalid",
+    );
+    manager.dispose();
+});
+
+test("[connector] nonce sliding cleanup avoids hard rate limits", () => {
+    const key = browserKey();
+    const registrations = [registration(key.publicJwk)];
+    const manager = new LocalRuntimeSessionManager({
+        endpoint: LOCAL_RUNTIME_ENDPOINT,
+        runtimeInstanceId: "runtime-instance-fixture",
+        trustedOrigins: [origin],
+        registrations,
+        now: () => now,
+        maxSessionNonces: 3,
+        timers: {
+            setTimeout() { return "t"; },
+            clearTimeout() { /* noop */ },
+        },
+    });
+    const session = exchangeRegistered(manager, key);
+    const base = {
+        method: "GET" as const,
+        pathAndQuery: "/dreamina/status",
+        body: Buffer.alloc(0),
+        scope: "dreamina:status",
+    };
+    // 远超 maxSessionNonces=3 的连续请求也不应触发 rate_limited（LRU 清理最旧）
+    for (let i = 0; i < 8; i += 1) {
+        assert.doesNotThrow(() => manager.verifyRequest(signedRequest(key.privateKey, session, base)));
+    }
+    manager.dispose();
+});
