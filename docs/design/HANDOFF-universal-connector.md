@@ -97,7 +97,7 @@ P0-B 已提交：
   - 或在 Mac 按 v1.2.5 插件协议重建（三渠道 key 见历史会话；红鸟 27 模型明细可用仓库根 `hongniao-models.json`/价格清单，Windows 完整明细在其 `.local/hn_models.json`）。
 - [ ] 旧分支 `feat/decimal-price-and-model-picker-improvements` 确认是否保留/合并/删除。
 - [ ] 仓库根 7 个未跟踪运维文件（channel-config-backup/、hongniao-models.json、update-yingce.sh、更新影策.command、本机部署说明.md、红鸟模型价格清单.csv/.md）决定是纳入文档、加入 .gitignore 还是维持现状（当前保持原样）。
-- [ ] P0-A 前端四态面板（后端 /health 四态已就绪，前端 React 面板与 24h soak 脚本未做，入 P1）。
+- [x] ~~P0-A 24h soak 脚本~~ **已完成**（`canvas-agent/scripts/health-soak.ts`：周期性 GET /health 统计四态分布 + 状态跳变 + offline 检测，退出码判定达标；用法 `npx tsx scripts/health-soak.ts [endpoint] [durationSec] [intervalSec]`）。前端 React 四态面板未做（web/ 目录有 codex 后台在途改动，为避免冲突暂缓，属 UX 增强非连接器必需）。
 - [x] ~~P1：媒体读取（Q5）~~ **已完成**（`canvas_get_media` + scope `canvas:media:read` + 短 TTL 单次签名 URL，block base64 上限 8MB；MCP/OpenAPI 自动获得，测试 7 个全过）。
 - [~] **P1：渠道直连联调（部分完成）**：
   - ✅ **a6api 文本直连端到端通过**（`channel_generate` text → 真实返回内容；同时修复 baseUrl 约定：目录 baseUrl 为 OpenAI 兼容根不含 /v1，text/image 拼接 /v1/chat|images/generations，video 走 videoUrl；one-api 风格业务码 HTTP 200+code≠200 检测，防误判 running；task_id 嵌套提取增强）。
@@ -121,4 +121,4 @@ P0-B 已提交：
 ---
 
 ## 6. 一句话现状
-方案 v1.1 与交接报告已落 `feat/universal-agent-connector` 分支，上游已追平、在途工作已安全固化、**分支已推上 fork 云备份、SSH+代理长期稳定**；**P0 全部完成 + P1 媒体读取（Q5）完成 + 渠道直连联调部分完成**：A 稳定性五块（`5243a65`→`0a09795`）、B-1 MCP HTTP（`19a045e`）、B-2 OpenAPI（`80d31b4`）、B-3 主动外连 bridge（`6052f7e`）、B-4 渠道工具化（`f28685b`，目录自更新）、P1 媒体读取（Q5 `canvas_get_media`，`src/media-access.ts` + scope `canvas:media:read` + 短 TTL 单次签名 URL）、P1 渠道直连联调（a6api 文本端到端通过 + baseUrl 约定/业务码/task_id 提取修复，目录 3 渠道/121 模型；artbox 余额 ¥0、红鸟视频端点待平台确认），全量 365 测试 0 失败；本机 `~/.infinite-canvas/channel-catalog.json` 已写入三渠道真实密钥 + 121 模型目录；下一阶段 P1 剩余（前端四态面板、红鸟/artbox 视频联调待平台/充值）。
+方案 v1.1 与交接报告已落 `feat/universal-agent-connector` 分支，上游已追平、在途工作已安全固化、**分支已推上 fork 云备份、SSH+代理长期稳定**；**P0 全部完成 + P1 媒体读取（Q5）+ soak 脚本完成、渠道直连联调部分完成**：A 稳定性五块（`5243a65`→`0a09795`）、B-1 MCP HTTP（`19a045e`）、B-2 OpenAPI（`80d31b4`）、B-3 主动外连 bridge（`6052f7e`）、B-4 渠道工具化（`f28685b`）、P1 媒体读取（`c2c5524`）、P1 渠道直连联调修复（`8b82415`：a6api 文本端到端通过 + baseUrl 约定/业务码/task_id 提取 + soak 脚本），全量 365 测试 0 失败；本机 `~/.infinite-canvas/channel-catalog.json` 三渠道真实密钥 + 121 模型；下一阶段 P2（OpenAPI 深度联调、Agent Card/metrics）+ P1 剩余（前端四态面板、红鸟/artbox 视频联调待平台/充值）。
