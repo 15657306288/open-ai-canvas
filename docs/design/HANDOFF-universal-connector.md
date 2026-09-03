@@ -58,29 +58,19 @@
 
 ---
 
-## 3. 当前进度：P0-A 连接稳定性专项（进行中）
+## 3. 当前进度：P0-A 连接稳定性专项（已完成 ✅）
 
-三个分支已全部推上 fork 做云备份，git 全链路（SSH 推送 + HTTPS 代理拉上游）已长期稳定。**P0-A 正在本分支施工**（会话滑动续期等），每完成一块即 commit 提交到本分支并 push fork。
+三个分支已全部推上 fork 做云备份，git 全链路（SSH 推送 + HTTPS 代理拉上游）已长期稳定。**P0-A 五块已全部完成并推上 fork**（commits 见下），每块独立 commit、全量测试零失败。下一步进入 P0-B（MCP/HTTP 门面），建议先观察 3–5 天真实连接日志再推进（见 §4 待办）。
 
-动手前必做（上游 v1.2.5 改动多，行号可能漂移）：
-1. `cd /Users/linmengjiang/open-ai-canvas && git checkout feat/universal-agent-connector`
-2. 重新核对 canvas-agent 现状：
-   - `canvas-agent/src/local-runtime-session.ts`（TTL=10min/时钟窗 30s/nonce 2048 常量在文件头）
-   - `canvas-agent/src/canvas-session.ts`（SSE 15s ping、close 即清 canvasState、30s 工具超时）
-   - `canvas-agent/src/local-runtime-security.ts`（legacy masterToken / signed 双通道）
-   - `canvas-agent/src/mcp-server.ts`（stdio 裸 fetch）
-   - 用 `git diff 7a1f2db -- canvas-agent | head` 确认相对基线差异
-3. 在 `canvas-agent/node_modules/@modelcontextprotocol/sdk` 读真实类型，确认 `StreamableHTTPServerTransport` 构造参数（勿凭记忆）。
+P0-A 已提交（`feat(connector):` 前缀，全在 `feat/universal-agent-connector`，已推 fork）：
+1. ✅ `5243a65` 会话滑动续期 + TTL/时钟窗可配 + nonce LRU（`local-runtime-session.ts`：TTL 30min/绝对 12h/时钟窗 60s/nonce 2048 LRU，对外 expiresAt 不变、协议零破坏）
+2. ✅ `ef2ee9d` SSE 断线宽限（新增 `src/grace-tracker.ts`，`canvas-session.ts` 接线：close 进 8s 宽限、同 clientId 重连恢复、stateOwner 归属 clientId+runtimeSessionId）
+3. ✅ `a50a03d` 单实例锁（新增 `src/runtime-lock.ts`：lockfile+pid 检测，`local-runtime-host.ts` 接线，防多实例端口漂移；锁文件记录权威 endpoint/token）
+4. ✅ `59fee95` agent-fetch（新增 `src/agent-fetch.ts`：keepalive+只读重试≤2+超时，`mcp-server.ts` 转发路径已接线）
+5. ✅ `0a09795` /health 四态（`local-runtime.ts` 聚合 status：healthy/reconnecting/degraded/offline）
+6. ⏳ 24h soak 脚本与前端四态面板：后端 /health 字段已就绪；前端面板与 soak 脚本未做（可入 P1，见 §4）
 
-P0-A 顺序（抗冲突：新增类优先、老文件单点接线、打 `// [connector]`）：
-1. 会话滑动续期 + TTL/时钟窗可配 + nonce LRU（`local-runtime-session.ts`，抽 renewal 工具，12h 绝对上限）
-2. 新增 `src/grace-tracker.ts`，`canvas-session.ts` 加两行接线实现 8s 断线宽限；state 归属加 runtimeSessionId
-3. 新增 `src/runtime-lock.ts`：lockfile 单实例 / token 稳定化 / runtimeInstanceId
-4. 新增 `src/agent-fetch.ts`：keepalive + 只读幂等重试≤2 + 超时；写不重试
-5. `/health` 健康字段 + 前端连接四态/倒计时面板
-6. 单测 + 24h soak 脚本，`cd canvas-agent && npm test`
-
-每完成一块就 commit 到本分支，commit message 前缀 `feat(connector):` / `fix(connector):`。
+新增测试文件：`test/runtime-lock.test.ts`、`test/agent-fetch.test.ts`、`test/local-runtime-health.test.ts`；全量 `cd canvas-agent && npx tsx --test test/*.test.ts` = 342 tests / 0 fail（7 cancelled 为 dreamina-task-reconciler 既有状态，非本次引入）。
 
 ---
 
@@ -92,7 +82,9 @@ P0-A 顺序（抗冲突：新增类优先、老文件单点接线、打 `// [con
   - 或在 Mac 按 v1.2.5 插件协议重建（三渠道 key 见历史会话；红鸟 27 模型明细可用仓库根 `hongniao-models.json`/价格清单，Windows 完整明细在其 `.local/hn_models.json`）。
 - [ ] 旧分支 `feat/decimal-price-and-model-picker-improvements` 确认是否保留/合并/删除。
 - [ ] 仓库根 7 个未跟踪运维文件（channel-config-backup/、hongniao-models.json、update-yingce.sh、更新影策.command、本机部署说明.md、红鸟模型价格清单.csv/.md）决定是纳入文档、加入 .gitignore 还是维持现状（当前保持原样）。
-- [ ] P0-A 完成后观察 3–5 天真实连接日志再推进 P0-B/P1。
+- [ ] P0-A 前端四态面板（后端 /health 四态已就绪，前端 React 面板与 24h soak 脚本未做，入 P1）。
+- [ ] P0-B：MCP stdio→HTTP 薄门面（在 `canvas-agent/node_modules/@modelcontextprotocol/sdk` 读真实 `StreamableHTTPServerTransport` 类型后再实现，勿凭记忆）。
+- [ ] P0-B：远程主动外连 bridge（Q3，参考 `canvas-agent/native/comfy-bridge`）。
 
 ---
 
@@ -108,4 +100,4 @@ P0-A 顺序（抗冲突：新增类优先、老文件单点接线、打 `// [con
 ---
 
 ## 6. 一句话现状
-方案 v1.1 与交接报告已落 `feat/universal-agent-connector` 分支（commit `7cbcccd` + HANDOFF），上游已追平、在途工作已安全固化、**三个分支已推上 fork 云备份、SSH+代理长期稳定**；当前正在该分支施工 **P0-A 稳定性专项**；唯一外部待办是 Windows 五个渠道插件需经 fork 回补。
+方案 v1.1 与交接报告已落 `feat/universal-agent-connector` 分支（commit `7cbcccd` + HANDOFF），上游已追平、在途工作已安全固化、**三个分支已推上 fork 云备份、SSH+代理长期稳定**；**P0-A 连接稳定性专项五块已全部完成**（`5243a65`→`0a09795`，全量 342 测试 0 失败）；下一步 P0-B（MCP/HTTP 门面 + 远程主动外连 bridge）；唯一外部待办是 Windows 五个渠道插件需经 fork 回补。
