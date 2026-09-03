@@ -1,4 +1,5 @@
 import path from "node:path";
+import os from "node:os";
 
 import { createServer, type Server } from "node:http";
 import type { Express } from "express";
@@ -20,6 +21,7 @@ import { createOpenApiHandler } from "./openapi-server.js";
 import { createCanvasAgentHttpModule } from "./modules/canvas-agent-http.js";
 import { createDreaminaHttpModule } from "./modules/dreamina-http.js";
 import { createPortraitClearanceHttpModule } from "./modules/portrait-clearance-http.js";
+import { createCanvasBridgeClient, type CanvasBridgeClient } from "./bridge/client.js";
 
 export type StartLocalRuntimeOptions = {
     config?: LocalRuntimeConfig;
@@ -29,6 +31,18 @@ export type StartLocalRuntimeOptions = {
     persistConfig?: (config: LocalRuntimeConfig) => void;
     /** [connector] P0-B-1 MCP HTTP 门面开关；默认开启（Q1 拍板），可传 { enabled: false } 关闭 */
     mcp?: { enabled?: boolean; canvasOnly?: boolean; maxSessions?: number };
+    /** [connector] P0-B-3 远程主动外连 bridge（Q3：本地零入站端口）。
+     *  配置 broker 地址即可启用；bridgeId 默认 `hostname-<port>`，endpoint 默认本 runtime 实际地址。
+     *  也可通过环境变量 CANVAS_BRIDGE_SERVER / CANVAS_BRIDGE_TOKEN / CANVAS_BRIDGE_ID 启用。 */
+    bridge?: {
+        server: string;
+        token: string;
+        bridgeId?: string;
+        endpoint?: string;
+        pollSeconds?: number;
+        heartbeatSeconds?: number;
+        capabilities?: Record<string, unknown>;
+    };
 };
 
 export type LocalRuntimeHandle = {
@@ -111,6 +125,41 @@ export function startLocalRuntime(options: StartLocalRuntimeOptions = {}): Local
     });
     const server = createServer(app);
     const log = options.log ?? console.log;
+
+    // [connector] P0-B-3 远程主动外连 bridge：runtime 就绪后启用，关闭时一并停止。
+    // 非致命：broker 不可达只告警，不影响本机画布主流程。
+    const bridgeServer = options.bridge?.server ?? process.env.CANVAS_BRIDGE_SERVER;
+    const bridgeToken = options.bridge?.token ?? process.env.CANVAS_BRIDGE_TOKEN;
+    let bridgeClient: CanvasBridgeClient | undefined;
+    const startBridge = async () => {
+        if (!bridgeServer || !bridgeToken) return;
+        const bridgeId = options.bridge?.bridgeId
+            ?? process.env.CANVAS_BRIDGE_ID
+            ?? `${os.hostname()}-${requestedPort}`;
+        bridgeClient = createCanvasBridgeClient({
+            server: bridgeServer,
+            bridgeId,
+            token: bridgeToken,
+            endpoint: options.bridge?.endpoint ?? endpoint,
+            runtimeToken: config.token,
+            pollSeconds: options.bridge?.pollSeconds,
+            heartbeatSeconds: options.bridge?.heartbeatSeconds,
+            capabilities: options.bridge?.capabilities,
+        });
+        try {
+            await bridgeClient.start();
+            log(`[connector] Canvas Bridge 已连接 ${bridgeServer} (bridgeId=${bridgeId})`);
+        } catch (error) {
+            log(`[connector] Canvas Bridge 连接失败（不影响本机使用）：${error instanceof Error ? error.message : String(error)}`);
+            bridgeClient = undefined;
+        }
+    };
+    const stopBridge = async () => {
+        if (bridgeClient) {
+            bridgeClient.stop();
+            bridgeClient = undefined;
+        }
+    };
     // [connector] P0-A-3：单实例锁——固定端口启动时独占 CONFIG_DIR 的 runtime.lock；
     // 已有存活实例则拒绝启动（防端口漂移），close 时释放锁。
     let lockRelease: (() => void) | undefined;
@@ -147,6 +196,7 @@ export function startLocalRuntime(options: StartLocalRuntimeOptions = {}): Local
             log("Framefield Local Runtime");
             log("Runtime is listening on 127.0.0.1");
             log("Codex MCP: codex mcp add yingce -- npx -y @ddcat666/open-ai-canvas-agent mcp");
+            await startBridge();
         } catch (startupError) {
             sessions.dispose();
             lockRelease?.();
@@ -163,6 +213,7 @@ export function startLocalRuntime(options: StartLocalRuntimeOptions = {}): Local
     const close = () => {
         closePromise ??= (async () => {
             try { await ready; } catch { /* Startup error remains observable through ready. */ }
+            await stopBridge();
             sessions.dispose();
             const errors: unknown[] = [];
             try { await closeServer(server); } catch (error) { errors.push(error); }
