@@ -58,9 +58,9 @@
 
 ---
 
-## 3. 当前进度：P0-A 连接稳定性专项（已完成 ✅）
+## 3. 当前进度：P0-A 连接稳定性专项（已完成 ✅）+ P0-B 协议门面层（MCP/OpenAPI 已完成 ✅）
 
-三个分支已全部推上 fork 做云备份，git 全链路（SSH 推送 + HTTPS 代理拉上游）已长期稳定。**P0-A 五块已全部完成并推上 fork**（commits 见下），每块独立 commit、全量测试零失败。下一步进入 P0-B（MCP/HTTP 门面），建议先观察 3–5 天真实连接日志再推进（见 §4 待办）。
+三个分支已全部推上 fork 做云备份，git 全链路（SSH 推送 + HTTPS 代理拉上游）已长期稳定。**P0-A 五块已全部完成、P0-B 协议门面层（MCP + OpenAPI）已全部完成**，全量测试零失败。剩余 P0-B-3（远程主动外连 bridge）与 P0-B-4（Q4 渠道工具化）为下一阶段。
 
 P0-A 已提交（`feat(connector):` 前缀，全在 `feat/universal-agent-connector`，已推 fork）：
 1. ✅ `5243a65` 会话滑动续期 + TTL/时钟窗可配 + nonce LRU（`local-runtime-session.ts`：TTL 30min/绝对 12h/时钟窗 60s/nonce 2048 LRU，对外 expiresAt 不变、协议零破坏）
@@ -70,7 +70,13 @@ P0-A 已提交（`feat(connector):` 前缀，全在 `feat/universal-agent-connec
 5. ✅ `0a09795` /health 四态（`local-runtime.ts` 聚合 status：healthy/reconnecting/degraded/offline）
 6. ⏳ 24h soak 脚本与前端四态面板：后端 /health 字段已就绪；前端面板与 soak 脚本未做（可入 P1，见 §4）
 
-新增测试文件：`test/runtime-lock.test.ts`、`test/agent-fetch.test.ts`、`test/local-runtime-health.test.ts`；全量 `cd canvas-agent && npx tsx --test test/*.test.ts` = 342 tests / 0 fail（7 cancelled 为 dreamina-task-reconciler 既有状态，非本次引入）。
+新增测试文件：`test/runtime-lock.test.ts`、`test/agent-fetch.test.ts`、`test/local-runtime-health.test.ts`、`test/mcp-http-server.test.ts`、`test/openapi-server.test.ts`；全量 `cd canvas-agent && npx tsx --test test/*.test.ts` = 346 tests / 0 fail（7 cancelled 为 dreamina-task-reconciler 既有状态，非本次引入）。
+
+P0-B 已提交：
+1. ✅ `19a045e` MCP Streamable HTTP 门面（`src/mcp-http-server.ts`，`/mcp` 默认开 Q1，SDK 端到端测试通过）
+2. ✅ `80d31b4` OpenAPI 兜底门面（`src/openapi-server.ts`，`/openapi.json` + `/tools/:name`）
+3. ⏳ 远程主动外连 bridge（Q3，参考 `canvas-agent/native/comfy-bridge`）
+4. ⏳ Q4 渠道工具化 + 目录自更新（a6api/artbox/红鸟 → 连接器工具 + 三层更新机制）
 
 ---
 
@@ -83,8 +89,8 @@ P0-A 已提交（`feat(connector):` 前缀，全在 `feat/universal-agent-connec
 - [ ] 旧分支 `feat/decimal-price-and-model-picker-improvements` 确认是否保留/合并/删除。
 - [ ] 仓库根 7 个未跟踪运维文件（channel-config-backup/、hongniao-models.json、update-yingce.sh、更新影策.command、本机部署说明.md、红鸟模型价格清单.csv/.md）决定是纳入文档、加入 .gitignore 还是维持现状（当前保持原样）。
 - [ ] P0-A 前端四态面板（后端 /health 四态已就绪，前端 React 面板与 24h soak 脚本未做，入 P1）。
-- [ ] P0-B：MCP stdio→HTTP 薄门面（在 `canvas-agent/node_modules/@modelcontextprotocol/sdk` 读真实 `StreamableHTTPServerTransport` 类型后再实现，勿凭记忆）。
-- [ ] P0-B：远程主动外连 bridge（Q3，参考 `canvas-agent/native/comfy-bridge`）。
+- [ ] P0-B-3：远程主动外连 bridge（Q3，参考 `canvas-agent/native/comfy-bridge`）。
+- [ ] P0-B-4：Q4 渠道工具化——把 a6api/artbox/红鸟开成连接器工具 + 模型目录当数据 + 三层更新机制（实时查/版本号/list_changed 推送）。
 
 ---
 
