@@ -33,7 +33,7 @@ func (s *Service) processAgentStoryboardTask(ctx context.Context, task model.Tas
 			SemanticEntityIDs: semanticShotIDs(semanticShots),
 		}
 		if encoded, err := json.Marshal(metadata); err == nil {
-			_ = s.LogTask(task.UserID, task.ID, task.TraceID, task.RequestID, "info", "分镜语义实体已持久化", string(encoded))
+			_ = s.log(task.UserID, task.ID, "info", "分镜语义实体已持久化", string(encoded))
 		}
 	}
 	return s.buildAgentStoryboardResult(task, plan, assets, input.ProjectStyle, semanticShots)
@@ -233,6 +233,7 @@ func (s *Service) persistAgentStoryboardShots(task model.Task, input agentStoryb
 		return nil, err
 	}
 
+	plan.Shots = criticAndRepairStoryboardShots(plan.Shots)
 	now := time.Now()
 	shots := make([]model.Shot, 0, len(plan.Shots))
 	revisions := make([]model.ShotRevision, 0, len(plan.Shots))
@@ -389,4 +390,72 @@ func (s *Service) compileStoryboardImagePrompt(userID string, projectStyle strin
 func (s *Service) compileStoryboardVideoPrompt(userID string, projectStyle string, styleGuide string, shot agentStoryboardShot) (string, error) {
 	compiled, err := s.compilePrompt(userID, promptOperationStoryboardVideo, storyboardVideoPromptValues(projectStyle, styleGuide, shot))
 	return compiled.Content, err
+}
+
+func criticAndRepairStoryboardShots(shots []agentStoryboardShot) []agentStoryboardShot {
+	if len(shots) == 0 {
+		return shots
+	}
+	repaired := make([]agentStoryboardShot, len(shots))
+	copy(repaired, shots)
+
+	for i := range repaired {
+		shot := &repaired[i]
+		if shot.Duration <= 0 || shot.Duration > 60 {
+			shot.Duration = 4
+		}
+		if strings.TrimSpace(shot.Title) == "" {
+			shot.Title = fmt.Sprintf("镜头 %d", i+1)
+		}
+		if strings.TrimSpace(shot.Description) == "" {
+			if strings.TrimSpace(shot.Performance) != "" {
+				shot.Description = shot.Performance
+			} else {
+				shot.Description = shot.Title
+			}
+		}
+		if strings.TrimSpace(shot.ShotSize) == "" {
+			if i == 0 {
+				shot.ShotSize = "远景"
+			} else if i == len(repaired)-1 {
+				shot.ShotSize = "特写"
+			} else {
+				shot.ShotSize = "中景"
+			}
+		}
+		if strings.TrimSpace(shot.Motion) == "" {
+			if shot.ShotSize == "特写" || shot.ShotSize == "近景" {
+				shot.Motion = "缓慢推近"
+			} else {
+				shot.Motion = "固定机位"
+			}
+		}
+		if strings.TrimSpace(shot.Camera) == "" {
+			shot.Camera = "平视"
+		}
+	}
+
+	if len(repaired) >= 3 {
+		allSameSize := true
+		firstSize := repaired[0].ShotSize
+		for i := 1; i < len(repaired); i++ {
+			if repaired[i].ShotSize != firstSize {
+				allSameSize = false
+				break
+			}
+		}
+		if allSameSize {
+			repaired[0].ShotSize = "全景"
+			if repaired[0].Motion == "固定机位" {
+				repaired[0].Motion = "缓慢推近"
+			}
+			lastIdx := len(repaired) - 1
+			repaired[lastIdx].ShotSize = "特写"
+			if repaired[lastIdx].Motion == "固定机位" {
+				repaired[lastIdx].Motion = "微推镜头"
+			}
+		}
+	}
+
+	return repaired
 }

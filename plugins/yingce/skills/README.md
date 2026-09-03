@@ -9,5 +9,6 @@
 - `canvas-context`：读取语义上下文和资源状态。
 - `canvas-editing`：可靠写入、批量校验和结果复核。
 - `asset-aware-generation`：复用角色/场景/道具/风格资源进行生成。
+- `storyboard-director`：影视短剧分镜导演技能，贯彻视听语言拆解、景别多样性、运镜动机、语义持久化与稳定画布投影。
 
 安装或更新技能后，建议新建 Codex 线程，让技能和 MCP 工具重新加载。
