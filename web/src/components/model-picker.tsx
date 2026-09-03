@@ -317,7 +317,7 @@ function ModelLabel({
     const capabilitySummary =
         disabledReason ||
         logicalCost?.description?.trim() ||
-        (logicalSpec ? logicalCapabilitySummary(logicalSpec, logicalCost?.logicalCapabilityProfiles) : videoProfile ? `${formatDurationSummary(videoProfile)} · ${videoProfile.resolutions.map((item) => item.toUpperCase()).join("/")}` : meta.description);
+        (logicalSpec ? logicalCapabilitySummary(logicalSpec, logicalCost?.logicalCapabilityProfiles) : videoProfile ? videoCapabilitySummary(videoProfile) : meta.description);
 
     // 文本模型：在灰色描述位置显示价格
     const textPrice = (() => {

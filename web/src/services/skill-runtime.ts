@@ -91,6 +91,7 @@ export type PrepareSkillRuntimeInput<P extends keyof SkillRuntimeResultByProfile
     prompt: string;
     skills: Skill[];
     selectedSkillIds?: string[];
+    benchmarkMode?: BenchmarkSkillMode;
 };
 
 export type SkillRuntimeToolResult = { ok: true; message: string; data?: unknown } | { ok: false; message: string };
@@ -121,6 +122,73 @@ type SkillToolAdapter = {
 const SKILL_REF_PATTERN = /@\[skill:([^\]]+)\]/g;
 const TEXT_FILE_EXTENSIONS = new Set([".md", ".mdx", ".txt", ".json", ".yaml", ".yml", ".toml", ".csv"]);
 const EMPTY_PROVENANCE: SkillRuntimeProvenance = { skillIds: [], skillVersions: [], skillFiles: [] };
+
+// 第一方默认技能：按profile明确资格边界。
+// 只有具备交互式MCP工具（project_get_context / project_create_or_update_shots / canvas_create_storyboard_shots）
+// 的profile才自动注入默认技能。其他profile（canvas/creation/shortDrama/director/onlineAgent）不自动注入。
+// 不占用用户技能容量（maxSkills），始终追加到用户选择的技能之后。
+const FIRST_PARTY_DEFAULTS_BY_PROFILE: Partial<Record<SkillRuntimeProfile, string[]>> = {
+    localAgent: ["storyboard-director"],
+};
+
+export function isFirstPartyDefaultSkill(skillId: string, profile?: SkillRuntimeProfile): boolean {
+    if (!profile) return Object.values(FIRST_PARTY_DEFAULTS_BY_PROFILE).some((ids) => ids.includes(skillId));
+    return (FIRST_PARTY_DEFAULTS_BY_PROFILE[profile] ?? []).includes(skillId);
+}
+
+export function firstPartyDefaultSkillIdsForProfile(profile: SkillRuntimeProfile): string[] {
+    return FIRST_PARTY_DEFAULTS_BY_PROFILE[profile] ?? [];
+}
+
+// ============ Benchmark Skill Mode (debug/benchmark only) ============
+// normal: 现有生产行为，默认技能自动注入
+// baseline: 第一方默认技能不注入（用于产生真正的baseline对比）
+// director: 第一方默认技能确保恰好可用一次
+// 仅通过localStorage debug设置控制，不暴露为正常用户功能
+export type BenchmarkSkillMode = "normal" | "baseline" | "director";
+
+export const BENCHMARK_MODE_STORAGE_KEY = "__benchmark_skill_mode";
+
+export function getBenchmarkSkillMode(): BenchmarkSkillMode {
+    if (typeof window === "undefined") return "normal";
+    const v = window.localStorage.getItem(BENCHMARK_MODE_STORAGE_KEY);
+    if (v === "baseline" || v === "director") return v;
+    return "normal";
+}
+
+/**
+ * 组合用户技能与第一方默认技能（按profile资格 + benchmark mode）。
+ * - 用户技能（通过prompt提及或显式选择）限制在 maxSkills 内
+ * - 第一方默认技能仅在eligible profile中包含，不占用用户容量，不重复
+ * - benchmarkMode=baseline时不注入默认技能；=director时确保恰好一次
+ * - 显式选择的技能（selectedSkillIds）优先级最高，不受默认技能覆盖
+ */
+export function composeSkillsForTurn(input: {
+    profile: SkillRuntimeProfile;
+    prompt: string;
+    skills: Skill[];
+    selectedSkillIds?: string[];
+    maxSkills: number;
+    benchmarkMode?: BenchmarkSkillMode;
+}): Skill[] {
+    const { profile, prompt, skills, selectedSkillIds, maxSkills } = input;
+    const mode = input.benchmarkMode ?? "normal";
+    const mentioned = resolveSkillMentions(prompt, skills, selectedSkillIds);
+    const userSkills = mentioned.slice(0, maxSkills);
+    const userSkillIds = new Set(userSkills.map((s) => s.skill_id));
+
+    // baseline模式：不注入任何第一方默认技能
+    if (mode === "baseline") return userSkills;
+
+    const defaultIds = new Set(firstPartyDefaultSkillIdsForProfile(profile));
+    if (defaultIds.size === 0) return userSkills;
+    const activeSkills = skills.filter((skill) => skill.is_added);
+    const defaultSkills = activeSkills.filter(
+        (skill) => defaultIds.has(skill.skill_id) && !userSkillIds.has(skill.skill_id),
+    );
+    // director模式：确保默认技能恰好一次（去重已在filter中处理）
+    return [...userSkills, ...defaultSkills];
+}
 
 export const SKILL_RUNTIME_AGENT_GUIDANCE =
     "技能采用渐进式读取：canvas_list_skills 只发现元数据；canvas_get_skill 只读取入口 SKILL.md；入口引用其他文件时，再调用 canvas_list_skill_files、canvas_search_skill_files 或 canvas_read_skill_file。禁止一次性读取整个技能包。";
@@ -204,7 +272,14 @@ export function createSkillRuntime(dependencies: SkillRuntimeDependencies = {
     return {
         async prepare<P extends keyof SkillRuntimeResultByProfile>(input: PrepareSkillRuntimeInput<P>): Promise<SkillRuntimeResultByProfile[P]> {
             const config = SKILL_RUNTIME_PROFILES[input.profile];
-            const selectedSkills = resolveSkillMentions(input.prompt, input.skills, input.selectedSkillIds).slice(0, config.maxSkills);
+            const selectedSkills = composeSkillsForTurn({
+                profile: input.profile,
+                prompt: input.prompt,
+                skills: input.skills,
+                selectedSkillIds: input.selectedSkillIds,
+                maxSkills: config.maxSkills,
+                benchmarkMode: input.benchmarkMode,
+            });
             const adapter = deliveryAdapters[config.delivery as keyof typeof deliveryAdapters];
             if (!adapter) throw new Error(`技能运行模式 ${config.delivery} 不支持直接准备上下文`);
             return adapter.prepare({ prompt: normalizeSkillTokens(input.prompt, input.skills), selectedSkills, config }) as Promise<SkillRuntimeResultByProfile[P]>;

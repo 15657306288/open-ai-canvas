@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"infinite-canvas/backend/internal/model"
 
@@ -133,5 +134,64 @@ func TestRequireSchemaVersionRejectsUninitializedDatabase(t *testing.T) {
 	}
 	if err := RequireSchemaVersion(db); err == nil || !strings.Contains(err.Error(), "请先执行 migrate-schema up") {
 		t.Fatalf("expected missing migration error, got %v", err)
+	}
+}
+
+func TestMigrateSchemaV5CreatesAgentRunTables(t *testing.T) {
+	db, err := Open(Config{Driver: "sqlite", DSN: "file:migration-agent-run-v5-direct?mode=memory&cache=shared"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 直接调用 V5 迁移函数，避免 V4 的 PostgreSQL 专用语法在 SQLite 上失败
+	if err := migrateSchemaV5(db); err != nil {
+		t.Fatalf("migrateSchemaV5 error: %v", err)
+	}
+	if !db.Migrator().HasTable(&model.AgentRun{}) {
+		t.Fatal("migration v5 did not create agent_runs table")
+	}
+	if !db.Migrator().HasTable(&model.AgentRunStep{}) {
+		t.Fatal("migration v5 did not create agent_run_steps table")
+	}
+	// 验证可以插入和查询 AgentRun
+	now := time.Now()
+	run := model.AgentRun{
+		ID:        "test-run-1",
+		UserID:    "user-1",
+		ProjectID: "project-1",
+		AgentKind: "codex",
+		Status:    "running",
+		StartedAt: now,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := db.Create(&run).Error; err != nil {
+		t.Fatalf("insert agent_run: %v", err)
+	}
+	var fetched model.AgentRun
+	if err := db.First(&fetched, "id = ?", "test-run-1").Error; err != nil {
+		t.Fatalf("query agent_run: %v", err)
+	}
+	if fetched.UserID != "user-1" || fetched.ProjectID != "project-1" {
+		t.Fatalf("fetched run = %#v", fetched)
+	}
+	// 验证 AgentRunStep 表可以插入
+	step := model.AgentRunStep{
+		ID:        "test-step-1",
+		RunID:     "test-run-1",
+		Sequence:  1,
+		ToolName:  "canvas_apply_ops",
+		Status:    "completed",
+		StartedAt: now,
+		CreatedAt: now,
+	}
+	if err := db.Create(&step).Error; err != nil {
+		t.Fatalf("insert agent_run_step: %v", err)
+	}
+	var fetchedStep model.AgentRunStep
+	if err := db.First(&fetchedStep, "id = ?", "test-step-1").Error; err != nil {
+		t.Fatalf("query agent_run_step: %v", err)
+	}
+	if fetchedStep.ToolName != "canvas_apply_ops" {
+		t.Fatalf("fetched step = %#v", fetchedStep)
 	}
 }

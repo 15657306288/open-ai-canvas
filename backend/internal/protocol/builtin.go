@@ -73,7 +73,7 @@ func Builtins() *Registry {
 	}
 	registry, err := NewRegistry(
 		openAIChatAdapter(), openAIResponsesAdapter(), claudeAdapter(),
-		openAIImagesAdapter(), grokImagesAdapter(), arkImagesAdapter(), jimengImagesAdapter(), geminiImagesAdapter(), hongniaoImagesAdapter(), grsaiImagesAdapter(),
+		openAIImagesAdapter(), agnesImagesAdapter(), grokImagesAdapter(), arkImagesAdapter(), jimengImagesAdapter(), geminiImagesAdapter(), hongniaoImagesAdapter(), grsaiImagesAdapter(),
 		openAIVideosAdapter(), newAPIChannel1Adapter(), newAPIVideosAdapter(), xAIVideosAdapter(), arkVideosAdapter(), jimengVideosAdapter(), geminiVeoAdapter(), novitaVideosAdapter(), miniMaxVideosAdapter(), hongniaoVideosAdapter(),
 		openAIAudioAdapter(), asyncAudioAdapter(), agnesAdapter(),
 	)
@@ -193,6 +193,52 @@ func openAIImagesAdapter() Adapter {
 			copyIf(body, "size", r.AspectRatio)
 			copyIf(body, "quality", r.Quality)
 			mergeExtra(body, r.Extra, "size", "quality", "background", "response_format", "output_format", "style", "n")
+			return jsonSpec(http.MethodPost, "/v1/images/generations", body), nil
+		},
+		parseCreate: parseImageResponse,
+	}
+}
+
+func agnesImagesAdapter() Adapter {
+	info := metadata("agnes-image", "Agnes Images", "Agnes AI", CapabilityImage, "POST /v1/images/generations", "", "application/json")
+	info.Version = "1.0.0"
+	info.Description = "Agnes AI 官方图像协议，支持 Agnes Image 2.0/2.1/2.5 Flash。"
+	info.Parameters = []Parameter{
+		{Name: "model", Type: "string", Required: true, Mapping: "model", Description: "官方模型 ID：agnes-image-2.5-flash 等。"},
+		{Name: "prompt", Type: "string", Required: true, Mapping: "prompt", Description: "图像生成提示词。"},
+		{Name: "images", Type: "media[]", Mapping: "extra_body.image", Description: "参考图片，图生图或多图合成时使用。"},
+		{Name: "aspectRatio", Type: "string", Values: []string{"1:1", "3:4", "4:3", "16:9", "9:16", "2:3", "3:2", "21:9"}, Mapping: "ratio", Description: "宽高比。"},
+		{Name: "quality", Type: "string", Values: []string{"1K", "2K", "3K", "4K"}, Mapping: "size", Description: "输出尺寸档位，默认 1K。"},
+	}
+	return builtinAdapter{info: info,
+		create: func(r GenerationRequest) (RequestSpec, error) {
+			body := map[string]any{
+				"model":  r.Model,
+				"prompt": r.Prompt,
+				"size":   defaultValue(strings.TrimSpace(r.Quality), "1K"),
+			}
+			if ratio := strings.TrimSpace(r.AspectRatio); ratio != "" {
+				body["ratio"] = ratio
+			}
+			if r.ImageCount > 0 {
+				body["n"] = r.ImageCount
+			}
+			extraBody := map[string]any{"response_format": "url"}
+			if len(r.Images) > 0 {
+				imageURLs := make([]string, 0, len(r.Images))
+				for _, img := range r.Images {
+					if img.URL != "" {
+						imageURLs = append(imageURLs, img.URL)
+					} else if img.DataURL != "" {
+						imageURLs = append(imageURLs, img.DataURL)
+					}
+				}
+				if len(imageURLs) > 0 {
+					extraBody["image"] = imageURLs
+				}
+			}
+			body["extra_body"] = extraBody
+			mergeExtra(body, r.Extra, "model", "prompt", "size", "ratio", "n", "extra_body")
 			return jsonSpec(http.MethodPost, "/v1/images/generations", body), nil
 		},
 		parseCreate: parseImageResponse,
@@ -387,6 +433,7 @@ func hongniaoVideosAdapter() Adapter {
 
 func hongniaoImagesAdapter() Adapter {
 	info := metadata("hongniao-image", "红鸟图像", "HongNiao", CapabilityImage, "POST /v1/images", "GET /v1/images/{task_id}", "application/json")
+	info.Execution = "host:hongniao-image"
 	info.Parameters = mediaParams()
 	return asyncMediaAdapter(info, CapabilityImage, func(r GenerationRequest) (RequestSpec, error) {
 		body := map[string]any{"model": r.Model, "prompt": r.Prompt}
@@ -429,6 +476,7 @@ func hongniaoImagesAdapter() Adapter {
 //   - nano-banana 系列用 imageSize 表达分辨率（1K/2K/4K），gpt-image-2 系列则把分辨率写进 aspectRatio 像素值。
 func grsaiImagesAdapter() Adapter {
 	info := metadata("grsai-image", "Grsai 图像", "Grsai", CapabilityImage, "POST /v1/api/generate", "GET /v1/api/result?id={task_id}", "application/json")
+	info.Execution = "host:grsai-image"
 	info.Parameters = mediaParams()
 	return builtinAdapter{
 		info: info,

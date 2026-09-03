@@ -1396,7 +1396,8 @@ func (s *Service) resolveProviderConfig(config providerConfig) (providerConfig, 
 	}
 	channel, err := s.SystemChannel(channelID)
 	if err != nil {
-		return providerConfig{}, errors.New("系统渠道不存在或已停用")
+		fmt.Printf("[DEBUG] SystemChannel(%s) failed: %v\n", channelID, err)
+		return providerConfig{}, fmt.Errorf("系统渠道不存在或已停用: %w", err)
 	}
 	modelKey := strings.TrimPrefix(strings.TrimSpace(config.ChannelModelKey), "models/")
 	requestedModel := strings.TrimPrefix(strings.TrimSpace(config.Model), "models/")

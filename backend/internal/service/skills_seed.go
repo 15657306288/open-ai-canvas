@@ -13,6 +13,20 @@ import (
 //go:embed seed/skills.json
 var builtinSkillsJSON []byte
 
+//go:embed seed/skills/storyboard-director.md
+var storyboardDirectorSkillMD []byte
+
+// defaultFirstPartySkillIDs 是第一方默认技能，所有用户无需手动添加即可在Agent中使用。
+var defaultFirstPartySkillIDs = map[string]struct{}{
+	"storyboard-director": {},
+}
+
+// isDefaultFirstPartySkill 判断技能ID是否为第一方默认技能。
+func isDefaultFirstPartySkill(skillID string) bool {
+	_, ok := defaultFirstPartySkillIDs[skillID]
+	return ok
+}
+
 type builtinSkillDefinition struct {
 	SkillID       string               `json:"skill_id"`
 	SkillName     string               `json:"skill_name"`
@@ -42,6 +56,13 @@ func (s *Service) EnsureBuiltinSkills() error {
 	}
 	if len(definitions) == 0 {
 		return fmt.Errorf("内置技能不能为空")
+	}
+
+	// 用规范源文件覆盖 storyboard-director 的指令内容，确保单一来源
+	for i := range definitions {
+		if definitions[i].SkillID == "storyboard-director" {
+			definitions[i].Instruction = string(storyboardDirectorSkillMD)
+		}
 	}
 
 	seen := make(map[string]struct{}, len(definitions))

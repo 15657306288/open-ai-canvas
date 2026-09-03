@@ -270,6 +270,7 @@ export type CanvasNodeMetadata = {
     chapterId?: string;
     chapterTitle?: string;
     shotIndex?: number;
+    shotId?: string;
     sceneId?: string;
     characterIds?: string[];
     referenceSetId?: string;

@@ -10,12 +10,13 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 4
+const CurrentSchemaVersion int64 = 5
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
 const assetTaxonomyCandidateIdentityChecksum = "sha256:asset-taxonomy-candidate-identity-v3-20260831-r1"
 const decimalPriceColumnsChecksum = "sha256:decimal-price-columns-v4-20260901"
+const agentRunPersistenceChecksum = "sha256:agent-run-persistence-v5-20260902"
 
 const postgresSchemaMigrationLockID int64 = 73123910420260830
 
@@ -46,6 +47,7 @@ var schemaMigrations = []migration{
 	{version: 2, name: "schema_migrations_applied_at_index", checksum: schemaMigrationAppliedAtIndexChecksum, apply: migrateSchemaV2},
 	{version: 3, name: "asset_taxonomy_candidate_identity", checksum: assetTaxonomyCandidateIdentityChecksum, apply: migrateSchemaV3},
 	{version: 4, name: "decimal_price_columns", checksum: decimalPriceColumnsChecksum, apply: migrateSchemaV4},
+	{version: 5, name: "agent_run_persistence", checksum: agentRunPersistenceChecksum, apply: migrateSchemaV5},
 }
 
 func migrateSchemaV2(tx *gorm.DB) error {
@@ -118,6 +120,13 @@ func migrateSchemaV4(tx *gorm.DB) error {
 		if err := tx.Exec(fmt.Sprintf("ALTER TABLE logical_models ALTER COLUMN %s TYPE numeric(20,6)", col)).Error; err != nil {
 			return fmt.Errorf("修改 logical_models.%s 字段类型：%w", col, err)
 		}
+	}
+	return nil
+}
+
+func migrateSchemaV5(tx *gorm.DB) error {
+	if err := tx.AutoMigrate(&model.AgentRun{}, &model.AgentRunStep{}); err != nil {
+		return fmt.Errorf("创建 AgentRun 持久化表：%w", err)
 	}
 	return nil
 }

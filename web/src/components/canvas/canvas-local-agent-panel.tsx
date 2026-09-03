@@ -27,8 +27,20 @@ import { buildCanvasAgentContext, findCanvasAgentNodes, getCanvasAgentConnection
 import { buildCanvasResourceReferences } from "@/lib/canvas/canvas-resource-references";
 import { buildLocalAgentSetupCommands, detectLocalAgentSetupPlatform, type LocalAgentSetupPlatform } from "@/lib/canvas/local-agent-setup";
 import { listAddedSkills, type Skill } from "@/services/api/skills";
-import { skillRuntime } from "@/services/skill-runtime";
+import { completeAgentRun, failAgentRun, startAgentRun } from "@/services/api/agent-runs";
+import { skillRuntime, getBenchmarkSkillMode } from "@/services/skill-runtime";
 import { isProjectAgentReadTool, isProjectAgentToolName, runProjectAgentTool } from "@/services/api/project-agent-tools";
+import {
+    cancelBenchmarkRecording,
+    completeBenchmarkRecording,
+    extractShotsFromToolResult,
+    getBenchmarkFixtureId,
+    getBenchmarkMode,
+    isBenchmarkCaptureEnabled,
+    recordBenchmarkShots,
+    recordBenchmarkToolCall,
+    startBenchmarkRecording,
+} from "@/lib/canvas/benchmark-recorder";
 import { AgentChatComposer, AgentChatMessage, AgentPendingToolCard, AgentWorkingMessage, type CanvasAgentChatAttachment } from "./canvas-agent-chat-ui";
 import { VoiceRecordingButton } from "@/components/conversation/voice-recording-button";
 import { AgentChatEmptyState } from "./canvas-agent-panel-chrome";
@@ -45,6 +57,8 @@ type AgentEventPayload = {
     error?: { message?: string };
     message?: string;
     usage?: Record<string, unknown>;
+    // 本地 runtime 回显的关联元数据，用于将 SSE 事件关联到正确的 AgentRun
+    agentRunId?: string;
 };
 type AgentEventItem = { id?: string; type?: string; text?: unknown; message?: unknown; server?: string; tool?: string; status?: string; arguments?: unknown; result?: unknown; error?: { message?: string } };
 
@@ -146,6 +160,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     const activeToolRequestIdsRef = useRef(new Set<string>());
     const recoveredToolResultIdsRef = useRef(new Set<string>());
     const activeTurnRef = useRef<AgentTurnPayload | null>(null);
+    const activeRunIdRef = useRef<string | null>(null);
     const syncState = useCallback(
         (clientId: string, nextSnapshot: CanvasAgentSnapshot) => {
             const stateHash = hashCanvasAgentSnapshot(nextSnapshot);
@@ -264,7 +279,10 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
             }
             if (event.type === "tool_call") {
                 const data = parseEventJson<AgentPendingToolCall>(event.data);
-                if (data) void handleToolCall(data);
+                if (data) {
+                    recordBenchmarkToolCall(data.name);
+                    void handleToolCall(data);
+                }
                 return;
             }
             if (event.type === "agent_event") {
@@ -280,6 +298,10 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
             if (event.type === "agent_error") {
                 const errorMessage = parseEventJson<{ message?: unknown }>(event.data)?.message;
                 setAgentState({ activity: "出错", waiting: false, sending: false });
+                // Benchmark录制：turn失败时取消（不输出不完整录制）
+                if (isBenchmarkCaptureEnabled()) {
+                    cancelBenchmarkRecording();
+                }
                 const messageId = addMessage({ role: "error", title: "错误", text: normalizeText(errorMessage) || "本地 Agent 执行失败，请重试本轮。" });
                 if (activeTurnRef.current) {
                     setRetryTurn(activeTurnRef.current);
@@ -290,6 +312,10 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
             }
             if (event.type === "agent_done") {
                 setAgentState({ activity: "完成", waiting: false, sending: false });
+                // Benchmark录制：turn完成时输出原始录制JSON
+                if (isBenchmarkCaptureEnabled()) {
+                    completeBenchmarkRecording();
+                }
                 void loadThreads();
             }
         };
@@ -358,6 +384,14 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
             addEventLog("重试本轮", { threadId: payload.threadId, attachments: payload.attachments.map(({ name, type }) => ({ name, type })) });
         }
         try {
+            const projectId = snapshotRef.current.projectId;
+            if (!projectId) {
+                throw new Error("无法确定当前项目，Agent 执行需要项目上下文");
+            }
+            // StartRun 必须先成功持久化，才能启动 Codex turn。
+            // 这保证了"没有真实 Agent turn 可以在没有 AgentRun 记录的情况下启动"。
+            const { run } = await startAgentRun(projectId, "codex", payload.text || payload.prompt || "");
+            activeRunIdRef.current = run.id;
             const data = await fetchAgentJson<{ threadId?: string }>("/agent/codex/turn", {
                 method: "POST",
                 headers: { "content-type": "application/json" },
@@ -367,6 +401,8 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                     threadId: payload.threadId,
                     attachments: payload.attachments,
                     skills: payload.skills,
+                    // 传递 agentRunId 作为不透明关联元数据，本地 runtime 会在 SSE 事件中回显
+                    agentRunId: run.id,
                 }),
             });
             const acceptedPayload = data.threadId ? { ...payload, threadId: data.threadId } : payload;
@@ -379,6 +415,11 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
             const messageId = addMessage({ role: "error", title: appendUserMessage ? "发送失败" : "重试失败", text: error instanceof Error ? error.message : "发送失败" });
             setRetryMessageId(messageId || null);
             addEventLog(appendUserMessage ? "发送失败" : "重试失败", error);
+            if (activeRunIdRef.current) {
+                const runId = activeRunIdRef.current;
+                activeRunIdRef.current = null;
+                void failAgentRun(runId, error instanceof Error ? error.message : "发送失败").catch(() => undefined);
+            }
         } finally {
             setAgentState({ sending: false });
         }
@@ -393,11 +434,28 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
             return;
         }
         let skillExecution: Awaited<ReturnType<typeof skillRuntime.prepare<"localAgent">>>;
+        const benchmarkMode = getBenchmarkSkillMode();
         try {
-            skillExecution = await skillRuntime.prepare({ profile: "localAgent", prompt: text, skills: composerSkills });
+            skillExecution = await skillRuntime.prepare({ profile: "localAgent", prompt: text, skills: composerSkills, benchmarkMode });
         } catch (error) {
             addMessage({ role: "error", title: "技能加载失败", text: error instanceof Error ? error.message : "无法读取技能包" });
             return;
+        }
+        // 开发调试：记录本轮实际生效的技能ID/名称（不记录技能内容或密钥）
+        console.debug("[Agent] effective skills:", skillExecution.skills.map((s) => ({ id: s.skillId, name: s.name })), "benchmarkMode:", benchmarkMode);
+
+        // Benchmark录制：如果启用了capture，开始录制
+        if (isBenchmarkCaptureEnabled()) {
+            const fixtureId = getBenchmarkFixtureId();
+            if (fixtureId) {
+                startBenchmarkRecording({
+                    fixtureId,
+                    mode: getBenchmarkMode(),
+                    effectiveSkillIds: skillExecution.skills.map((s) => s.skillId),
+                    projectId: snapshotRef.current.projectId,
+                    threadId: useCanvasAgentStore.getState().activeThreadId || undefined,
+                });
+            }
         }
         const requestPrompt = promptWithAttachments(skillExecution.prompt, files);
         const skillBundles: AgentTurnPayload["skills"] = skillExecution.skills;
@@ -522,6 +580,10 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                             : projectToolName
                               ? await runProjectAgentTool(projectToolName, input, snapshotRef.current.domainProjectId)
                               : snapshotRef.current;
+            // Benchmark录制：捕获project_create_or_update_shots的语义分镜结果
+            if (payload.name === "project_create_or_update_shots") {
+                recordBenchmarkShots(extractShotsFromToolResult(result));
+            }
             await postToolResult(clientIdRef.current, { requestId: payload.requestId, result });
             if (payload.name === "canvas_apply_ops") syncState(clientIdRef.current, (result as { snapshot?: CanvasAgentSnapshot }).snapshot || snapshotRef.current);
             setAgentState({ activity: "工具完成", waiting: true });
@@ -719,6 +781,16 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     };
 
     const handleAgentEvent = (event: AgentEventPayload) => {
+        // Benchmark录制：捕获app-server模式（Codex app-server --stdio）的MCP工具调用
+        // app-server模式通过item.started/item.completed事件传递工具调用，不发送tool_call事件
+        if (isBenchmarkCaptureEnabled()) {
+            if (event.type === "item.started" && isMcpToolItem(event.item)) {
+                recordBenchmarkToolCall(String(event.item?.tool || ""));
+            }
+            if (event.type === "item.completed" && isMcpToolItem(event.item) && event.item?.tool === "project_create_or_update_shots") {
+                recordBenchmarkShots(extractShotsFromToolResult(parseToolResult(event.item?.result)));
+            }
+        }
         if (shouldLogAgentEvent(event)) addEventLog(eventTitle(event), event, event);
         if (event.type === "thread.started" && event.thread_id) setAgentState({ activeThreadId: event.thread_id });
         const nextActivity = activityText(event);
@@ -729,9 +801,21 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
             setRetryTurn(null);
             setRetryMessageId(null);
             setAgentState({ waiting: false, sending: false });
+            // 只 finalize agentRunId 匹配的 run，防止竞态的 SSE 事件 finalize 错误的 run
+            if (activeRunIdRef.current && event.agentRunId === activeRunIdRef.current) {
+                const runId = activeRunIdRef.current;
+                activeRunIdRef.current = null;
+                void completeAgentRun(runId, useCanvasAgentStore.getState().activeThreadId || undefined).catch(() => undefined);
+            }
         } else if (event.type === "turn.failed" || event.type === "error") {
             if (activeTurnRef.current) setRetryTurn(activeTurnRef.current);
             setAgentState({ waiting: false, sending: false });
+            if (activeRunIdRef.current && event.agentRunId === activeRunIdRef.current) {
+                const runId = activeRunIdRef.current;
+                activeRunIdRef.current = null;
+                const errorText = event.error?.message || event.message || "本轮失败";
+                void failAgentRun(runId, errorText, useCanvasAgentStore.getState().activeThreadId || undefined).catch(() => undefined);
+            }
         }
         const item = formatAgentEvent(event);
         if (item) {
