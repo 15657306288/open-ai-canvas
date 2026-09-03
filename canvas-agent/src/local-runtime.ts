@@ -83,7 +83,16 @@ export function createLocalRuntimeApp(options: CreateLocalRuntimeAppOptions): Ex
             if (module.publicHealth) Object.assign(result, module.publicHealth());
             return result;
         }, {});
-        res.json({ ok: true, ...health });
+        // [connector] P0-A-5 四态健康字段（供外部 agent/前端探测连接状态）：
+        //   healthy   —— 有活跃画布连接且无断线宽限
+        //   reconnecting —— 存在断线宽限中的连接（SSE 瞬断，正在等重连）
+        //   degraded  —— 有画布状态但无活跃连接（宽限已过，画布待重新连接）
+        //   offline   —— 从未连接过画布（Runtime 已起但画布未就绪）
+        const clients = Number(health.clients ?? 0);
+        const reconnecting = Number(health.reconnecting ?? 0);
+        const hasCanvas = Boolean(health.hasCanvas);
+        const status = reconnecting > 0 ? "reconnecting" : clients > 0 ? "healthy" : hasCanvas ? "degraded" : "offline";
+        res.json({ ok: true, status, ...health });
     });
     app.get("/config", (_req, res) => res.json({
         ok: true,
