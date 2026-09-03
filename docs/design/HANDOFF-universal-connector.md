@@ -99,7 +99,11 @@ P0-B 已提交：
 - [ ] 仓库根 7 个未跟踪运维文件（channel-config-backup/、hongniao-models.json、update-yingce.sh、更新影策.command、本机部署说明.md、红鸟模型价格清单.csv/.md）决定是纳入文档、加入 .gitignore 还是维持现状（当前保持原样）。
 - [ ] P0-A 前端四态面板（后端 /health 四态已就绪，前端 React 面板与 24h soak 脚本未做，入 P1）。
 - [x] ~~P1：媒体读取（Q5）~~ **已完成**（`canvas_get_media` + scope `canvas:media:read` + 短 TTL 单次签名 URL，block base64 上限 8MB；MCP/OpenAPI 自动获得，测试 7 个全过）。
-- [ ] P1：渠道直连视频联调（红鸟/artbox 视频生成走真实 API 验证 + 目录完整回补 a6api 22/artbox 8 模型列表）。
+- [~] **P1：渠道直连联调（部分完成）**：
+  - ✅ **a6api 文本直连端到端通过**（`channel_generate` text → 真实返回内容；同时修复 baseUrl 约定：目录 baseUrl 为 OpenAI 兼容根不含 /v1，text/image 拼接 /v1/chat|images/generations，video 走 videoUrl；one-api 风格业务码 HTTP 200+code≠200 检测，防误判 running；task_id 嵌套提取增强）。
+  - ✅ **artbox 视频端点确认** `/v1/video/generations`（存在），但**用户余额 ¥0 无法实际生成**（需充值后再联调）。
+  - ⏳ **红鸟视频端点待平台确认**：`/api/v1/models` 可读（26 模型全量），但视频提交端点（`/v1/video/generations`、`/v1/tasks`、`/v1/generations` 等 20+ 候选）全部 404；红鸟为"AI 创作系统"工作台，公开 REST 生成端点需从红鸟工作台/官方文档确认后回填 videoUrl/taskUrl。
+  - 本机目录已回补全量：**3 渠道 / 121 模型**（a6api 87 + artbox 8 + 红鸟 26），密钥隔离验证通过（channel 列表视图无 apiKey）。红鸟 26 为接口当前真实状态（22 视频 + 4 图片，含 pricing + tasks 参数）。
 - [ ] P2：OpenAPI 直连生成深度联调、`/.well-known/agent.json` Agent Card、metrics。
 - [ ] Windows 五个渠道插件源码回补 Mac（`plugin-packages/` 经 fork 同步或按 v1.2.5 协议重建）。
 
@@ -117,4 +121,4 @@ P0-B 已提交：
 ---
 
 ## 6. 一句话现状
-方案 v1.1 与交接报告已落 `feat/universal-agent-connector` 分支，上游已追平、在途工作已安全固化、**分支已推上 fork 云备份、SSH+代理长期稳定**；**P0 全部完成 + P1 媒体读取（Q5）完成**：A 稳定性五块（`5243a65`→`0a09795`）、B-1 MCP HTTP（`19a045e`）、B-2 OpenAPI（`80d31b4`）、B-3 主动外连 bridge（`6052f7e`）、B-4 渠道工具化（`f28685b`，目录自更新）、P1 媒体读取（Q5 `canvas_get_media`，`src/media-access.ts` + scope `canvas:media:read` + 短 TTL 单次签名 URL，全量 364 测试 0 失败）；本机 `~/.infinite-canvas/channel-catalog.json` 已写入三渠道真实密钥 + 红鸟 29 模型目录；下一阶段 P1 剩余（前端四态面板、渠道直连视频联调）。
+方案 v1.1 与交接报告已落 `feat/universal-agent-connector` 分支，上游已追平、在途工作已安全固化、**分支已推上 fork 云备份、SSH+代理长期稳定**；**P0 全部完成 + P1 媒体读取（Q5）完成 + 渠道直连联调部分完成**：A 稳定性五块（`5243a65`→`0a09795`）、B-1 MCP HTTP（`19a045e`）、B-2 OpenAPI（`80d31b4`）、B-3 主动外连 bridge（`6052f7e`）、B-4 渠道工具化（`f28685b`，目录自更新）、P1 媒体读取（Q5 `canvas_get_media`，`src/media-access.ts` + scope `canvas:media:read` + 短 TTL 单次签名 URL）、P1 渠道直连联调（a6api 文本端到端通过 + baseUrl 约定/业务码/task_id 提取修复，目录 3 渠道/121 模型；artbox 余额 ¥0、红鸟视频端点待平台确认），全量 365 测试 0 失败；本机 `~/.infinite-canvas/channel-catalog.json` 已写入三渠道真实密钥 + 121 模型目录；下一阶段 P1 剩余（前端四态面板、红鸟/artbox 视频联调待平台/充值）。

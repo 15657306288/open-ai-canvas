@@ -1,5 +1,5 @@
 {
-  "_comment": "影策渠道/模型目录示例（无密钥）。复制到 ~/.infinite-canvas/channel-catalog.json 并填入真实 apiKey 后生效。模型增删改价只需改本文件，MCP/OpenAPI 连接器实时感知（channel_catalog_version 比对 + list_changed 推送）。",
+  "_comment": "影策渠道/模型目录示例（无密钥）。复制到 ~/.infinite-canvas/channel-catalog.json 并填入真实 apiKey 后生效。模型增删改价只需改本文件，MCP/OpenAPI 连接器实时感知（channel_catalog_version 比对 + list_changed 推送）。baseUrl 为 OpenAI 兼容根（不含 /v1），text/image 由生成客户端拼接 /v1/chat|images/generations；video 端点走 videoUrl/taskUrl（含 /v1 的相对路径）。",
   "version": 1,
   "updatedAt": "2026-09-04T00:00:00Z",
   "channels": [
@@ -7,7 +7,7 @@
       "id": "CHANNEL_000001",
       "name": "a6api 文本",
       "protocol": "openai-compatible",
-      "baseUrl": "https://api.a6api.com/v1",
+      "baseUrl": "https://api.a6api.com",
       "apiKey": "<填入 a6api 密钥>",
       "enabled": true
     },
@@ -23,7 +23,7 @@
       "id": "CHANNEL_000003",
       "name": "红鸟",
       "protocol": "openai-compatible",
-      "baseUrl": "https://open.hongniaoai.com/api/v1",
+      "baseUrl": "https://open.hongniaoai.com/api",
       "apiKey": "<填入红鸟密钥>",
       "enabled": true,
       "videoUrl": "/v1/video/generations",

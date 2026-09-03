@@ -27,6 +27,12 @@ function startMockOpenAi(): Promise<{ server: Server; port: number }> {
         req.on("end", () => {
             const body = raw ? JSON.parse(raw) : {};
             if (req.url?.includes("/v1/chat/completions")) {
+                // one-api 风格业务码：HTTP 200 + body.code 非 200
+                if (body.model === "biz-err") {
+                    res.writeHead(200, { "content-type": "application/json" });
+                    res.end(JSON.stringify({ code: 404, msg: "Cannot POST /v1/chat/completions", data: null }));
+                    return;
+                }
                 res.writeHead(200, { "content-type": "application/json" });
                 res.end(JSON.stringify({ choices: [{ message: { content: `echo:${body.messages?.[0]?.content}` } }] }));
                 return;
@@ -65,7 +71,8 @@ test("[connector] P0-B-4 工具集：7 个渠道工具注册齐全且 schema 稳
 test("[connector] P0-B-4 channel_generate/get_task：直连 OpenAI 兼容渠道发起文本生成", async () => {
     const { server, port } = await startMockOpenAi();
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "channel-gen-"));
-    const file = makeCatalog(dir, `http://127.0.0.1:${port}/v1`);
+    // baseUrl 为 OpenAI 兼容根（不含 /v1），text 拼接 /v1/chat/completions
+    const file = makeCatalog(dir, `http://127.0.0.1:${port}`);
     const catalog = createJsonCatalogProvider(file);
     const ctx = { catalog, generate: createChannelGenerateClient(catalog) };
     try {
@@ -100,6 +107,31 @@ test("[connector] P0-B-4 channel_generate/get_task：直连 OpenAI 兼容渠道�
         const capTool = channelToolDefs.find((t) => t.name === "model_get_capability")!;
         const cap = await capTool.handler(ctx, { model: "mock-model" }) as { capability: string };
         assert.equal(cap.capability, "text");
+    } finally {
+        catalog.close();
+        fs.rmSync(dir, { recursive: true, force: true });
+        await closeServer(server);
+    }
+});
+
+test("[connector] P0-B-4 channel_generate：one-api 风格业务码（HTTP 200 + code≠200）报业务错误而非误判成功", async () => {
+    const { server, port } = await startMockOpenAi();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "channel-bizerr-"));
+    const file = path.join(dir, "channel-catalog.json");
+    fs.writeFileSync(file, JSON.stringify({
+        version: 1,
+        channels: [{ id: "one-api", name: "中转", protocol: "openai-compatible", baseUrl: `http://127.0.0.1:${port}`, apiKey: "sk-mock", enabled: true }],
+        models: [{ key: "biz-err", channelId: "one-api", capability: "text", enabled: true }],
+    }));
+    const catalog = createJsonCatalogProvider(file);
+    const ctx = { catalog, generate: createChannelGenerateClient(catalog) };
+    try {
+        const genTool = channelToolDefs.find((t) => t.name === "channel_generate")!;
+        await assert.rejects(
+            () => genTool.handler(ctx, { channelId: "one-api", model: "biz-err", capability: "text", prompt: "p" }),
+            /Cannot POST/,
+            "HTTP 200 + body.code=404 应被识别为业务错误并抛出，而非返回 running",
+        );
     } finally {
         catalog.close();
         fs.rmSync(dir, { recursive: true, force: true });

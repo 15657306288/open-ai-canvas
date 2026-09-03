@@ -4,6 +4,8 @@
 //   - text  : POST {baseUrl}/v1/chat/completions（同步）
 //   - image : POST {baseUrl}/v1/images/generations（同步）
 //   - video : 渠道声明 videoUrl 则 POST 提交任务，返回 taskId 后用 taskUrl 模板轮询
+// 约定：目录 baseUrl 为 OpenAI 兼容根（不含 /v1），text/image 在此拼接 /v1/...；video 端点走渠道 videoUrl（含 /v1 的相对路径）。
+// one-api 风格中转（如红鸟）常返回 HTTP 200 + body.code 非 0/200 表示业务错误，本客户端会检测并报错，避免误判任务已提交。
 // 渠道密钥仅在本进程内用于 Authorization 头，绝不返回给外部 Agent。
 // 任务表为进程内内存态（channel_get_task 查询），断连即失效（P1 语义）。
 
@@ -41,6 +43,32 @@ export function createChannelGenerateClient(catalog: ChannelCatalogProvider): Ch
         createdAtMs: Date.now(),
     });
 
+    // one-api 风格业务码检查：HTTP 200 + body.code 非 0/200 视为业务错误
+    function businessError(body: Record<string, unknown> | undefined | null): string | undefined {
+        if (body && typeof body.code !== "undefined") {
+            const code = String(body.code);
+            if (code !== "0" && code !== "200") {
+                return typeof body.msg === "string" && body.msg
+                    ? body.msg
+                    : typeof body.message === "string" && body.message
+                        ? body.message
+                        : `业务错误 code=${code}`;
+            }
+        }
+        return undefined;
+    }
+
+    function extractRemoteTaskId(body: Record<string, unknown>): string | undefined {
+        const direct = body.task_id ?? body.taskId ?? body.id ?? body.request_id ?? body.requestId;
+        if (typeof direct === "string" && direct) return direct;
+        const data = body.data;
+        if (data && typeof data === "object") {
+            const nested = (data as Record<string, unknown>).request_id ?? (data as Record<string, unknown>).task_id ?? (data as Record<string, unknown>).taskId ?? (data as Record<string, unknown>).id;
+            if (typeof nested === "string" && nested) return nested;
+        }
+        return undefined;
+    }
+
     async function generate(input: ChannelGenerateInput): Promise<{ taskId: string; status: ChannelTask["status"] }> {
         const channel = catalog.resolveChannel(input.channelId);
         if (!channel) throw new Error(`渠道不存在：${input.channelId}`);
@@ -66,8 +94,10 @@ export function createChannelGenerateClient(catalog: ChannelCatalogProvider): Ch
                 }),
                 timeoutMs: 120_000,
             });
-            const body = (await res.json()) as { choices?: Array<{ message?: { content?: string } }>; error?: { message?: string } };
+            const body = (await res.json()) as { choices?: Array<{ message?: { content?: string } }>; error?: { message?: string } } & Record<string, unknown>;
             if (!res.ok) throw new Error(body.error?.message || `渠道 HTTP ${res.status}`);
+            const bizErr = businessError(body);
+            if (bizErr) throw new Error(bizErr);
             const content = body.choices?.[0]?.message?.content ?? "";
             task.status = "succeeded";
             task.result = { kind: "text", content };
@@ -81,8 +111,10 @@ export function createChannelGenerateClient(catalog: ChannelCatalogProvider): Ch
                 body: JSON.stringify({ model: input.model, prompt: input.prompt, ...(input.params ?? {}) }),
                 timeoutMs: 180_000,
             });
-            const body = (await res.json()) as { data?: Array<{ url?: string; b64_json?: string }>; error?: { message?: string } };
+            const body = (await res.json()) as { data?: Array<{ url?: string; b64_json?: string }>; error?: { message?: string } } & Record<string, unknown>;
             if (!res.ok) throw new Error(body.error?.message || `渠道 HTTP ${res.status}`);
+            const bizErr = businessError(body);
+            if (bizErr) throw new Error(bizErr);
             task.status = "succeeded";
             task.result = { kind: "image", images: (body.data ?? []).map((item) => ({ url: item.url, b64: item.b64_json ? "present" : undefined })) };
             return { taskId: task.taskId, status: task.status };
@@ -101,12 +133,14 @@ export function createChannelGenerateClient(catalog: ChannelCatalogProvider): Ch
                 body: JSON.stringify({ model: input.model, prompt: input.prompt, ...(input.params ?? {}) }),
                 timeoutMs: 60_000,
             });
-            const body = (await res.json()) as { task_id?: string; taskId?: string; id?: string; data?: Record<string, unknown>; error?: { message?: string } };
+            const body = (await res.json()) as { task_id?: string; taskId?: string; id?: string; data?: Record<string, unknown>; error?: { message?: string } } & Record<string, unknown>;
             if (!res.ok) throw new Error(body.error?.message || `渠道 HTTP ${res.status}`);
+            const bizErr = businessError(body);
+            if (bizErr) throw new Error(bizErr);
             task.status = "running";
-            task.result = { kind: "video", submitted: body.data ?? { task_id: body.task_id ?? body.taskId ?? body.id } };
+            task.result = { kind: "video", submitted: body.data ?? { task_id: extractRemoteTaskId(body) } };
             if (channel.taskUrl) {
-                const remoteTaskId = body.task_id ?? body.taskId ?? body.id;
+                const remoteTaskId = extractRemoteTaskId(body);
                 if (remoteTaskId) void pollRemoteTask(channel.taskUrl, channel.apiKey, channel.baseUrl, remoteTaskId, task);
             }
             return { taskId: task.taskId, status: task.status };
@@ -128,7 +162,13 @@ export function createChannelGenerateClient(catalog: ChannelCatalogProvider): Ch
                     headers: { authorization: `Bearer ${apiKey}` },
                     timeoutMs: 30_000,
                 });
-                const body = (await res.json()) as { status?: string; data?: Record<string, unknown>; error?: { message?: string } };
+                const body = (await res.json()) as { status?: string; data?: Record<string, unknown>; error?: { message?: string } } & Record<string, unknown>;
+                const bizErr = businessError(body);
+                if (bizErr) {
+                    task.status = "failed";
+                    task.error = bizErr;
+                    return;
+                }
                 const status = String(body.status ?? body.data?.status ?? "").toLowerCase();
                 if (status.includes("success") || status.includes("succeed") || status.includes("done")) {
                     task.status = "succeeded";
