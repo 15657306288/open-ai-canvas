@@ -16,6 +16,7 @@ import { createLocalRuntimeApp, type LocalRuntimeModule } from "./local-runtime.
 import { LOCAL_RUNTIME_DEFAULT_SCOPES, LocalRuntimeSessionManager } from "./local-runtime-session.js";
 import { acquireRuntimeLock, type RuntimeLockInfo } from "./runtime-lock.js";
 import { createMcpHttpHandler } from "./mcp-http-server.js";
+import { createOpenApiHandler } from "./openapi-server.js";
 import { createCanvasAgentHttpModule } from "./modules/canvas-agent-http.js";
 import { createDreaminaHttpModule } from "./modules/dreamina-http.js";
 import { createPortraitClearanceHttpModule } from "./modules/portrait-clearance-http.js";
@@ -105,6 +106,8 @@ export function startLocalRuntime(options: StartLocalRuntimeOptions = {}): Local
             canvasOnly: options.mcp?.canvasOnly,
             maxSessions: options.mcp?.maxSessions,
         }),
+        // [connector] P0-B-2 OpenAPI 兜底门面（始终开启，供不支持 MCP 的 agent）
+        openApiHandler: createOpenApiHandler(config),
     });
     const server = createServer(app);
     const log = options.log ?? console.log;
