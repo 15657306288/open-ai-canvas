@@ -248,6 +248,8 @@ type CanvasAssistantPanelProps = {
     selectedNodeIds: Set<string>;
     snapshot: CanvasAgentSnapshot;
     projectId: string;
+    domainProjectId?: string;
+    unitId?: string;
     sessions: CanvasAssistantSession[];
     activeSessionId: string | null;
     onSelectNodeIds: (ids: Set<string>) => void;
@@ -339,6 +341,8 @@ export function CanvasAssistantPanel({
     selectedNodeIds,
     snapshot,
     projectId,
+    domainProjectId,
+    unitId,
     sessions,
     activeSessionId,
     onSelectNodeIds,
@@ -578,6 +582,8 @@ export function CanvasAssistantPanel({
             const detail = await createCinematicAgentSession(
                 {
                     projectId,
+                    domainProjectId,
+                    unitId,
                     prompt: text,
                     canvasSnapshot: compactSnapshot(current) as unknown as Record<string, unknown>,
                     projectStyle: storyboardContext.projectStyle,

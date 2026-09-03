@@ -236,19 +236,29 @@ func (s *Service) persistAgentStoryboardShots(task model.Task, input agentStoryb
 		}
 		shotID := newID()
 		durationMs := int64(shot.Duration) * 1000
-		actionBeats, err := json.Marshal([]map[string]any{{
-			"timeBeats": shot.TimeBeats, "mustHave": shot.MustHave, "optionalDetails": shot.Optional,
-		}})
+		revisionInput := ShotRevisionInput{
+			PlotDescription: shot.Description,
+			Action:          shot.Performance,
+			Dialogue:        shot.Dialogue,
+			ShotSize:        shot.ShotSize,
+			CameraAngle:     shot.Camera,
+			CameraMovement:  shot.Motion,
+			DurationMs:      durationMs,
+			ImagePrompt:     imagePrompt,
+			VideoPrompt:     videoPrompt,
+			NegativePrompt:  shot.Negative,
+			ContinuityNotes: shot.ContinuityOut,
+			ActionBeats: []map[string]any{{
+				"timeBeats":       shot.TimeBeats,
+				"mustHave":        shot.MustHave,
+				"optionalDetails": shot.Optional,
+			}},
+		}
+		revision, err := newShotRevision(task.UserID, shotID, revisionInput, shot.Description, durationMs, now)
 		if err != nil {
-			return nil, fmt.Errorf("序列化镜头动作节拍失败：%w", err)
+			return nil, err
 		}
-		revision := model.ShotRevision{
-			ID: newID(), ShotID: shotID, Version: 1, PlotDescription: strings.TrimSpace(shot.Description),
-			Action: strings.TrimSpace(shot.Performance), Dialogue: strings.TrimSpace(shot.Dialogue), ShotSize: strings.TrimSpace(shot.ShotSize),
-			CameraAngle: strings.TrimSpace(shot.Camera), CameraMovement: strings.TrimSpace(shot.Motion), DurationMs: durationMs,
-			ImagePrompt: imagePrompt, VideoPrompt: videoPrompt, NegativePrompt: strings.TrimSpace(shot.Negative),
-			ContinuityNotes: strings.TrimSpace(shot.ContinuityOut), ActionBeatsJSON: string(actionBeats), CreatedBy: task.UserID, CreatedAt: now,
-		}
+		revision.Version = 1
 		shots = append(shots, model.Shot{
 			ID: shotID, ProjectID: domainProjectID, UnitID: unitID, CurrentRevisionID: revision.ID,
 			Title: strings.TrimSpace(shot.Title), Description: revision.PlotDescription, Position: index, DurationMs: durationMs,

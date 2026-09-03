@@ -2423,6 +2423,7 @@ function InfiniteCanvasPage() {
                                         selectedNodeIds={selectedNodeIds}
                                         snapshot={agentSnapshot}
                                         projectId={projectId}
+                                        domainProjectId={linkedProjectId || undefined}
                                         sessions={chatSessions}
                                         activeSessionId={activeChatId}
                                         onSelectNodeIds={setSelectedNodeIds}
