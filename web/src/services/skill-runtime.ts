@@ -123,27 +123,60 @@ const SKILL_REF_PATTERN = /@\[skill:([^\]]+)\]/g;
 const TEXT_FILE_EXTENSIONS = new Set([".md", ".mdx", ".txt", ".json", ".yaml", ".yml", ".toml", ".csv"]);
 const EMPTY_PROVENANCE: SkillRuntimeProvenance = { skillIds: [], skillVersions: [], skillFiles: [] };
 
-// 第一方默认技能：按profile明确资格边界。
+// 第一方默认技能分两层，按profile明确资格边界。
 // 只有具备交互式MCP工具（project_get_context / project_create_or_update_shots / canvas_create_storyboard_shots）
-// 的profile才自动注入默认技能。其他profile（canvas/creation/shortDrama/director/onlineAgent）不自动注入。
+// 的profile才自动注入。其他profile（canvas/creation/shortDrama/director/onlineAgent）不自动注入。
 // 不占用用户技能容量（maxSkills），始终追加到用户选择的技能之后。
-const FIRST_PARTY_DEFAULTS_BY_PROFILE: Partial<Record<SkillRuntimeProfile, string[]>> = {
-    localAgent: ["storyboard-director"],
+//
+// 1) ALWAYS：公共执行手册，所有eligible turn都加载（benchmark baseline也加载，
+//    使对照实验的唯一变量是专项技能，而不是公共基线）。
+// 2) INTENT_DRIVEN：专项创作技能，normal模式按用户意图激活，director模式强制，
+//    baseline模式不加载，避免普通画布编辑也携带冗长的专项指令。
+const FIRST_PARTY_ALWAYS_BY_PROFILE: Partial<Record<SkillRuntimeProfile, string[]>> = {
+    localAgent: ["canvas-core"],
 };
 
-export function isFirstPartyDefaultSkill(skillId: string, profile?: SkillRuntimeProfile): boolean {
-    if (!profile) return Object.values(FIRST_PARTY_DEFAULTS_BY_PROFILE).some((ids) => ids.includes(skillId));
-    return (FIRST_PARTY_DEFAULTS_BY_PROFILE[profile] ?? []).includes(skillId);
+type IntentDrivenSkill = { id: string; matches: (prompt: string) => boolean };
+
+const STORYBOARD_DIRECTOR_INTENT_PATTERN =
+    /分镜|故事板|storyboard|镜头语言|镜头设计|镜头拆解|拆镜头|拆分镜头|镜头序列|怎么拍|(剧本|剧情|脚本|故事|这一幕|这段戏|段落).{0,12}(拆|分|设计|编排).{0,8}镜头/i;
+
+const FIRST_PARTY_INTENT_BY_PROFILE: Partial<Record<SkillRuntimeProfile, IntentDrivenSkill[]>> = {
+    localAgent: [{ id: "storyboard-director", matches: (prompt) => STORYBOARD_DIRECTOR_INTENT_PATTERN.test(prompt) }],
+};
+
+// 判断用户输入是否表达了“把剧本/段落拆成分镜、设计镜头语言”等分镜导演意图。
+export function isStoryboardDirectorIntent(prompt: string): boolean {
+    return STORYBOARD_DIRECTOR_INTENT_PATTERN.test(prompt || "");
 }
 
+function firstPartyAlwaysSkillIdsForProfile(profile: SkillRuntimeProfile): string[] {
+    return FIRST_PARTY_ALWAYS_BY_PROFILE[profile] ?? [];
+}
+
+function firstPartyIntentSkillsForProfile(profile: SkillRuntimeProfile): IntentDrivenSkill[] {
+    return FIRST_PARTY_INTENT_BY_PROFILE[profile] ?? [];
+}
+
+export function isFirstPartyDefaultSkill(skillId: string, profile?: SkillRuntimeProfile): boolean {
+    const inProfile = (p: SkillRuntimeProfile) =>
+        firstPartyAlwaysSkillIdsForProfile(p).includes(skillId) ||
+        firstPartyIntentSkillsForProfile(p).some((skill) => skill.id === skillId);
+    if (!profile) {
+        return (Object.keys(FIRST_PARTY_ALWAYS_BY_PROFILE) as SkillRuntimeProfile[]).some(inProfile);
+    }
+    return inProfile(profile);
+}
+
+// 返回某profile下全部第一方默认技能ID（始终注入 + 意图驱动），保持确定性顺序。
 export function firstPartyDefaultSkillIdsForProfile(profile: SkillRuntimeProfile): string[] {
-    return FIRST_PARTY_DEFAULTS_BY_PROFILE[profile] ?? [];
+    return [...firstPartyAlwaysSkillIdsForProfile(profile), ...firstPartyIntentSkillsForProfile(profile).map((skill) => skill.id)];
 }
 
 // ============ Benchmark Skill Mode (debug/benchmark only) ============
-// normal: 现有生产行为，默认技能自动注入
-// baseline: 第一方默认技能不注入（用于产生真正的baseline对比）
-// director: 第一方默认技能确保恰好可用一次
+// normal:   canvas-core始终注入；意图驱动专项技能按用户意图激活
+// baseline: canvas-core仍注入（公共基线）；意图驱动专项技能不注入（产生纯净baseline对比）
+// director: canvas-core + 意图驱动专项技能都强制可用且恰好一次
 // 仅通过localStorage debug设置控制，不暴露为正常用户功能
 export type BenchmarkSkillMode = "normal" | "baseline" | "director";
 
@@ -157,10 +190,13 @@ export function getBenchmarkSkillMode(): BenchmarkSkillMode {
 }
 
 /**
- * 组合用户技能与第一方默认技能（按profile资格 + benchmark mode）。
+ * 组合用户技能与第一方默认技能（按profile资格 + benchmark mode + 意图激活）。
  * - 用户技能（通过prompt提及或显式选择）限制在 maxSkills 内
- * - 第一方默认技能仅在eligible profile中包含，不占用用户容量，不重复
- * - benchmarkMode=baseline时不注入默认技能；=director时确保恰好一次
+ * - ALWAYS第一方技能（canvas-core）：eligible profile下所有mode都加载，不占容量，作为公共基线
+ * - INTENT_DRIVEN第一方技能（storyboard-director）：
+ *     normal   = 用户意图命中时加载（显式@/选择已在用户技能中，去重处理）
+ *     baseline = 不加载（产生纯净baseline；canvas-core仍保留以保证对照唯一变量）
+ *     director = 强制加载且恰好一次
  * - 显式选择的技能（selectedSkillIds）优先级最高，不受默认技能覆盖
  */
 export function composeSkillsForTurn(input: {
@@ -177,16 +213,31 @@ export function composeSkillsForTurn(input: {
     const userSkills = mentioned.slice(0, maxSkills);
     const userSkillIds = new Set(userSkills.map((s) => s.skill_id));
 
-    // baseline模式：不注入任何第一方默认技能
-    if (mode === "baseline") return userSkills;
+    // 第一方技能候选ID：始终注入层 + 意图驱动层（按mode决定意图层是否启用）
+    const candidateIds = new Set<string>(firstPartyAlwaysSkillIdsForProfile(profile));
+    const intentSkills = firstPartyIntentSkillsForProfile(profile);
+    if (mode === "director") {
+        intentSkills.forEach((skill) => candidateIds.add(skill.id));
+    } else if (mode === "normal") {
+        intentSkills.forEach((skill) => {
+            if (skill.matches(prompt)) candidateIds.add(skill.id);
+        });
+    }
+    // baseline：只保留 ALWAYS 层，意图驱动层不加载
+    if (candidateIds.size === 0) return userSkills;
 
-    const defaultIds = new Set(firstPartyDefaultSkillIdsForProfile(profile));
-    if (defaultIds.size === 0) return userSkills;
     const activeSkills = skills.filter((skill) => skill.is_added);
-    const defaultSkills = activeSkills.filter(
-        (skill) => defaultIds.has(skill.skill_id) && !userSkillIds.has(skill.skill_id),
-    );
-    // director模式：确保默认技能恰好一次（去重已在filter中处理）
+    const orderedDefaultIds = [
+        ...firstPartyAlwaysSkillIdsForProfile(profile),
+        ...intentSkills.map((skill) => skill.id),
+    ].filter((id) => candidateIds.has(id));
+    const byId = new Map(activeSkills.map((skill) => [skill.skill_id, skill]));
+    const defaultSkills = orderedDefaultIds
+        .filter((id) => !userSkillIds.has(id))
+        .flatMap((id) => {
+            const skill = byId.get(id);
+            return skill ? [skill] : [];
+        });
     return [...userSkills, ...defaultSkills];
 }
 

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { Skill, SkillPackageFile, SkillPackageFileContent } from "../src/services/api/skills";
-import { createSkillRuntime, resolveSkillMentions, composeSkillsForTurn, isFirstPartyDefaultSkill, firstPartyDefaultSkillIdsForProfile, getBenchmarkSkillMode } from "../src/services/skill-runtime";
+import { createSkillRuntime, resolveSkillMentions, composeSkillsForTurn, isFirstPartyDefaultSkill, firstPartyDefaultSkillIdsForProfile, isStoryboardDirectorIntent, getBenchmarkSkillMode } from "../src/services/skill-runtime";
 
 function skill(overrides: Partial<Skill> = {}): Skill {
     return {
@@ -140,8 +140,10 @@ describe("skill runtime", () => {
     });
 });
 
-describe("第一方默认技能组合（按profile资格边界）", () => {
+describe("第一方默认技能组合（canvas-core始终注入 + storyboard-director意图驱动）", () => {
+    const canvasCore = skill({ skill_id: "canvas-core", skill_name: "画布执行手册", is_added: true });
     const storyboardDirector = skill({ skill_id: "storyboard-director", skill_name: "分镜导演", is_added: true });
+    const firstParty = [canvasCore, storyboardDirector];
     const userSkill1 = skill({ skill_id: "user-skill-1", skill_name: "用户技能1", is_added: true });
     const userSkill2 = skill({ skill_id: "user-skill-2", skill_name: "用户技能2", is_added: true });
     const userSkill3 = skill({ skill_id: "user-skill-3", skill_name: "用户技能3", is_added: true });
@@ -153,170 +155,203 @@ describe("第一方默认技能组合（按profile资格边界）", () => {
     const eligibleProfiles = ["localAgent"] as const;
     const nonEligibleProfiles = ["canvas", "creation", "shortDrama", "director", "onlineAgent"] as const;
 
-    test("isFirstPartyDefaultSkill 按profile正确识别", () => {
-        expect(isFirstPartyDefaultSkill("storyboard-director", "localAgent")).toBe(true);
-        expect(isFirstPartyDefaultSkill("storyboard-director", "canvas")).toBe(false);
-        expect(isFirstPartyDefaultSkill("storyboard-director", "creation")).toBe(false);
-        expect(isFirstPartyDefaultSkill("storyboard-director", "shortDrama")).toBe(false);
-        expect(isFirstPartyDefaultSkill("storyboard-director", "director")).toBe(false);
-        expect(isFirstPartyDefaultSkill("storyboard-director", "onlineAgent")).toBe(false);
-        expect(isFirstPartyDefaultSkill("user-skill-1", "localAgent")).toBe(false);
-        // 不传profile时返回全局判断（兼容旧代码）
-        expect(isFirstPartyDefaultSkill("storyboard-director")).toBe(true);
+    const STORYBOARD_PROMPT = "把当前这段剧情拆成8个专业分镜，只做分镜不生成图片";
+    const PLAIN_PROMPT = "随便说点什么";
+    const EDIT_PROMPT = "把当前选中的节点往左移动一点";
+
+    test("isStoryboardDirectorIntent 正确识别分镜意图", () => {
+        expect(isStoryboardDirectorIntent("把剧本拆成分镜")).toBe(true);
+        expect(isStoryboardDirectorIntent("给这一幕设计镜头")).toBe(true);
+        expect(isStoryboardDirectorIntent("重新设计这段戏的镜头语言")).toBe(true);
+        expect(isStoryboardDirectorIntent("做8个电影感分镜")).toBe(true);
+        expect(isStoryboardDirectorIntent("把这一段做成专业storyboard")).toBe(true);
+        expect(isStoryboardDirectorIntent("这段戏怎么拍")).toBe(true);
+        // 负例：普通画布编辑 / 单次媒体生成 / 延长
+        expect(isStoryboardDirectorIntent(EDIT_PROMPT)).toBe(false);
+        expect(isStoryboardDirectorIntent("生成一张图片")).toBe(false);
+        expect(isStoryboardDirectorIntent("把这个视频延长到10秒")).toBe(false);
+        expect(isStoryboardDirectorIntent("删除这个节点")).toBe(false);
+        expect(isStoryboardDirectorIntent("")).toBe(false);
     });
 
-    test("firstPartyDefaultSkillIdsForProfile 返回正确列表", () => {
-        expect(firstPartyDefaultSkillIdsForProfile("localAgent")).toEqual(["storyboard-director"]);
+    test("isFirstPartyDefaultSkill 按profile正确识别两个第一方技能", () => {
+        for (const id of ["canvas-core", "storyboard-director"]) {
+            expect(isFirstPartyDefaultSkill(id, "localAgent")).toBe(true);
+            for (const profile of nonEligibleProfiles) {
+                expect(isFirstPartyDefaultSkill(id, profile)).toBe(false);
+            }
+            expect(isFirstPartyDefaultSkill(id)).toBe(true);
+        }
+        expect(isFirstPartyDefaultSkill("user-skill-1", "localAgent")).toBe(false);
+    });
+
+    test("firstPartyDefaultSkillIdsForProfile 返回确定顺序：canvas-core 在前", () => {
+        expect(firstPartyDefaultSkillIdsForProfile("localAgent")).toEqual(["canvas-core", "storyboard-director"]);
         for (const profile of nonEligibleProfiles) {
             expect(firstPartyDefaultSkillIdsForProfile(profile)).toEqual([]);
         }
     });
 
-    test.each(eligibleProfiles)("eligible profile %s: 无用户技能时默认技能可用且仅一次", (profile) => {
-        const result = composeSkillsForTurn({ profile, prompt: "随便说点什么", skills: [storyboardDirector], maxSkills: 4 });
+    test.each(eligibleProfiles)("eligible profile %s: 普通对话只注入canvas-core，不注入分镜导演", (profile) => {
+        const result = composeSkillsForTurn({ profile, prompt: PLAIN_PROMPT, skills: firstParty, maxSkills: 4 });
         expect(result).toHaveLength(1);
-        expect(result[0].skill_id).toBe("storyboard-director");
+        expect(result[0].skill_id).toBe("canvas-core");
+        expect(result.map((s) => s.skill_id)).not.toContain("storyboard-director");
     });
 
-    test.each(eligibleProfiles)("eligible profile %s: 1用户技能+默认技能两者都可用", (profile) => {
-        const result = composeSkillsForTurn({ profile, prompt: "@用户技能1 测试", skills: [storyboardDirector, userSkill1], maxSkills: 4 });
-        expect(result).toHaveLength(2);
-        expect(result.map((s) => s.skill_id)).toContain("user-skill-1");
-        expect(result.map((s) => s.skill_id)).toContain("storyboard-director");
+    test.each(eligibleProfiles)("eligible profile %s: 分镜意图同时注入canvas-core与分镜导演", (profile) => {
+        const result = composeSkillsForTurn({ profile, prompt: STORYBOARD_PROMPT, skills: firstParty, maxSkills: 4 });
+        const ids = result.map((s) => s.skill_id);
+        expect(ids).toEqual(["canvas-core", "storyboard-director"]);
     });
 
-    test.each(eligibleProfiles)("eligible profile %s: maxSkills用户技能时默认技能仍可用（不占容量）", (profile) => {
-        const allSkills = [storyboardDirector, userSkill1, userSkill2, userSkill3, userSkill4, userSkill5];
-        const prompt = "@用户技能1 @用户技能2 @用户技能3 @用户技能4 @用户技能5 测试";
+    test.each(eligibleProfiles)("eligible profile %s: 1用户技能 + canvas-core，普通意图不激活分镜导演", (profile) => {
+        const result = composeSkillsForTurn({ profile, prompt: "@用户技能1 帮我整理一下", skills: [...firstParty, userSkill1], maxSkills: 4 });
+        const ids = result.map((s) => s.skill_id);
+        expect(ids).toContain("user-skill-1");
+        expect(ids).toContain("canvas-core");
+        expect(ids).not.toContain("storyboard-director");
+    });
+
+    test.each(eligibleProfiles)("eligible profile %s: maxSkills用户技能时canvas-core仍可用（不占容量）", (profile) => {
+        const allSkills = [...firstParty, userSkill1, userSkill2, userSkill3, userSkill4, userSkill5];
+        const prompt = "@用户技能1 @用户技能2 @用户技能3 @用户技能4 @用户技能5 " + STORYBOARD_PROMPT;
         const result = composeSkillsForTurn({ profile, prompt, skills: allSkills, maxSkills: 4 });
-        expect(result).toHaveLength(5);
-        expect(result.map((s) => s.skill_id)).toContain("storyboard-director");
-        const userSkillsInResult = result.filter((s) => s.skill_id !== "storyboard-director");
+        // 4个用户技能 + canvas-core + storyboard-director
+        expect(result).toHaveLength(6);
+        const userSkillsInResult = result.filter((s) => s.skill_id.startsWith("user-skill-"));
         expect(userSkillsInResult).toHaveLength(4);
+        expect(result.map((s) => s.skill_id)).toContain("canvas-core");
+        expect(result.map((s) => s.skill_id)).toContain("storyboard-director");
     });
 
-    test.each(eligibleProfiles)("eligible profile %s: 用户已提及默认技能时不重复", (profile) => {
-        const result = composeSkillsForTurn({ profile, prompt: "@分镜导演 测试", skills: [storyboardDirector], maxSkills: 4 });
-        expect(result).toHaveLength(1);
-        expect(result[0].skill_id).toBe("storyboard-director");
+    test.each(eligibleProfiles)("eligible profile %s: 用户已显式@分镜导演时不重复注入", (profile) => {
+        const result = composeSkillsForTurn({ profile, prompt: "@分镜导演 测试", skills: firstParty, maxSkills: 4 });
+        // @分镜导演 进入用户技能；canvas-core默认注入；分镜导演不重复
+        expect(result).toHaveLength(2);
+        const ids = result.map((s) => s.skill_id);
+        expect(ids.filter((id) => id === "storyboard-director")).toHaveLength(1);
+        expect(ids).toContain("canvas-core");
     });
 
-    test.each(nonEligibleProfiles)("non-eligible profile %s: 无用户提及时默认技能不自动注入", (profile) => {
-        const result = composeSkillsForTurn({ profile, prompt: "随便说点什么", skills: [storyboardDirector], maxSkills: 4 });
+    test.each(nonEligibleProfiles)("non-eligible profile %s: 无用户提及时两个第一方技能都不注入", (profile) => {
+        const result = composeSkillsForTurn({ profile, prompt: STORYBOARD_PROMPT, skills: firstParty, maxSkills: 4 });
         expect(result).toHaveLength(0);
+        expect(result.map((s) => s.skill_id)).not.toContain("canvas-core");
         expect(result.map((s) => s.skill_id)).not.toContain("storyboard-director");
     });
 
     test.each(nonEligibleProfiles)("non-eligible profile %s: 用户技能行为不变（提及则包含）", (profile) => {
-        const result = composeSkillsForTurn({ profile, prompt: "@用户技能1 测试", skills: [storyboardDirector, userSkill1], maxSkills: 4 });
+        const result = composeSkillsForTurn({ profile, prompt: "@用户技能1 测试", skills: [...firstParty, userSkill1], maxSkills: 4 });
         expect(result).toHaveLength(1);
         expect(result[0].skill_id).toBe("user-skill-1");
-        expect(result.map((s) => s.skill_id)).not.toContain("storyboard-director");
     });
 
-    test.each(nonEligibleProfiles)("non-eligible profile %s: 用户显式选择默认技能时保留（如架构允许）", (profile) => {
-        const result = composeSkillsForTurn({ profile, prompt: "测试", skills: [storyboardDirector, userSkill1], maxSkills: 4, selectedSkillIds: ["storyboard-director"] });
-        // selectedSkillIds路径下，resolveSkillMentions只返回显式选择的技能
+    test.each(nonEligibleProfiles)("non-eligible profile %s: 用户显式选择第一方技能时保留", (profile) => {
+        const result = composeSkillsForTurn({ profile, prompt: "测试", skills: [...firstParty, userSkill1], maxSkills: 4, selectedSkillIds: ["storyboard-director"] });
         expect(result.map((s) => s.skill_id)).toContain("storyboard-director");
+        expect(result.map((s) => s.skill_id)).not.toContain("canvas-core");
     });
 
     test("所有profile覆盖完整性", () => {
         expect(allProfiles).toHaveLength(6);
         expect(eligibleProfiles).toHaveLength(1);
         expect(nonEligibleProfiles).toHaveLength(5);
-        // 验证eligible + nonEligible = all
         const allSet = new Set([...eligibleProfiles, ...nonEligibleProfiles]);
         expect(allSet.size).toBe(allProfiles.length);
     });
 
     test("eligible profile: 未添加（is_added=false）的技能不出现在结果中", () => {
-        const result = composeSkillsForTurn({ profile: "localAgent", prompt: "测试", skills: [storyboardDirector, notAdded], maxSkills: 4 });
-        expect(result).toHaveLength(1);
-        expect(result[0].skill_id).toBe("storyboard-director");
-    });
-
-    test("eligible profile: 显式选择技能优先级最高，默认技能追加不覆盖", () => {
-        const result = composeSkillsForTurn({ profile: "localAgent", prompt: "测试", skills: [storyboardDirector, userSkill1, userSkill2], maxSkills: 4, selectedSkillIds: ["user-skill-1"] });
+        const result = composeSkillsForTurn({ profile: "localAgent", prompt: STORYBOARD_PROMPT, skills: [...firstParty, notAdded], maxSkills: 4 });
         expect(result).toHaveLength(2);
+        expect(result.map((s) => s.skill_id)).not.toContain("not-added");
+    });
+
+    test("eligible profile: 显式选择用户技能优先级最高，第一方技能追加不覆盖", () => {
+        const result = composeSkillsForTurn({ profile: "localAgent", prompt: "测试", skills: [...firstParty, userSkill1, userSkill2], maxSkills: 4, selectedSkillIds: ["user-skill-1"] });
         expect(result[0].skill_id).toBe("user-skill-1");
-        expect(result[1].skill_id).toBe("storyboard-director");
+        expect(result[1].skill_id).toBe("canvas-core");
     });
 
-    test("eligible profile: 用户技能顺序确定性，默认技能始终在末尾", () => {
-        const result = composeSkillsForTurn({ profile: "localAgent", prompt: "@用户技能2 @用户技能1 测试", skills: [storyboardDirector, userSkill1, userSkill2], maxSkills: 4 });
+    test("eligible profile: 顺序确定——用户技能在前，canvas-core、分镜导演在末尾", () => {
+        const result = composeSkillsForTurn({ profile: "localAgent", prompt: "@用户技能2 @用户技能1 " + STORYBOARD_PROMPT, skills: [...firstParty, userSkill1, userSkill2], maxSkills: 4 });
         const ids = result.map((s) => s.skill_id);
-        expect(ids[ids.length - 1]).toBe("storyboard-director");
+        expect(ids.slice(-2)).toEqual(["canvas-core", "storyboard-director"]);
     });
 
-    test("eligible profile: 空prompt时仅默认技能可用（用户技能不被自动选择）", () => {
-        const result = composeSkillsForTurn({ profile: "localAgent", prompt: "   ", skills: [storyboardDirector, userSkill1], maxSkills: 4 });
+    test("eligible profile: 空prompt时仅canvas-core可用（分镜导演不被空意图激活）", () => {
+        const result = composeSkillsForTurn({ profile: "localAgent", prompt: "   ", skills: [...firstParty, userSkill1], maxSkills: 4 });
         expect(result).toHaveLength(1);
-        expect(result[0].skill_id).toBe("storyboard-director");
+        expect(result[0].skill_id).toBe("canvas-core");
     });
 
-    test("负例：普通画布编辑命令不强制激活storyboard-director（AVAILABLE != FORCED）", () => {
-        // storyboard-director作为可用的第一方技能存在于skills列表中
-        // 但composeSkillsForTurn只是将其放入effectiveSkills，不强制LLM使用
-        const result = composeSkillsForTurn({ profile: "localAgent", prompt: "把当前选中的节点往左移动一点", skills: [storyboardDirector], maxSkills: 4 });
-        // 默认技能被包含在effective skills中（AVAILABLE）
-        expect(result).toHaveLength(1);
-        expect(result[0].skill_id).toBe("storyboard-director");
-        // 但composeSkillsForTurn不做意图分类，不强制激活（FORCED）
-        // LLM/Codex根据技能描述自行决定是否使用
-        // 这里验证的是组合层不做意图判断，只是正确地包含可用技能
+    test("负例：普通画布编辑命令只带canvas-core，不激活分镜导演（AVAILABLE != FORCED）", () => {
+        const result = composeSkillsForTurn({ profile: "localAgent", prompt: EDIT_PROMPT, skills: firstParty, maxSkills: 4 });
+        const ids = result.map((s) => s.skill_id);
+        expect(ids).toEqual(["canvas-core"]);
+        expect(ids).not.toContain("storyboard-director");
     });
 });
 
 describe("Benchmark Skill Mode", () => {
+    const canvasCore = skill({ skill_id: "canvas-core", skill_name: "画布执行手册", is_added: true });
     const storyboardDirector = skill({ skill_id: "storyboard-director", skill_name: "分镜导演", is_added: true });
+    const firstParty = [canvasCore, storyboardDirector];
     const userSkill1 = skill({ skill_id: "user-skill-1", skill_name: "用户技能1", is_added: true });
+    const STORYBOARD_PROMPT = "把当前这段剧情拆成8个专业分镜，只做分镜不生成图片";
 
-    test("1. normal模式仍为localAgent注入storyboard-director", () => {
-        const result = composeSkillsForTurn({ profile: "localAgent", prompt: "测试", skills: [storyboardDirector], maxSkills: 4, benchmarkMode: "normal" });
-        expect(result).toHaveLength(1);
-        expect(result[0].skill_id).toBe("storyboard-director");
+    test("1. normal模式 + 分镜意图：canvas-core与storyboard-director都注入", () => {
+        const result = composeSkillsForTurn({ profile: "localAgent", prompt: STORYBOARD_PROMPT, skills: firstParty, maxSkills: 4, benchmarkMode: "normal" });
+        expect(result.map((s) => s.skill_id)).toEqual(["canvas-core", "storyboard-director"]);
     });
 
-    test("2. baseline模式不注入storyboard-director", () => {
-        const result = composeSkillsForTurn({ profile: "localAgent", prompt: "测试", skills: [storyboardDirector], maxSkills: 4, benchmarkMode: "baseline" });
-        expect(result).toHaveLength(0);
-        expect(result.map((s) => s.skill_id)).not.toContain("storyboard-director");
+    test("1b. normal模式 + 普通对话：只注入canvas-core", () => {
+        const result = composeSkillsForTurn({ profile: "localAgent", prompt: "测试", skills: firstParty, maxSkills: 4, benchmarkMode: "normal" });
+        expect(result.map((s) => s.skill_id)).toEqual(["canvas-core"]);
     });
 
-    test("3. director模式包含storyboard-director恰好一次", () => {
-        const result = composeSkillsForTurn({ profile: "localAgent", prompt: "测试", skills: [storyboardDirector], maxSkills: 4, benchmarkMode: "director" });
-        expect(result).toHaveLength(1);
-        expect(result[0].skill_id).toBe("storyboard-director");
-        // 去重验证
+    test("2. baseline模式：保留canvas-core公共基线，不注入storyboard-director", () => {
+        const result = composeSkillsForTurn({ profile: "localAgent", prompt: STORYBOARD_PROMPT, skills: firstParty, maxSkills: 4, benchmarkMode: "baseline" });
         const ids = result.map((s) => s.skill_id);
+        expect(ids).toEqual(["canvas-core"]);
+        expect(ids).not.toContain("storyboard-director");
+    });
+
+    test("3. director模式：canvas-core + storyboard-director，分镜导演恰好一次", () => {
+        const result = composeSkillsForTurn({ profile: "localAgent", prompt: "测试", skills: firstParty, maxSkills: 4, benchmarkMode: "director" });
+        const ids = result.map((s) => s.skill_id);
+        expect(ids).toEqual(["canvas-core", "storyboard-director"]);
         expect(ids.filter((id) => id === "storyboard-director")).toHaveLength(1);
+        expect(ids.filter((id) => id === "canvas-core")).toHaveLength(1);
     });
 
     test("4. 普通用户技能在所有模式下正常工作", () => {
         for (const mode of ["normal", "baseline", "director"] as const) {
-            const result = composeSkillsForTurn({ profile: "localAgent", prompt: "@用户技能1 测试", skills: [storyboardDirector, userSkill1], maxSkills: 4, benchmarkMode: mode });
+            const result = composeSkillsForTurn({ profile: "localAgent", prompt: "@用户技能1 测试", skills: [...firstParty, userSkill1], maxSkills: 4, benchmarkMode: mode });
             expect(result.map((s) => s.skill_id)).toContain("user-skill-1");
+            // canvas-core 作为公共基线在所有模式都存在
+            expect(result.map((s) => s.skill_id)).toContain("canvas-core");
         }
     });
 
-    test("5. 非localAgent profile行为不变（benchmarkMode不影响）", () => {
+    test("5. 非localAgent profile行为不变（benchmarkMode不注入第一方技能）", () => {
         for (const profile of ["canvas", "creation", "shortDrama", "director", "onlineAgent"] as const) {
-            const result = composeSkillsForTurn({ profile, prompt: "测试", skills: [storyboardDirector], maxSkills: 4, benchmarkMode: "director" });
-            // 非eligible profile不注入默认技能
+            const result = composeSkillsForTurn({ profile, prompt: STORYBOARD_PROMPT, skills: firstParty, maxSkills: 4, benchmarkMode: "director" });
             expect(result.map((s) => s.skill_id)).not.toContain("storyboard-director");
+            expect(result.map((s) => s.skill_id)).not.toContain("canvas-core");
         }
     });
 
-    test("默认benchmarkMode为normal", () => {
-        const result = composeSkillsForTurn({ profile: "localAgent", prompt: "测试", skills: [storyboardDirector], maxSkills: 4 });
-        expect(result).toHaveLength(1);
-        expect(result[0].skill_id).toBe("storyboard-director");
+    test("默认benchmarkMode为normal（普通意图只带canvas-core）", () => {
+        const result = composeSkillsForTurn({ profile: "localAgent", prompt: "测试", skills: firstParty, maxSkills: 4 });
+        expect(result.map((s) => s.skill_id)).toEqual(["canvas-core"]);
     });
 
-    test("baseline模式下用户提及storyboard-director仍可包含（显式选择）", () => {
-        const result = composeSkillsForTurn({ profile: "localAgent", prompt: "@分镜导演 测试", skills: [storyboardDirector], maxSkills: 4, benchmarkMode: "baseline" });
-        // baseline模式不自动注入，但用户显式提及的技能仍包含
-        expect(result).toHaveLength(1);
-        expect(result[0].skill_id).toBe("storyboard-director");
+    test("baseline模式下用户显式@分镜导演仍可包含（用户行为优先），canvas-core保留", () => {
+        const result = composeSkillsForTurn({ profile: "localAgent", prompt: "@分镜导演 测试", skills: firstParty, maxSkills: 4, benchmarkMode: "baseline" });
+        const ids = result.map((s) => s.skill_id);
+        // @分镜导演 走用户技能路径保留；自动注入层不重复添加
+        expect(ids.filter((id) => id === "storyboard-director")).toHaveLength(1);
+        expect(ids).toContain("canvas-core");
     });
 });
