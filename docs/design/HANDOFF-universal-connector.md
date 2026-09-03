@@ -49,22 +49,18 @@
 | `codex/merge-upstream-v1.2.4-and-decimal-price` | `e2d4d3b` | agent 融合在途线（已固化+合上游） |
 | `feat/decimal-price-and-model-picker-improvements` | `0790bbc` | 另一条旧特性分支，未处理 |
 
-### 网络（重要）
-- 当前**直连 github.com 443 不通**（curl 返回 000，git push fork 报 curl 28 超时），未配置 http(s).proxy；之前 fetch 成功应为网络瞬通/缓存。
-- **推 fork 前需先开代理**，然后：
-  ```bash
-  # 示例：按本机代理端口调整
-  git -C /Users/linmengjiang/open-ai-canvas config http.proxy http://127.0.0.1:7890
-  git -C /Users/linmengjiang/open-ai-canvas push -u fork feat/universal-agent-connector
-  git -C /Users/linmengjiang/open-ai-canvas push fork main codex/merge-upstream-v1.2.4-and-decimal-price
-  ```
-- 本地提交均已落盘、安全，push 仅为云备份。
+### 网络与凭证（已解决，长期稳定配置）
+- **SSH 已打通**：本仓库 `fork` remote 已改为 `git@github.com:15657306288/open-ai-canvas.git`；仓库级 `core.sshCommand` 固定用专用 key `~/.ssh/id_ed25519_yingce`（已绑 `15657306288` 账号，指纹 `sn2kttxly8RJ6/fGKRBZ5buqM6mJO9n2jxRGK0rRvAo`）。SSH 推送**不受 workflow scope 限制**。
+- **密钥分工**：`~/.ssh/id_ed25519` → `lmj15657306288-ui` 账号；`~/.ssh/id_ed25519_yingce` → `15657306288` 账号（fork owner，有写权限）。两者互不干扰。
+- **HTTPS 上游**：`origin/upstream` 走 HTTP 代理 `127.0.0.1:7897`（仓库级 http.proxy/https.proxy），公开仓库免认证，fetch 稳定。
+- **三个分支已全部推上 fork**：`feat/universal-agent-connector`（新建）、`main`（→`7a1f2db`）、`codex/merge-upstream-v1.2.4-and-decimal-price`（→`e2d4d3b`）。
+- token 明文凭证已删除（`~/.git-credentials` 已清、credential.helper 已移除），不残留敏感 token。
 
 ---
 
-## 3. 下一步：开工 P0-A（连接稳定性专项）
+## 3. 当前进度：P0-A 连接稳定性专项（进行中）
 
-当前停在"方案已就绪、尚未写代码"。**P0-A 先做，P0-B 紧随**（见 roadmap §4/§5，合计 5–7 人日）。
+三个分支已全部推上 fork 做云备份，git 全链路（SSH 推送 + HTTPS 代理拉上游）已长期稳定。**P0-A 正在本分支施工**（会话滑动续期等），每完成一块即 commit 提交到本分支并 push fork。
 
 动手前必做（上游 v1.2.5 改动多，行号可能漂移）：
 1. `cd /Users/linmengjiang/open-ai-canvas && git checkout feat/universal-agent-connector`
@@ -90,7 +86,7 @@ P0-A 顺序（抗冲突：新增类优先、老文件单点接线、打 `// [con
 
 ## 4. 跨设备 / 待办清单
 
-- [ ] **开代理后推 fork**（命令见 §2），把 main、连接器分支、codex 分支都推上去做云备份。
+- [x] ~~开代理后推 fork~~ **已完成**（SSH + 代理均已配置，三个分支已推上 fork）。
 - [ ] **Windows 5 个渠道插件回补**（二选一）：
   - 推荐：在 Windows 那份 `D:\yingce\open-ai-canvas-main` 初始化为 git、加 fork 远端、把 `plugin-packages/src-{a6api-chat,artbox-video,hongniao-video,hongniao-image,hongniao-image-res}` 与 5 个 `.yingce-plugin` 提交推到 fork 某分支，Mac 再 `git fetch fork && git checkout fork/<branch> -- plugin-packages/`；
   - 或在 Mac 按 v1.2.5 插件协议重建（三渠道 key 见历史会话；红鸟 27 模型明细可用仓库根 `hongniao-models.json`/价格清单，Windows 完整明细在其 `.local/hn_models.json`）。
@@ -112,4 +108,4 @@ P0-A 顺序（抗冲突：新增类优先、老文件单点接线、打 `// [con
 ---
 
 ## 6. 一句话现状
-方案 v1.1 已落 `feat/universal-agent-connector` 分支（commit `7cbcccd`），上游已追平、在途工作已安全固化、工作区无待提交源码；**下一步即在该分支开工 P0-A 稳定性专项**；唯一外部阻塞是推 fork 需要代理，以及 Windows 五个渠道插件需经 fork 回补。
+方案 v1.1 与交接报告已落 `feat/universal-agent-connector` 分支（commit `7cbcccd` + HANDOFF），上游已追平、在途工作已安全固化、**三个分支已推上 fork 云备份、SSH+代理长期稳定**；当前正在该分支施工 **P0-A 稳定性专项**；唯一外部待办是 Windows 五个渠道插件需经 fork 回补。
