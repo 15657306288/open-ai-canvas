@@ -14,6 +14,7 @@ import {
 } from "./config.js";
 import { createLocalRuntimeApp, type LocalRuntimeModule } from "./local-runtime.js";
 import { LOCAL_RUNTIME_DEFAULT_SCOPES, LocalRuntimeSessionManager } from "./local-runtime-session.js";
+import { acquireRuntimeLock, type RuntimeLockInfo } from "./runtime-lock.js";
 import { createCanvasAgentHttpModule } from "./modules/canvas-agent-http.js";
 import { createDreaminaHttpModule } from "./modules/dreamina-http.js";
 import { createPortraitClearanceHttpModule } from "./modules/portrait-clearance-http.js";
@@ -33,6 +34,15 @@ export type LocalRuntimeHandle = {
     ready: Promise<void>;
     close: () => Promise<void>;
 };
+
+/** [connector] P0-A-3：同一 config 目录下已有存活实例时抛错（附权威入口），
+ *  防止多实例端口漂移导致的 masterToken 链接不稳定。 */
+export class RuntimeAlreadyRunningError extends Error {
+    constructor(public readonly existing: RuntimeLockInfo) {
+        super(`Local Runtime 已在 PID ${existing.pid} 运行（${existing.endpoint}）。请复用该地址，或先停止旧实例再启动。`);
+        this.name = "RuntimeAlreadyRunningError";
+    }
+}
 
 export function createDefaultLocalRuntimeModules(config: LocalRuntimeConfig): LocalRuntimeModule[] {
     return [
@@ -90,6 +100,20 @@ export function startLocalRuntime(options: StartLocalRuntimeOptions = {}): Local
     });
     const server = createServer(app);
     const log = options.log ?? console.log;
+    // [connector] P0-A-3：单实例锁——固定端口启动时独占 CONFIG_DIR 的 runtime.lock；
+    // 已有存活实例则拒绝启动（防端口漂移），close 时释放锁。
+    let lockRelease: (() => void) | undefined;
+    if (requestedPort !== 0) {
+        const lockResult = acquireRuntimeLock({
+            lockFilePath: path.join(CONFIG_DIR, "runtime.lock"),
+            port: requestedPort,
+            token: config.token,
+            endpoint,
+            log,
+        });
+        if (!lockResult.acquired) throw new RuntimeAlreadyRunningError(lockResult.existing);
+        lockRelease = lockResult.release;
+    }
     let modulesDisposed = false;
     const disposeModules = async () => {
         if (modulesDisposed) return;
@@ -114,6 +138,7 @@ export function startLocalRuntime(options: StartLocalRuntimeOptions = {}): Local
             log("Codex MCP: codex mcp add yingce -- npx -y @ddcat666/open-ai-canvas-agent mcp");
         } catch (startupError) {
             sessions.dispose();
+            lockRelease?.();
             const cleanupErrors: unknown[] = [];
             try { await closeServer(server); } catch (error) { cleanupErrors.push(error); }
             try { await disposeModules(); } catch (error) { cleanupErrors.push(error); }
@@ -131,6 +156,7 @@ export function startLocalRuntime(options: StartLocalRuntimeOptions = {}): Local
             const errors: unknown[] = [];
             try { await closeServer(server); } catch (error) { errors.push(error); }
             try { await disposeModules(); } catch (error) { errors.push(error); }
+            lockRelease?.();
             if (errors.length) throw new AggregateError(errors, "Local Runtime shutdown failed");
         })();
         return closePromise;
