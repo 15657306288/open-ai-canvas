@@ -56,10 +56,19 @@ test("Canvas module declares only Canvas scopes and constructs without CLI side 
         id: "canvas-agent",
         displayName: "Canvas Agent",
         apiVersion: 1,
-        scopes: ["canvas:connect"],
+        scopes: ["canvas:connect", "canvas:media:read"],
     });
     assert.ok(module.routes.some((route) => route.path === "/events" && route.lastEventId));
-    assert.ok(module.routes.every((route) => route.scope === "canvas:connect" && route.legacy));
+    // 画布核心路由均为 canvas:connect；媒体读取路由为 canvas:media:read；签名消费为 public
+    for (const route of module.routes) {
+        if (route.path === "/api/media/get") {
+            assert.equal(route.scope, "canvas:media:read");
+        } else if (route.path === "/api/media/:token") {
+            assert.equal(route.public, true, "签名 URL 消费应公开（令牌即鉴权）");
+        } else {
+            assert.equal(route.scope, "canvas:connect");
+        }
+    }
     assert.deepEqual(calls, []);
 });
 
@@ -652,6 +661,54 @@ test("canvas_create_storyboard_shots idempotently projects shots, updates existi
         assert.deepEqual(result.updatedNodeIds, ["custom-positioned-shot-1"]);
         assert.equal(result.createdNodeIds.length, 1);
         assert.ok(result.duplicateShotMappings["shot-001"]);
+    } finally {
+        session.dispose();
+    }
+});
+
+test("canvas_create_workflow expands drama_pilot recipe with connected nodes and ToolEffect", async () => {
+    const session = new CanvasSession();
+    const events = eventResponse();
+    session.openEvents(new URL("http://127.0.0.1/events?clientId=recipe-client"), events.response as never);
+    session.updateState({ nodes: [], connections: [] }, "recipe-client");
+
+    try {
+        const promise = session.callTool("canvas_create_workflow", {
+            recipe: "drama_pilot",
+        });
+
+        const call = latestToolCall(events.writes());
+        assert.equal(call.name, "canvas_apply_ops");
+        const ops = (call.input as { ops: Array<Record<string, unknown>> }).ops;
+
+        // drama_pilot 配方包含 4 个节点 (script, char_a, scene_main, storyboard)
+        const addOps = ops.filter((op) => op.type === "add_node");
+        assert.equal(addOps.length, 4);
+
+        const connectOps = ops.filter((op) => op.type === "connect_nodes");
+        assert.equal(connectOps.length, 4);
+
+        session.resolveResult({
+            requestId: call.requestId,
+            result: {
+                accepted: true,
+                effect: {
+                    mutated: true,
+                    createdIds: addOps.map((op) => String(op.id)),
+                    updatedIds: [],
+                    deletedIds: [],
+                    createdTaskIds: [],
+                    projectionChanged: true,
+                    needsRefresh: true,
+                },
+            },
+        });
+
+        const result = await promise as any;
+        assert.equal(result.accepted, true);
+        assert.ok(result.effect);
+        assert.equal(result.effect.mutated, true);
+        assert.equal(result.effect.createdIds.length, 4);
     } finally {
         session.dispose();
     }

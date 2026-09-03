@@ -22,6 +22,7 @@ export const toolNames = [
     "canvas_validate_ops",
     "canvas_get_selection",
     "canvas_export_snapshot",
+    "canvas_get_media",
     "canvas_apply_ops",
     "canvas_create_workflow",
     "canvas_create_node",
@@ -89,10 +90,13 @@ const workflowNodeSchema = z.object({
     width: z.number().positive().optional(),
     height: z.number().positive().optional(),
 });
+const workflowRecipeSchema = z.enum(["drama_pilot", "character_turnaround", "scene_concept", "storyboard_sequence"]);
+
 const workflowSchema = z.object({
+    recipe: workflowRecipeSchema.optional(),
     title: z.string().optional(),
     description: z.string().optional(),
-    nodes: z.array(workflowNodeSchema).min(1),
+    nodes: z.array(workflowNodeSchema).min(1).optional(),
     edges: z.array(z.object({ from: z.string().min(1), to: z.string().min(1) })).optional(),
     direction: z.enum(["horizontal", "vertical"]).optional(),
     start: positionSchema.optional(),
@@ -138,6 +142,8 @@ export const toolInputSchemas = {
     canvas_get_connection: z.object({ id: z.string().min(1) }),
     canvas_get_generation_tasks: z.object({ status: z.string().optional(), nodeIds: z.array(z.string()).optional(), limit: z.number().int().min(1).max(200).optional() }),
     canvas_get_resources: z.object({ nodeIds: z.array(z.string()).optional(), status: z.string().optional(), limit: z.number().int().min(1).max(300).optional() }),
+    // [connector] P1-Q5 画布媒体读取：block=base64（默认），url=短 TTL 单次签名链接；经严格 scope 的 HTTP 路径需 canvas:media:read
+    canvas_get_media: z.object({ nodeId: z.string().min(1).describe("目标节点 id（canvas_find_nodes 获取）"), mode: z.enum(["block", "url"]).optional().describe("block=base64 返回（默认），url=短 TTL 单次签名链接"), maxBytes: z.number().int().positive().optional().describe("block 返回字节上限，默认 8MB，超限请改用 url") }),
     canvas_validate_ops: z.object({ ops: z.array(canvasOpSchema) }),
     canvas_get_selection: z.object({}).passthrough(),
     canvas_export_snapshot: z.object({}).passthrough(),
@@ -182,11 +188,12 @@ export const toolDescriptions: Record<ToolName, string> = {
     canvas_get_connection: "按真实连线 id 精确读取连线端点、端点节点摘要和 handle 信息；找不到时明确返回未找到。",
     canvas_get_generation_tasks: "读取当前画布节点已经绑定的生成任务观察状态，包括 taskId、节点、任务状态、进度、阶段和错误；这是画布快照观察，不会主动轮询上游。",
     canvas_get_resources: "读取当前画布引用的媒体资源清单，包括资源/资产引用、类型、尺寸、大小、时长和就绪状态；不会返回媒体 URL。",
+    canvas_get_media: "读取画布节点的媒体内容：mode=block 返回 base64（默认，上限 8MB），mode=url 返回短 TTL 单次签名链接（适用于大视频/音频）。需要 canvas:media:read 权限。",
     canvas_validate_ops: "在真正写入前校验批量操作中的节点 id、连接关系和参数，避免对不存在节点或错误资源执行操作。",
     canvas_get_selection: "读取当前网页画布选中的节点。",
     canvas_export_snapshot: "导出当前画布快照，用于理解布局。",
     canvas_apply_ops: "批量操作当前网页画布。ops 支持 add_node、update_node、delete_node、delete_connections、connect_nodes、set_viewport、select_nodes、run_generation。",
-    canvas_create_workflow: "创建语义化工作流/流水线。character_cards 是角色拆分图片卡片，character_three_view 是角色三视图，storyboard_video 是分镜剧情视频。媒体节点必须有 prompt/content；已有素材使用先读取到的真实 node id 填入 referenceNodeIds。自动分配 id、根据真实节点尺寸布局、建立 edges/referenceRefs/referenceNodeIds 连线并返回可验证结果；不要用批量文本节点代替工作流。",
+    canvas_create_workflow: "创建语义化工作流/流水线。支持 recipe 预设配方（drama_pilot/character_turnaround/scene_concept/storyboard_sequence），亦可自定义 nodes 与 edges。character_cards 是角色拆分图片卡片，character_three_view 是角色三视图，storyboard_video 是分镜剧情视频。媒体节点必须有 prompt/content；已有素材使用先读取到的真实 node id 填入 referenceNodeIds。自动分配 id、根据真实节点尺寸布局、建立 edges/referenceRefs/referenceNodeIds 连线并返回可验证结果；不要用批量文本节点代替工作流。",
     canvas_create_node: "创建任意类型节点：text、script、image、video、audio、frame。适合创建脚本、媒体占位、背板或自定义 metadata 节点。",
     canvas_create_text_node: "在当前画布创建单个文本节点。",
     canvas_create_text_nodes: "批量创建文本节点，适合生成标题、段落、脚本、说明等内容块。",

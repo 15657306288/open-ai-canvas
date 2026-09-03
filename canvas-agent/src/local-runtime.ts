@@ -34,6 +34,8 @@ export type LocalRuntimeProtectedRoute = {
     lastEventId?: boolean;
     queryKeys?: readonly string[];
     legacy?: boolean;
+    /** [connector] P1-Q5 公开路由（跳过 scope 鉴权，仅 method/path）。仅用于"令牌即鉴权"的场景（如短 TTL 签名媒体 URL 消费）。 */
+    public?: boolean;
 };
 
 export type LocalRuntimeModule = {
@@ -181,6 +183,13 @@ export function createLocalRuntimeApp(options: CreateLocalRuntimeAppOptions): Ex
 
     for (const module of modules) {
         for (const item of module.routes) {
+            if (item.public) {
+                // [connector] P1-Q5 公开路由：令牌即鉴权（如短 TTL 签名媒体 URL 消费），跳过 scope guard
+                const handlers = [item.handler];
+                if (item.method === "GET") app.get(item.path, ...handlers);
+                else app.post(item.path, ...handlers);
+                continue;
+            }
             const guard = item.legacy
                 ? legacyOrSignedRuntimeGuard(options.sessionManager, item.scope, {
                     queryKeys: item.queryKeys,

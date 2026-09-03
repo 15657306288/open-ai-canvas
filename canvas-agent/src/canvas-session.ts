@@ -5,8 +5,10 @@ import { CANVAS_GENERATION_CONTINUATION_TIMEOUT_MS } from "./canvas-tool-timeout
 import { buildCanvasContext, findCanvasNodes, getCanvasConnection, getCanvasGenerationTasks, getCanvasNode, getCanvasResources, hashState, validateCanvasOps } from "./canvas-context.js";
 import { type ToolName } from "./schemas.js";
 import { compactCanvasState, compactNode, isToolName, nextCanvasX, parseToolInput } from "./tools.js";
-import type { CanvasNode, CanvasNodeType, CanvasSnapshot } from "./types.js";
+import type { CanvasNode, CanvasNodeType, CanvasSnapshot, ToolEffect } from "./types.js";
+import { emptyToolEffect } from "./types.js";
 import { GraceTracker, type GraceTrackerTimers } from "./grace-tracker.js";
+import { CanvasMediaAccess, type MediaReadInput, type MediaReadResult } from "./media-access.js";
 
 type PendingRequest = { clientId: string; recoverable: boolean; resolve: (value: unknown) => void; reject: (error: Error) => void };
 type CanvasClient = { response: ServerResponse; timer: NodeJS.Timeout; runtimeSessionId?: string };
@@ -19,6 +21,8 @@ export type CanvasSessionOptions = {
     graceMs?: number;
     now?: () => number;
     timers?: GraceTrackerTimers;
+    // [connector] P1-Q5 媒体读取器（未传时内部懒建）
+    mediaAccess?: CanvasMediaAccess;
 };
 
 export class CanvasSession {
@@ -27,6 +31,7 @@ export class CanvasSession {
     private canvasState: CanvasSnapshot | null = null;
     private stateOwner: StateOwner | null = null;
     private readonly graceTracker: GraceTracker;
+    private readonly mediaAccess: CanvasMediaAccess;
 
     constructor(options: CanvasSessionOptions = {}) {
         this.graceTracker = new GraceTracker({
@@ -35,6 +40,30 @@ export class CanvasSession {
             timers: options.timers,
             onExpired: (clientId) => this.handleGraceExpired(clientId),
         });
+        this.mediaAccess = options.mediaAccess ?? new CanvasMediaAccess();
+    }
+
+    /** [connector] P1-Q5 读取画布节点媒体（block base64 / url 短 TTL 签名链接） */
+    async getMedia(input: MediaReadInput & { nodeId: string }): Promise<MediaReadResult> {
+        const state = this.canvasState;
+        if (!state) throw new Error("当前没有已连接画布");
+        const node = (state.nodes ?? []).find((candidate) => candidate.id === input.nodeId);
+        if (!node) throw new Error(`节点不存在：${input.nodeId}`);
+        return this.mediaAccess.getNodeMedia(node, { mode: input.mode, maxBytes: input.maxBytes });
+    }
+
+    /** [connector] P1-Q5 供签名 URL 消费端点使用（校验 token 返回 nodeId） */
+    consumeMediaToken(token: string): { nodeId: string } | undefined {
+        return this.mediaAccess.consumeToken(token);
+    }
+
+    /** [connector] P1-Q5 加载指定节点媒体字节（签名 URL 消费路由用） */
+    async loadNodeMedia(nodeId: string): Promise<{ bytes: Buffer; mimeType: string }> {
+        const state = this.canvasState;
+        if (!state) throw new Error("当前没有已连接画布");
+        const node = (state.nodes ?? []).find((candidate) => candidate.id === nodeId);
+        if (!node) throw new Error(`节点不存在：${nodeId}`);
+        return this.mediaAccess.loadNodeMedia(node);
     }
 
     health() {
@@ -156,6 +185,11 @@ export class CanvasSession {
         if (tool === "canvas_get_connection") return getCanvasConnection(this.canvasState, input as Parameters<typeof getCanvasConnection>[1]);
         if (tool === "canvas_get_generation_tasks") return getCanvasGenerationTasks(this.canvasState, input as Parameters<typeof getCanvasGenerationTasks>[1]);
         if (tool === "canvas_get_resources") return getCanvasResources(this.canvasState, input as Parameters<typeof getCanvasResources>[1]);
+        // [connector] P1-Q5 读取画布媒体（block base64 / url 短 TTL 签名链接）
+        if (tool === "canvas_get_media") {
+            const mediaInput = input as { nodeId: string; mode?: "block" | "url"; maxBytes?: number };
+            return this.getMedia(mediaInput);
+        }
         if (tool === "canvas_validate_ops") return validateCanvasOps(this.canvasState, (input as { ops: unknown[] }).ops);
         if (tool === "canvas_get_selection") {
             const ids = new Set(this.canvasState?.selectedNodeIds || []);
@@ -326,12 +360,22 @@ export class CanvasSession {
                 await this.requestCanvasTool("canvas_apply_ops", { ops });
             }
 
+            const effect: ToolEffect = {
+                mutated: createdNodeIds.length > 0 || updatedNodeIds.length > 0,
+                createdIds: createdNodeIds,
+                updatedIds: updatedNodeIds,
+                deletedIds: [],
+                createdTaskIds: [],
+                projectionChanged: createdNodeIds.length > 0 || updatedNodeIds.length > 0,
+                needsRefresh: createdNodeIds.length > 0 || updatedNodeIds.length > 0,
+            };
             return {
                 ok: true,
                 createdNodeIds,
                 updatedNodeIds,
                 existingNodeIds,
                 duplicateShotMappings,
+                effect,
             };
         }
         if (tool !== "canvas_apply_ops") throw new Error(`未知工具：${tool}`);
@@ -390,7 +434,81 @@ function sendEvent(res: ServerResponse, type: string, payload: unknown) {
     res.write(`event: ${type}\ndata: ${JSON.stringify(payload)}\n\n`);
 }
 
+
+export const WORKFLOW_RECIPES: Record<string, { title: string; description: string; nodes: Array<Record<string, unknown>>; edges: Array<{ from: string; to: string }> }> = {
+    drama_pilot: {
+        title: "短剧先导片工作流",
+        description: "剧本立项 -> 角色设定卡 -> 核心场景概念 -> 先导分镜视频",
+        nodes: [
+            { ref: "script", kind: "script", title: "短剧剧本/设定", content: "短剧主线与人物小传" },
+            { ref: "char_a", kind: "character_cards", title: "主角立绘与情绪卡", prompt: "主角标准半身像立绘与三视图" },
+            { ref: "scene_main", kind: "image", title: "核心主场景概念图", prompt: "电影级室内/室外主场景概念" },
+            { ref: "storyboard", kind: "storyboard_video", title: "先导分镜视频", prompt: "3秒高潮对峙镜头", referenceRefs: ["char_a", "scene_main"] },
+        ],
+        edges: [
+            { from: "script", to: "char_a" },
+            { from: "script", to: "scene_main" },
+            { from: "char_a", to: "storyboard" },
+            { from: "scene_main", to: "storyboard" },
+        ],
+    },
+    character_turnaround: {
+        title: "角色三视图与立绘配方",
+        description: "角色小传 -> 三视图设计 -> 细节与服饰特写",
+        nodes: [
+            { ref: "bio", kind: "text", title: "角色人设档案", content: "人物外貌、体态与服饰设定" },
+            { ref: "turnaround", kind: "character_three_view", title: "角色正侧背三视图", prompt: "单人全身角色设定三视图，纯白背景" },
+            { ref: "close_up", kind: "image", title: "面部表情与发型特写", prompt: "角色面部微表情高精度特写", referenceRefs: ["turnaround"] },
+        ],
+        edges: [
+            { from: "bio", to: "turnaround" },
+            { from: "turnaround", to: "close_up" },
+        ],
+    },
+    scene_concept: {
+        title: "影视场景概念设计配方",
+        description: "场景文学说明 -> 全景概念原画 -> 关键道具与光影细化",
+        nodes: [
+            { ref: "scene_doc", kind: "text", title: "场景文学说明", content: "环境空间尺度、时代背景与光影基调" },
+            { ref: "scene_art", kind: "image", title: "场景大远景概念原画", prompt: "电影级大远景概念图，虚幻引擎风格" },
+            { ref: "scene_prop", kind: "image", title: "核心道具与光照氛围", prompt: "场景关键道具近景材质与特写", referenceRefs: ["scene_art"] },
+        ],
+        edges: [
+            { from: "scene_doc", to: "scene_art" },
+            { from: "scene_art", to: "scene_prop" },
+        ],
+    },
+    storyboard_sequence: {
+        title: "多镜头分镜时序配方",
+        description: "剧情节拍 -> 建立镜头 -> 交流中景 -> 情绪特写 -> 最终合成",
+        nodes: [
+            { ref: "beats", kind: "script", title: "动作节拍与对话", content: "4拍情绪递进戏剧节拍" },
+            { ref: "shot_1", kind: "image", title: "镜头1 · 建立全景", prompt: "全景，空间环境与角色位置建立" },
+            { ref: "shot_2", kind: "image", title: "镜头2 · 交流中景", prompt: "双人过肩中景交流", referenceRefs: ["shot_1"] },
+            { ref: "shot_3", kind: "image", title: "镜头3 · 情绪特写", prompt: "主角面部特写，戏剧性顶光", referenceRefs: ["shot_2"] },
+            { ref: "shot_video", kind: "video", title: "镜头合成分镜视频", prompt: "连续运镜视频呈现", referenceRefs: ["shot_1", "shot_2", "shot_3"] },
+        ],
+        edges: [
+            { from: "beats", to: "shot_1" },
+            { from: "shot_1", to: "shot_2" },
+            { from: "shot_2", to: "shot_3" },
+            { from: "shot_3", to: "shot_video" },
+        ],
+    },
+};
+
 function workflowOps(input: Record<string, unknown>, state: CanvasSnapshot | null) {
+    if (typeof input.recipe === "string" && WORKFLOW_RECIPES[input.recipe]) {
+        const recipeDef = WORKFLOW_RECIPES[input.recipe];
+        if (!input.title) input.title = recipeDef.title;
+        if (!input.description) input.description = recipeDef.description;
+        if (!Array.isArray(input.nodes) || !input.nodes.length) {
+            input.nodes = recipeDef.nodes;
+        }
+        if (!Array.isArray(input.edges) || !input.edges.length) {
+            input.edges = recipeDef.edges;
+        }
+    }
     const nodes = Array.isArray(input.nodes) ? input.nodes as Array<Record<string, unknown>> : [];
     if (!nodes.length) throw new Error("工作流至少需要一个节点");
     const refs = new Set<string>();

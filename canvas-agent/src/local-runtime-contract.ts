@@ -20,7 +20,9 @@ export type LocalRuntimeScope =
     | "portrait:status"
     | "portrait:model"
     | "portrait:run"
-    | "portrait:read";
+    | "portrait:read"
+    // [connector] P1-Q5 画布媒体读取：默认不授，需显式授予（外部 agent 读画布媒体）
+    | "canvas:media:read";
 
 export type DreaminaModelOperation =
     | "text-to-image"

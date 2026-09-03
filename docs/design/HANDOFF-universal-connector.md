@@ -58,9 +58,9 @@
 
 ---
 
-## 3. 当前进度：P0 全部完成 ✅（A 稳定性 + B 协议门面 + bridge + 渠道工具化）
+## 3. 当前进度：P0 全部完成 ✅（A 稳定性 + B 协议门面 + bridge + 渠道工具化）；P1 媒体读取（Q5）完成 ✅
 
-三个分支已全部推上 fork 做云备份，git 全链路（SSH 推送 + HTTPS 代理拉上游）已长期稳定。**P0-A 五块、P0-B-1/2 协议门面、P0-B-3 主动外连 bridge、P0-B-4 渠道工具化全部完成**，全量 356 测试零失败。剩余为 P1（前端四态面板、媒体读取、渠道直连视频联调）与 P2（直连生成深度联调、Agent Card/metrics）。
+三个分支已全部推上 fork 做云备份，git 全链路（SSH 推送 + HTTPS 代理拉上游）已长期稳定。**P0-A 五块、P0-B-1/2 协议门面、P0-B-3 主动外连 bridge、P0-B-4 渠道工具化、P1 媒体读取（Q5）全部完成**，全量 364 测试零失败。剩余为 P1（前端四态面板、渠道直连视频联调）与 P2（直连生成深度联调、Agent Card/metrics）。
 
 P0-A 已提交（`feat(connector):` 前缀，全在 `feat/universal-agent-connector`，已推 fork）：
 1. ✅ `5243a65` 会话滑动续期 + TTL/时钟窗可配 + nonce LRU（`local-runtime-session.ts`：TTL 30min/绝对 12h/时钟窗 60s/nonce 2048 LRU，对外 expiresAt 不变、协议零破坏）
@@ -70,7 +70,15 @@ P0-A 已提交（`feat(connector):` 前缀，全在 `feat/universal-agent-connec
 5. ✅ `0a09795` /health 四态（`local-runtime.ts` 聚合 status：healthy/reconnecting/degraded/offline）
 6. ⏳ 24h soak 脚本与前端四态面板：后端 /health 字段已就绪；前端面板与 soak 脚本未做（可入 P1，见 §4）
 
-新增测试文件：`test/runtime-lock.test.ts`、`test/agent-fetch.test.ts`、`test/local-runtime-health.test.ts`、`test/mcp-http-server.test.ts`、`test/openapi-server.test.ts`；全量 `cd canvas-agent && npx tsx --test test/*.test.ts` = 346 tests / 0 fail（7 cancelled 为 dreamina-task-reconciler 既有状态，非本次引入）。
+P1 媒体读取（Q5）已提交（同分支，已推 fork）：
+- ✅ `canvas_get_media` 工具（`src/schemas.ts`）：`{nodeId, mode?: "block"|"url", maxBytes?}`；block 返回 base64（默认上限 8MB），url 返回短 TTL（默认 5min）单次签名链接
+- ✅ 新增 `src/media-access.ts`（`CanvasMediaAccess`：dataUrl/http 解码、block 超限提示、签名 token 内存表、单次消费、审计回调）；不落地/不缓存/不进日志
+- ✅ 新 scope `canvas:media:read`（`local-runtime-contract.ts`）不入 `LOCAL_RUNTIME_DEFAULT_SCOPES`（默认不授）；严格 HTTP 路径 `POST /api/media/get`（canvas-agent-http.ts）需该 scope，否则 403
+- ✅ 签名 URL 消费端点 `GET /api/media/:token`（canvas-agent-http.ts + local-runtime.ts `public` 路由：令牌即鉴权、TTL+单次、404 无效/过期）；`compactNode` 外部投影不含媒体本体，读取经签名/受控链路
+- ✅ MCP / OpenAPI 门面自动获得该工具（走本地信任）；`CanvasSession` 新增 `getMedia/consumeMediaToken/loadNodeMedia`（canvas-session.ts）
+- 测试：`test/media-access.test.ts`（5）+ `test/media-route.test.ts`（2：无画布报错/block 返回/签名 URL 单次消费/错误 token 拒绝）+ 更新 `canvas-agent-module.test.ts` 路由 scope 断言；全量 364 tests / 0 fail（7 cancelled 为 dreamina-task-reconciler 既有）
+
+新增测试文件：`test/runtime-lock.test.ts`、`test/agent-fetch.test.ts`、`test/local-runtime-health.test.ts`、`test/mcp-http-server.test.ts`、`test/openapi-server.test.ts`、`test/media-access.test.ts`、`test/media-route.test.ts`；全量 `cd canvas-agent && npx tsx --test test/*.test.ts` = 364 tests / 0 fail（7 cancelled 为 dreamina-task-reconciler 既有状态，非本次引入）。
 
 P0-B 已提交：
 1. ✅ `19a045e` MCP Streamable HTTP 门面（`src/mcp-http-server.ts`，`/mcp` 默认开 Q1，SDK 端到端测试通过）
@@ -90,7 +98,7 @@ P0-B 已提交：
 - [ ] 旧分支 `feat/decimal-price-and-model-picker-improvements` 确认是否保留/合并/删除。
 - [ ] 仓库根 7 个未跟踪运维文件（channel-config-backup/、hongniao-models.json、update-yingce.sh、更新影策.command、本机部署说明.md、红鸟模型价格清单.csv/.md）决定是纳入文档、加入 .gitignore 还是维持现状（当前保持原样）。
 - [ ] P0-A 前端四态面板（后端 /health 四态已就绪，前端 React 面板与 24h soak 脚本未做，入 P1）。
-- [ ] P1：媒体读取（Q5 `canvas_get_media` + scope `canvas:media:read` + 短 TTL 签名 URL）。
+- [x] ~~P1：媒体读取（Q5）~~ **已完成**（`canvas_get_media` + scope `canvas:media:read` + 短 TTL 单次签名 URL，block base64 上限 8MB；MCP/OpenAPI 自动获得，测试 7 个全过）。
 - [ ] P1：渠道直连视频联调（红鸟/artbox 视频生成走真实 API 验证 + 目录完整回补 a6api 22/artbox 8 模型列表）。
 - [ ] P2：OpenAPI 直连生成深度联调、`/.well-known/agent.json` Agent Card、metrics。
 - [ ] Windows 五个渠道插件源码回补 Mac（`plugin-packages/` 经 fork 同步或按 v1.2.5 协议重建）。
@@ -109,4 +117,4 @@ P0-B 已提交：
 ---
 
 ## 6. 一句话现状
-方案 v1.1 与交接报告已落 `feat/universal-agent-connector` 分支，上游已追平、在途工作已安全固化、**分支已推上 fork 云备份、SSH+代理长期稳定**；**P0 全部完成**：A 稳定性五块（`5243a65`→`0a09795`）、B-1 MCP HTTP（`19a045e`）、B-2 OpenAPI（`80d31b4`）、B-3 主动外连 bridge（`6052f7e`）、B-4 渠道工具化（目录自更新，全量 356 测试 0 失败）；本机 `~/.infinite-canvas/channel-catalog.json` 已写入三渠道真实密钥 + 红鸟 29 模型目录；下一阶段 P1（前端四态面板、媒体读取、渠道直连视频联调）。
+方案 v1.1 与交接报告已落 `feat/universal-agent-connector` 分支，上游已追平、在途工作已安全固化、**分支已推上 fork 云备份、SSH+代理长期稳定**；**P0 全部完成 + P1 媒体读取（Q5）完成**：A 稳定性五块（`5243a65`→`0a09795`）、B-1 MCP HTTP（`19a045e`）、B-2 OpenAPI（`80d31b4`）、B-3 主动外连 bridge（`6052f7e`）、B-4 渠道工具化（`f28685b`，目录自更新）、P1 媒体读取（Q5 `canvas_get_media`，`src/media-access.ts` + scope `canvas:media:read` + 短 TTL 单次签名 URL，全量 364 测试 0 失败）；本机 `~/.infinite-canvas/channel-catalog.json` 已写入三渠道真实密钥 + 红鸟 29 模型目录；下一阶段 P1 剩余（前端四态面板、渠道直连视频联调）。

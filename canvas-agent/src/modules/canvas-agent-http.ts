@@ -19,11 +19,12 @@ import {
     type LocalRuntimeConfig,
 } from "../config.js";
 import type { LocalRuntimeModule, LocalRuntimeProtectedRoute } from "../local-runtime.js";
+import type { LocalRuntimeScope } from "../local-runtime-contract.js";
 import type { AgentAttachment } from "../types.js";
 
 export type CanvasAgentSession = Pick<
     CanvasSession,
-    "health" | "openEvents" | "updateState" | "resolveResult" | "emitAll" | "callTool" | "closeRuntimeSession" | "dispose"
+    "health" | "openEvents" | "updateState" | "resolveResult" | "emitAll" | "callTool" | "getMedia" | "consumeMediaToken" | "loadNodeMedia" | "closeRuntimeSession" | "dispose"
 >;
 
 export function createCanvasAgentHttpModule(
@@ -64,6 +65,38 @@ export function createCanvasAgentHttpModule(
                 res.json({ ok: false, error: error instanceof Error ? error.message : "Canvas tool failed" });
             }
         }),
+        // [connector] P1-Q5 媒体读取：严格 scope（需显式授予 canvas:media:read，否则 403）
+        canvasRoute("POST", "/api/media/get", async (req, res) => {
+            const body = jsonRecord(req);
+            try {
+                res.json({ ok: true, result: await session.getMedia({
+                    nodeId: String(body.nodeId ?? ""),
+                    mode: body.mode === "url" ? "url" : "block",
+                    maxBytes: typeof body.maxBytes === "number" ? body.maxBytes : undefined,
+                }) });
+            } catch (error) {
+                res.json({ ok: false, error: error instanceof Error ? error.message : "Media fetch failed" });
+            }
+        }, { scope: "canvas:media:read" }),
+        // [connector] P1-Q5 签名媒体 URL 消费端点：令牌即鉴权（短 TTL 单次），公开路由跳过 scope guard
+        canvasRoute("GET", "/api/media/:token", async (req, res) => {
+            const token = String(req.params.token ?? "");
+            const claimed = session.consumeMediaToken(token);
+            if (!claimed) {
+                res.status(404).json({ ok: false, error: "媒体链接无效或已过期" });
+                return;
+            }
+            try {
+                const { bytes, mimeType } = await session.loadNodeMedia(claimed.nodeId);
+                res.setHeader("content-type", mimeType);
+                res.setHeader("content-length", String(bytes.length));
+                res.setHeader("cache-control", "private, no-store");
+                res.setHeader("x-canvas-media-node", claimed.nodeId);
+                res.end(bytes);
+            } catch (error) {
+                res.status(404).json({ ok: false, error: error instanceof Error ? error.message : "媒体加载失败" });
+            }
+        }, { public: true }),
         canvasRoute("GET", "/agent/codex/workspace", (req, res) => {
             const workspace = ensureCanvasWorkspace(config, queryValue(req, "canvasId"));
             res.json({ ok: true, workspace });
@@ -169,7 +202,8 @@ export function createCanvasAgentHttpModule(
             id: "canvas-agent",
             displayName: "Canvas Agent",
             apiVersion: 1,
-            scopes: ["canvas:connect"],
+            // [connector] P1-Q5 媒体读取 scope：严格 HTTP 路径 /api/media/get 需显式授予
+            scopes: ["canvas:connect", "canvas:media:read"],
         },
         routes,
         onRuntimeSessionRevoked: (sessionId) => session.closeRuntimeSession(sessionId),
@@ -190,12 +224,12 @@ function canvasRoute(
     method: "GET" | "POST",
     path: string,
     handler: (req: Request, res: Response) => void | Promise<void>,
-    options: { queryKeys?: readonly string[]; lastEventId?: boolean } = {},
+    options: { queryKeys?: readonly string[]; lastEventId?: boolean; scope?: LocalRuntimeScope; public?: boolean } = {},
 ): LocalRuntimeProtectedRoute {
     return {
         method,
         path,
-        scope: "canvas:connect",
+        scope: options.scope ?? "canvas:connect",
         handler: route(handler),
         legacy: true,
         ...options,
