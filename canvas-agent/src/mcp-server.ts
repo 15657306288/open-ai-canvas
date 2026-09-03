@@ -2,11 +2,25 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 import { agentFetch } from "./agent-fetch.js";
-import { AGENT_PROMPT, loadConfig, type CanvasAgentConfig, VERSION } from "./config.js";
+import { AGENT_PROMPT, CONFIG_DIR, loadConfig, type CanvasAgentConfig, VERSION } from "./config.js";
 import { registerDreaminaMcp } from "./modules/dreamina-mcp.js";
 import { toolDescriptions, toolInputSchemas, toolNames, type ToolName } from "./schemas.js";
+import { channelCatalogPath, createJsonCatalogProvider } from "./channel-catalog.js";
+import { createChannelGenerateClient } from "./channel-generate.js";
+import { registerChannelTools, type ChannelToolContext } from "./channel-tools.js";
 
 type CanvasAgentToolResponse = { ok?: boolean; result?: unknown; error?: string };
+
+/** [connector] P0-B-4 渠道工具上下文单例（catalog provider 只 fs.watch 一次，
+ *  stdio 与各 HTTP MCP session 共享同一目录数据源与生成客户端）。 */
+let channelToolContext: ChannelToolContext | undefined;
+export function getChannelToolContext(): ChannelToolContext {
+    if (!channelToolContext) {
+        const catalog = createJsonCatalogProvider(channelCatalogPath(CONFIG_DIR));
+        channelToolContext = { catalog, generate: createChannelGenerateClient(catalog) };
+    }
+    return channelToolContext;
+}
 
 export async function startMcpServer(options: { canvasOnly?: boolean } = {}) {
     const config = loadConfig(true);
@@ -19,7 +33,11 @@ export async function startMcpServer(options: { canvasOnly?: boolean } = {}) {
 
 export function registerMcpTools(server: McpServer, config: CanvasAgentConfig, options: { canvasOnly?: boolean } = {}) {
     toolNames.forEach((name) => registerCanvasTool(server, config, name));
-    if (!options.canvasOnly) registerDreaminaMcp(server, config);
+    if (!options.canvasOnly) {
+        registerDreaminaMcp(server, config);
+        // [connector] P0-B-4 渠道/模型连接器工具（目录自更新）
+        registerChannelTools(server, getChannelToolContext());
+    }
 }
 
 function registerCanvasTool(server: McpServer, config: CanvasAgentConfig, name: ToolName) {

@@ -9,9 +9,11 @@
 import type { Request, RequestHandler, Response } from "express";
 import { ZodType } from "zod";
 
-import { AGENT_PROMPT, VERSION, type CanvasAgentConfig } from "./config.js";
+import { VERSION, type CanvasAgentConfig } from "./config.js";
 import { toolInputSchemas, toolNames, type ToolName } from "./schemas.js";
 import { agentFetch } from "./agent-fetch.js";
+import { channelToolDefs, channelToolNames } from "./channel-tools.js";
+import { getChannelToolContext } from "./mcp-server.js";
 
 export function createOpenApiHandler(config: CanvasAgentConfig): RequestHandler {
     return (req: Request, res: Response) => {
@@ -21,8 +23,24 @@ export function createOpenApiHandler(config: CanvasAgentConfig): RequestHandler 
             return;
         }
         if (req.method === "POST" && pathname.startsWith("/tools/")) {
-            const name = decodeURIComponent(pathname.slice("/tools/".length)) as ToolName;
-            if (!toolNames.includes(name)) {
+            const name = decodeURIComponent(pathname.slice("/tools/".length)) as ToolName | string;
+            // [connector] P0-B-4 渠道工具走本地 ctx（目录/生成），画布工具转发 Runtime
+            if (channelToolNames.includes(name)) {
+                const tool = channelToolDefs.find((t) => t.name === name)!;
+                void (async () => {
+                    try {
+                        const input = Buffer.isBuffer(req.body) && req.body.length
+                            ? JSON.parse(req.body.toString("utf8"))
+                            : {};
+                        const result = await tool.handler(getChannelToolContext(), tool.inputSchema.parse(input));
+                        json(res, 200, { ok: true, result });
+                    } catch (error) {
+                        json(res, 500, { ok: false, error: error instanceof Error ? error.message : "channel tool call failed" });
+                    }
+                })();
+                return;
+            }
+            if (!(toolNames as readonly string[]).includes(name)) {
                 json(res, 404, { ok: false, error: `未知工具：${String(name)}` });
                 return;
             }
@@ -31,7 +49,7 @@ export function createOpenApiHandler(config: CanvasAgentConfig): RequestHandler 
                     const input = Buffer.isBuffer(req.body) && req.body.length
                         ? JSON.parse(req.body.toString("utf8"))
                         : {};
-                    const result = await postTool(config, name, input);
+                    const result = await postTool(config, name as ToolName, input);
                     json(res, 200, { ok: true, result });
                 } catch (error) {
                     json(res, 500, { ok: false, error: error instanceof Error ? error.message : "OpenAPI tool call failed" });
@@ -70,7 +88,7 @@ export function buildOpenApiSpec(config: CanvasAgentConfig) {
         const schema = toolInputSchemas[name];
         paths[`/tools/${name}`] = {
             post: {
-                summary: toolDescriptionSummary(name),
+                summary: `调用画布工具 ${name}`,
                 operationId: name,
                 requestBody: {
                     required: false,
@@ -87,12 +105,33 @@ export function buildOpenApiSpec(config: CanvasAgentConfig) {
             },
         };
     }
+    // [connector] P0-B-4 渠道/模型工具同样暴露到 OpenAPI 门面
+    for (const tool of channelToolDefs) {
+        paths[`/tools/${tool.name}`] = {
+            post: {
+                summary: tool.description,
+                operationId: tool.name,
+                requestBody: {
+                    required: false,
+                    content: {
+                        "application/json": {
+                            schema: zodObjectToJsonSchema(tool.inputSchema.shape),
+                        },
+                    },
+                },
+                responses: {
+                    "200": { description: "工具执行结果", content: { "application/json": { schema: { type: "object" } } } },
+                    "500": { description: "工具执行失败，error 字段含原因", content: { "application/json": { schema: { type: "object" } } } },
+                },
+            },
+        };
+    }
     return {
         openapi: "3.0.3",
         info: {
             title: "canvas-agent (影策画布连接器)",
             version: VERSION,
-            description: "影策本地 Runtime 的 OpenAPI 兜底门面，允许不支持 MCP 的 agent 通过 REST 调用画布工具。协议说明见 MCP 门面 /mcp 与 AGENT_PROMPT。",
+            description: "影策本地 Runtime 的 OpenAPI 兜底门面，允许不支持 MCP 的 agent 通过 REST 调用画布与渠道工具。协议说明见 MCP 门面 /mcp。",
         },
         servers: [{ url: config.url }],
         paths: {
@@ -105,10 +144,6 @@ export function buildOpenApiSpec(config: CanvasAgentConfig) {
             },
         },
     };
-}
-
-function toolDescriptionSummary(name: ToolName) {
-    return `调用画布工具 ${name}`;
 }
 
 function zodObjectToJsonSchema(shape: Record<string, ZodType>): Record<string, unknown> {

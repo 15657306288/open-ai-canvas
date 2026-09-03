@@ -23,8 +23,11 @@ test("[connector] P0-B-2 buildOpenApiSpec exposes one POST path per canvas tool"
     for (const name of ["canvas_get_context", "canvas_apply_ops", "canvas_generate_image"]) {
         assert.ok(spec.paths[`/tools/${name}`], `${name} 应有 POST 路径`);
     }
+    // [connector] P0-B-4 渠道工具同样暴露到 OpenAPI 门面
+    assert.ok(spec.paths["/tools/channel_list"], "渠道工具应出现在 OpenAPI spec");
+    assert.ok(spec.paths["/tools/channel_generate"], "渠道生成工具应出现在 OpenAPI spec");
     assert.ok(spec.paths["/health"]);
-    assert.ok(Object.keys(spec.paths).length >= toolNames.length);
+    assert.ok(Object.keys(spec.paths).length >= toolNames.length + 7);
 });
 
 test("[connector] P0-B-2 /openapi.json is served and /tools/:name forwards to the runtime", async () => {

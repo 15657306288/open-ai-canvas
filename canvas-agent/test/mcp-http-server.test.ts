@@ -58,6 +58,9 @@ test("[connector] P0-B-1 MCP client connects to /mcp, initializes, and lists can
         const names = result.tools.map((tool) => tool.name);
         assert.ok(names.includes("canvas_get_context"), "画布语义工具应通过 MCP HTTP 暴露");
         assert.ok(names.includes("canvas_apply_ops"), "画布写工具应通过 MCP HTTP 暴露");
+        // [connector] P0-B-4 渠道/模型工具也通过 MCP HTTP 暴露（目录自更新）
+        assert.ok(names.includes("channel_list"), "渠道工具应通过 MCP HTTP 暴露");
+        assert.ok(names.includes("channel_generate"), "渠道生成工具应通过 MCP HTTP 暴露");
     } finally {
         await client.close();
         await new Promise<void>((resolve) => server.close(() => resolve()));

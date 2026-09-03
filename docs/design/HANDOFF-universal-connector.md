@@ -58,9 +58,9 @@
 
 ---
 
-## 3. 当前进度：P0-A 连接稳定性专项（已完成 ✅）+ P0-B 协议门面层（MCP/OpenAPI 已完成 ✅）
+## 3. 当前进度：P0 全部完成 ✅（A 稳定性 + B 协议门面 + bridge + 渠道工具化）
 
-三个分支已全部推上 fork 做云备份，git 全链路（SSH 推送 + HTTPS 代理拉上游）已长期稳定。**P0-A 五块已全部完成、P0-B 协议门面层（MCP + OpenAPI）已全部完成**，全量测试零失败。剩余 P0-B-3（远程主动外连 bridge）与 P0-B-4（Q4 渠道工具化）为下一阶段。
+三个分支已全部推上 fork 做云备份，git 全链路（SSH 推送 + HTTPS 代理拉上游）已长期稳定。**P0-A 五块、P0-B-1/2 协议门面、P0-B-3 主动外连 bridge、P0-B-4 渠道工具化全部完成**，全量 356 测试零失败。剩余为 P1（前端四态面板、媒体读取、渠道直连视频联调）与 P2（直连生成深度联调、Agent Card/metrics）。
 
 P0-A 已提交（`feat(connector):` 前缀，全在 `feat/universal-agent-connector`，已推 fork）：
 1. ✅ `5243a65` 会话滑动续期 + TTL/时钟窗可配 + nonce LRU（`local-runtime-session.ts`：TTL 30min/绝对 12h/时钟窗 60s/nonce 2048 LRU，对外 expiresAt 不变、协议零破坏）
@@ -75,7 +75,8 @@ P0-A 已提交（`feat(connector):` 前缀，全在 `feat/universal-agent-connec
 P0-B 已提交：
 1. ✅ `19a045e` MCP Streamable HTTP 门面（`src/mcp-http-server.ts`，`/mcp` 默认开 Q1，SDK 端到端测试通过）
 2. ✅ `80d31b4` OpenAPI 兜底门面（`src/openapi-server.ts`，`/openapi.json` + `/tools/:name`）
-3. ⏳ 远程主动外连 bridge（Q3，参考 `canvas-agent/native/comfy-bridge`）
+3. ✅ `6052f7e` 远程主动外连 bridge（`src/bridge/{broker,client}.ts`，Q3：本地零入站端口，长轮询+心跳+Bearer 鉴权，broker 自托管零依赖，host 经 options/env 启用）
+4. ✅ `...` Q4 渠道工具化（`src/channel-{catalog,tools,generate}.ts` + `examples/channel-catalog.example.json`，7 工具、目录自更新三层机制）
 4. ⏳ Q4 渠道工具化 + 目录自更新（a6api/artbox/红鸟 → 连接器工具 + 三层更新机制）
 
 ---
@@ -89,8 +90,10 @@ P0-B 已提交：
 - [ ] 旧分支 `feat/decimal-price-and-model-picker-improvements` 确认是否保留/合并/删除。
 - [ ] 仓库根 7 个未跟踪运维文件（channel-config-backup/、hongniao-models.json、update-yingce.sh、更新影策.command、本机部署说明.md、红鸟模型价格清单.csv/.md）决定是纳入文档、加入 .gitignore 还是维持现状（当前保持原样）。
 - [ ] P0-A 前端四态面板（后端 /health 四态已就绪，前端 React 面板与 24h soak 脚本未做，入 P1）。
-- [ ] P0-B-3：远程主动外连 bridge（Q3，参考 `canvas-agent/native/comfy-bridge`）。
-- [ ] P0-B-4：Q4 渠道工具化——把 a6api/artbox/红鸟开成连接器工具 + 模型目录当数据 + 三层更新机制（实时查/版本号/list_changed 推送）。
+- [ ] P1：媒体读取（Q5 `canvas_get_media` + scope `canvas:media:read` + 短 TTL 签名 URL）。
+- [ ] P1：渠道直连视频联调（红鸟/artbox 视频生成走真实 API 验证 + 目录完整回补 a6api 22/artbox 8 模型列表）。
+- [ ] P2：OpenAPI 直连生成深度联调、`/.well-known/agent.json` Agent Card、metrics。
+- [ ] Windows 五个渠道插件源码回补 Mac（`plugin-packages/` 经 fork 同步或按 v1.2.5 协议重建）。
 
 ---
 
@@ -106,4 +109,4 @@ P0-B 已提交：
 ---
 
 ## 6. 一句话现状
-方案 v1.1 与交接报告已落 `feat/universal-agent-connector` 分支（commit `7cbcccd` + HANDOFF），上游已追平、在途工作已安全固化、**三个分支已推上 fork 云备份、SSH+代理长期稳定**；**P0-A 连接稳定性专项五块已全部完成**（`5243a65`→`0a09795`，全量 342 测试 0 失败）；下一步 P0-B（MCP/HTTP 门面 + 远程主动外连 bridge）；唯一外部待办是 Windows 五个渠道插件需经 fork 回补。
+方案 v1.1 与交接报告已落 `feat/universal-agent-connector` 分支，上游已追平、在途工作已安全固化、**分支已推上 fork 云备份、SSH+代理长期稳定**；**P0 全部完成**：A 稳定性五块（`5243a65`→`0a09795`）、B-1 MCP HTTP（`19a045e`）、B-2 OpenAPI（`80d31b4`）、B-3 主动外连 bridge（`6052f7e`）、B-4 渠道工具化（目录自更新，全量 356 测试 0 失败）；本机 `~/.infinite-canvas/channel-catalog.json` 已写入三渠道真实密钥 + 红鸟 29 模型目录；下一阶段 P1（前端四态面板、媒体读取、渠道直连视频联调）。

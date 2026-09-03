@@ -1,0 +1,44 @@
+{
+  "_comment": "影策渠道/模型目录示例（无密钥）。复制到 ~/.infinite-canvas/channel-catalog.json 并填入真实 apiKey 后生效。模型增删改价只需改本文件，MCP/OpenAPI 连接器实时感知（channel_catalog_version 比对 + list_changed 推送）。",
+  "version": 1,
+  "updatedAt": "2026-09-04T00:00:00Z",
+  "channels": [
+    {
+      "id": "CHANNEL_000001",
+      "name": "a6api 文本",
+      "protocol": "openai-compatible",
+      "baseUrl": "https://api.a6api.com/v1",
+      "apiKey": "<填入 a6api 密钥>",
+      "enabled": true
+    },
+    {
+      "id": "CHANNEL_000002",
+      "name": "artbox 视频",
+      "protocol": "openai-compatible",
+      "baseUrl": "https://artbox.top",
+      "apiKey": "<填入 artbox 密钥>",
+      "enabled": true
+    },
+    {
+      "id": "CHANNEL_000003",
+      "name": "红鸟",
+      "protocol": "openai-compatible",
+      "baseUrl": "https://open.hongniaoai.com/api/v1",
+      "apiKey": "<填入红鸟密钥>",
+      "enabled": true,
+      "videoUrl": "/v1/video/generations",
+      "taskUrl": "/v1/tasks/{requestId}"
+    }
+  ],
+  "models": [
+    { "key": "gpt-4o-mini", "channelId": "CHANNEL_000001", "name": "GPT-4o mini", "capability": "text", "enabled": true, "pricing": { "type": "per_call", "amount": 0.01, "currency": "CNY" } },
+    { "key": "deepseek-chat", "channelId": "CHANNEL_000001", "name": "DeepSeek Chat", "capability": "text", "enabled": true, "pricing": { "type": "per_call", "amount": 0.005, "currency": "CNY" } },
+    { "key": "hailuo-h3", "channelId": "CHANNEL_000003", "name": "hailuo-h3", "capability": "video", "enabled": true, "pricing": { "type": "per_call", "amount": 1.8, "currency": "CNY" }, "tasks": [{ "kind": "video.generate", "parameters": [{ "name": "prompt", "type": "string", "required": true }, { "name": "aspect_ratio", "type": "string", "options": [{ "label": "16:9", "value": "16:9" }, { "label": "9:16", "value": "9:16" }], "defaultValue": "9:16" }, { "name": "seconds", "type": "integer", "defaultValue": 15 }] }] },
+    { "key": "artbox-video-1", "channelId": "CHANNEL_000002", "name": "artbox 视频模型", "capability": "video", "enabled": true, "pricing": { "type": "per_call", "amount": 0.1, "currency": "CNY" } }
+  ],
+  "logicalModels": [
+    { "id": "a6api-chat", "name": "a6api 对话", "capability": "text", "lines": ["CHANNEL_000001:gpt-4o-mini", "CHANNEL_000001:deepseek-chat"] },
+    { "id": "hongniao-video", "name": "红鸟视频", "capability": "video", "lines": ["CHANNEL_000003:hailuo-h3"] },
+    { "id": "artbox-video", "name": "artbox 视频", "capability": "video", "lines": ["CHANNEL_000002:artbox-video-1"] }
+  ]
+}

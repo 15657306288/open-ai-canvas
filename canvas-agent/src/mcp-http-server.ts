@@ -18,6 +18,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 
 import { AGENT_PROMPT, VERSION, type CanvasAgentConfig } from "./config.js";
 import { registerMcpTools } from "./mcp-server.js";
+import { unregisterChannelMcpServer } from "./channel-tools.js";
 
 export type McpHttpOptions = {
     /** 仅注册画布工具（跳过 dreamina），默认 false */
@@ -28,7 +29,7 @@ export type McpHttpOptions = {
 
 export function createMcpHttpHandler(config: CanvasAgentConfig, options: McpHttpOptions = {}): RequestHandler {
     const maxSessions = options.maxSessions ?? 64;
-    const sessions = new Map<string, StreamableHTTPServerTransport>();
+    const sessions = new Map<string, { transport: StreamableHTTPServerTransport; server: McpServer }>();
 
     return (req: Request, res: Response) => {
         void handleRequest(req, res);
@@ -38,8 +39,8 @@ export function createMcpHttpHandler(config: CanvasAgentConfig, options: McpHttp
         const headerSessionId = typeof req.headers["mcp-session-id"] === "string"
             ? req.headers["mcp-session-id"]
             : undefined;
-        let transport = headerSessionId ? sessions.get(headerSessionId) : undefined;
-        if (!transport) {
+        let session = headerSessionId ? sessions.get(headerSessionId) : undefined;
+        if (!session) {
             if (req.method !== "POST") {
                 jsonRpcError(res, 404, -32001, "Session not found");
                 return;
@@ -48,11 +49,12 @@ export function createMcpHttpHandler(config: CanvasAgentConfig, options: McpHttp
                 jsonRpcError(res, 429, -32000, "Too many MCP sessions");
                 return;
             }
-            transport = createTransport();
             const sessionServer = new McpServer(
                 { name: "canvas-agent", version: VERSION },
                 { instructions: AGENT_PROMPT },
             );
+            const transport = createTransport(sessionServer);
+            session = { transport, server: sessionServer };
             registerMcpTools(sessionServer, config, { canvasOnly: options.canvasOnly });
             await sessionServer.connect(transport);
         }
@@ -66,26 +68,30 @@ export function createMcpHttpHandler(config: CanvasAgentConfig, options: McpHttp
             }
         }
         try {
-            await transport.handleRequest(req as never, res as never, parsedBody);
+            await session.transport.handleRequest(req as never, res as never, parsedBody);
         } catch (error) {
             // transport.handleRequest 已尽量自行写响应；兜底处理未发送情况
             if (!res.headersSent) jsonRpcError(res, 500, -32603, "Internal error");
         }
     }
 
-    function createTransport() {
-        let created: StreamableHTTPServerTransport;
-        created = new StreamableHTTPServerTransport({
+    function createTransport(server: McpServer) {
+        const transport = new StreamableHTTPServerTransport({
             sessionIdGenerator: () => crypto.randomUUID(),
             enableJsonResponse: true,
             onsessioninitialized: (sessionId) => {
-                sessions.set(sessionId, created);
+                sessions.set(sessionId, { transport, server });
             },
             onsessionclosed: (sessionId) => {
-                sessions.delete(sessionId);
+                const closed = sessions.get(sessionId);
+                if (closed) {
+                    // [connector] P0-B-4 关闭 session 时移除其渠道 list_changed 订阅
+                    unregisterChannelMcpServer(closed.server);
+                    sessions.delete(sessionId);
+                }
             },
         });
-        return created;
+        return transport;
     }
 }
 
