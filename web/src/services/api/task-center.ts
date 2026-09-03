@@ -172,6 +172,8 @@ export type AgentSessionDetail = {
 
 export type CreateSessionInput = {
     projectId?: string;
+    domainProjectId?: string;
+    unitId?: string;
     prompt: string;
     canvasSnapshot?: Record<string, unknown>;
     references?: string[];

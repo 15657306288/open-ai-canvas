@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { App, Button, Segmented, Tooltip } from "antd";
+import { App, Button, Segmented, Switch, Tooltip } from "antd";
 import copyToClipboard from "copy-to-clipboard";
-import { CheckCircle2, Copy, ExternalLink, FolderOpen, History, LoaderCircle, PlugZap, Plus, RefreshCw, Terminal, Trash2 } from "lucide-react";
+import { CheckCircle2, Copy, ExternalLink, FolderOpen, History, Images, LoaderCircle, PlugZap, Plus, RefreshCw, Terminal, Trash2 } from "lucide-react";
 import { motion } from "motion/react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
@@ -115,6 +115,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         loadingThreads,
         activeTab,
         confirmTools,
+        autoGenerateMedia,
         activity,
         connectError,
         pendingTool,
@@ -612,6 +613,7 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
         const stateHash = synced?.stateHash || runtimeCanonicalStateHashRef.current;
         return buildCanvasAgentContext(snapshotRef.current, {
             ...(stateHash ? { stateHash, hashSource: "canvas-agent-server" as const } : {}),
+            autoGenerateMedia: useCanvasAgentStore.getState().autoGenerateMedia,
         });
     };
 
@@ -843,6 +845,13 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                 </Tooltip>
                 <Tooltip title="新对话">
                     <Button type="text" shape="circle" className="!h-7 !w-7 !min-w-7" disabled={!connected || loadingThreads} style={{ color: theme.node.muted }} icon={<Plus className="size-3.5" />} onClick={() => void startNewThread()} aria-label="新建对话" />
+                </Tooltip>
+                <Tooltip title={autoGenerateMedia ? "媒体自动生成已开启：创建图片/视频/音频节点后立即提交生成并消耗积分。关闭则只搭建节点、暂不生成。" : "媒体自动生成已关闭：只创建媒体节点、不提交生成、不消耗积分，检查后可在节点上手动生成。"}>
+                    <label className="flex h-7 cursor-pointer items-center gap-1 rounded-md px-1.5" style={{ color: autoGenerateMedia ? theme.node.muted : theme.accent.primary }} aria-label={autoGenerateMedia ? "关闭媒体自动生成" : "开启媒体自动生成"}>
+                        <Images className="size-3.5 shrink-0" />
+                        <Switch size="small" checked={autoGenerateMedia} onChange={(value) => setAgentState({ autoGenerateMedia: value })} />
+                        <span className="whitespace-nowrap text-[var(--fs-tiny)]">{autoGenerateMedia ? "自动生成" : "仅建节点"}</span>
+                    </label>
                 </Tooltip>
             </div>
 

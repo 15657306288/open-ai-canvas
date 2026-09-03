@@ -104,6 +104,7 @@ import { CanvasEmotionWorkspace } from "@/components/canvas/canvas-emotion-works
 import { removeCanvasDrawing } from "@/lib/canvas/canvas-drawing-storage";
 import { useCanvasConnectionController } from "./use-canvas-connection-controller";
 import { useCanvasAgentOperations } from "./use-canvas-agent-operations";
+import { useCanvasAgentState } from "./use-canvas-agent-state";
 import { useCanvasAssistantVisibility } from "./use-canvas-assistant-visibility";
 import { useCanvasActiveTasks } from "./use-canvas-active-tasks";
 import { useCanvasStyleWorkflow } from "./use-canvas-style-workflow";
@@ -1474,6 +1475,8 @@ function InfiniteCanvasPage() {
         setContextMenu,
         focusSelection: fitCanvasSelection,
     });
+    // Agent 创作状态机：从真实节点派生进行中/已完成任务，跨刷新对账恢复；重复提交由提交层拦截。
+    useCanvasAgentState(projectId, nodes);
 
     const { selectCanvasStyle, styleApplying } = useCanvasStyleWorkflow({
         domainProjectId: currentProject?.projectId,
@@ -2423,6 +2426,7 @@ function InfiniteCanvasPage() {
                                         selectedNodeIds={selectedNodeIds}
                                         snapshot={agentSnapshot}
                                         projectId={projectId}
+                                        domainProjectId={linkedProjectId || undefined}
                                         sessions={chatSessions}
                                         activeSessionId={activeChatId}
                                         onSelectNodeIds={setSelectedNodeIds}

@@ -248,6 +248,8 @@ type CanvasAssistantPanelProps = {
     selectedNodeIds: Set<string>;
     snapshot: CanvasAgentSnapshot;
     projectId: string;
+    domainProjectId?: string;
+    unitId?: string;
     sessions: CanvasAssistantSession[];
     activeSessionId: string | null;
     onSelectNodeIds: (ids: Set<string>) => void;
@@ -339,6 +341,8 @@ export function CanvasAssistantPanel({
     selectedNodeIds,
     snapshot,
     projectId,
+    domainProjectId,
+    unitId,
     sessions,
     activeSessionId,
     onSelectNodeIds,
@@ -364,6 +368,7 @@ export function CanvasAssistantPanel({
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const updateConfig = useConfigStore((state) => state.updateConfig);
     const confirmTools = useCanvasAgentStore((state) => state.confirmTools);
+    const autoGenerateMedia = useCanvasAgentStore((state) => state.autoGenerateMedia);
     const setAgentState = useCanvasAgentStore((state) => state.setAgentState);
     const [view, setView] = useState<OnlineAgentTab>("chat");
     const [prompt, setPrompt] = useState("");
@@ -578,6 +583,8 @@ export function CanvasAssistantPanel({
             const detail = await createCinematicAgentSession(
                 {
                     projectId,
+                    domainProjectId,
+                    unitId,
                     prompt: text,
                     canvasSnapshot: compactSnapshot(current) as unknown as Record<string, unknown>,
                     projectStyle: storyboardContext.projectStyle,
@@ -780,7 +787,7 @@ export function CanvasAssistantPanel({
             const skillToolResult = await skillRuntime.executeAgentTool("onlineAgent", name, args, composerSkills);
             if (skillToolResult) return skillToolResult;
             if (name === "canvas_get_state") return { ok: true, message: describeCanvasSnapshot(current), data: compactSnapshot(current) };
-            if (name === "canvas_get_context") return { ok: true, message: "已读取语义化画布上下文。", data: buildCanvasAgentContext(current) };
+            if (name === "canvas_get_context") return { ok: true, message: "已读取语义化画布上下文。", data: buildCanvasAgentContext(current, { autoGenerateMedia: useCanvasAgentStore.getState().autoGenerateMedia }) };
             if (name === "canvas_find_nodes") return { ok: true, message: "已按条件检索真实节点。", data: findCanvasAgentNodes(current, args as Parameters<typeof findCanvasAgentNodes>[1]) };
             if (name === "canvas_get_node") {
                 const data = getCanvasAgentNode(current, { id: requireString(args.id, "id") });
@@ -1189,6 +1196,8 @@ export function CanvasAssistantPanel({
                 undoCount={agentMode === "online" ? undoOpsCount : 0}
                 onModeChange={onAgentModeChange}
                 onConfirmToolsChange={(confirmTools) => setAgentState({ confirmTools })}
+                autoGenerateMedia={autoGenerateMedia}
+                onAutoGenerateMediaChange={(autoGenerateMedia) => setAgentState({ autoGenerateMedia })}
                 onUndo={undoLastOnlineBatch}
                 onCollapse={collapse}
                 historyCount={agentMode === "online" ? historySessions.length : 0}
