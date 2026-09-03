@@ -15,6 +15,7 @@ import {
 import { createLocalRuntimeApp, type LocalRuntimeModule } from "./local-runtime.js";
 import { LOCAL_RUNTIME_DEFAULT_SCOPES, LocalRuntimeSessionManager } from "./local-runtime-session.js";
 import { acquireRuntimeLock, type RuntimeLockInfo } from "./runtime-lock.js";
+import { createMcpHttpHandler } from "./mcp-http-server.js";
 import { createCanvasAgentHttpModule } from "./modules/canvas-agent-http.js";
 import { createDreaminaHttpModule } from "./modules/dreamina-http.js";
 import { createPortraitClearanceHttpModule } from "./modules/portrait-clearance-http.js";
@@ -25,6 +26,8 @@ export type StartLocalRuntimeOptions = {
     port?: number;
     log?: (line: string) => void;
     persistConfig?: (config: LocalRuntimeConfig) => void;
+    /** [connector] P0-B-1 MCP HTTP 门面开关；默认开启（Q1 拍板），可传 { enabled: false } 关闭 */
+    mcp?: { enabled?: boolean; canvasOnly?: boolean; maxSessions?: number };
 };
 
 export type LocalRuntimeHandle = {
@@ -97,6 +100,11 @@ export function startLocalRuntime(options: StartLocalRuntimeOptions = {}): Local
         modules,
         legacyMasterToken: config.token,
         legacyOrigins: config.origins ?? [],
+        // [connector] P0-B-1：默认开 /mcp（Q1），供远程 MCP 客户端直接调用画布
+        mcpHandler: options.mcp?.enabled === false ? undefined : createMcpHttpHandler(config, {
+            canvasOnly: options.mcp?.canvasOnly,
+            maxSessions: options.mcp?.maxSessions,
+        }),
     });
     const server = createServer(app);
     const log = options.log ?? console.log;

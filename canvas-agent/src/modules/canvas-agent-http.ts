@@ -57,7 +57,12 @@ export function createCanvasAgentHttpModule(
         }, { queryKeys: ["clientId"] }),
         canvasRoute("POST", "/api/tools", async (req, res) => {
             const body = jsonRecord(req);
-            res.json({ ok: true, result: await session.callTool(body.name, body.input || {}) });
+            try {
+                res.json({ ok: true, result: await session.callTool(body.name, body.input || {}) });
+            } catch (error) {
+                // [connector] P0-B-1 错误透传：MCP/OpenAPI 等外部 agent 需看到真实失败原因（如"当前没有已连接画布"）
+                res.json({ ok: false, error: error instanceof Error ? error.message : "Canvas tool failed" });
+            }
         }),
         canvasRoute("GET", "/agent/codex/workspace", (req, res) => {
             const workspace = ensureCanvasWorkspace(config, queryValue(req, "canvasId"));

@@ -53,6 +53,8 @@ export type CreateLocalRuntimeAppOptions = {
     modules: readonly LocalRuntimeModule[];
     legacyMasterToken?: string;
     legacyOrigins?: readonly string[];
+    /** [connector] P0-B-1 MCP Streamable HTTP 门面处理器（/mcp），由宿主层创建注入 */
+    mcpHandler?: RequestHandler;
 };
 
 export function createLocalRuntimeApp(options: CreateLocalRuntimeAppOptions): Express {
@@ -99,6 +101,12 @@ export function createLocalRuntimeApp(options: CreateLocalRuntimeAppOptions): Ex
         url: options.endpoint,
         hasToken: Boolean(options.legacyMasterToken),
     }));
+
+    // [connector] P0-B-1 MCP Streamable HTTP 门面（Q1 默认开）：GET/POST/DELETE 统一交给
+    // mcpHandler 按 MCP 协议处理（会话由 Mcp-Session-Id 头维护，与 Runtime 签名体系正交）。
+    if (options.mcpHandler) {
+        app.all("/mcp", options.mcpHandler);
+    }
 
     app.post(
         "/runtime/session/challenge",
@@ -226,6 +234,8 @@ function corsPolicies(modules: readonly LocalRuntimeModule[], legacyOrigins: rea
         ["/runtime/status", { methods: ["GET"], headers: protectedCorsHeaders("GET"), trustedOrigin: true }],
         ["/runtime/session/revoke", { methods: ["POST"], headers: protectedCorsHeaders("POST"), trustedOrigin: true }],
         ["/runtime/session/registration/revoke", { methods: ["POST"], headers: protectedCorsHeaders("POST"), trustedOrigin: true }],
+        // [connector] P0-B-1 MCP 门面：允许浏览器端 MCP 客户端（trusted origin）跨域调用
+        ["/mcp", { methods: ["GET", "POST", "DELETE"], headers: ["content-type", "mcp-session-id"], trustedOrigin: true }],
     ]);
     for (const module of modules) {
         for (const item of module.routes) {
