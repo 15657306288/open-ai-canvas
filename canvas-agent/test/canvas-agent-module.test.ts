@@ -127,11 +127,12 @@ test("CanvasSession dispose closes streams and a replaced stream cannot clear th
     session.updateState({ nodes: [] }, "fixture");
     session.openEvents(new URL("http://127.0.0.1/events?clientId=fixture"), second.response as never);
     first.response.emit("close");
-    assert.deepEqual(session.health(), { ok: true, hasCanvas: true, clients: 1 });
+    // [connector] P0-A-2 health 新增 reconnecting（断线宽限中连接数）
+    assert.deepEqual(session.health(), { ok: true, hasCanvas: true, clients: 1, reconnecting: 0 });
 
     session.dispose();
     assert.equal(second.ended(), 1);
-    assert.deepEqual(session.health(), { ok: true, hasCanvas: false, clients: 0 });
+    assert.deepEqual(session.health(), { ok: true, hasCanvas: false, clients: 0, reconnecting: 0 });
     second.response.emit("close");
 });
 
@@ -179,7 +180,8 @@ test("CanvasSession closes only streams owned by a revoked Runtime session", asy
     assert.equal(first.ended(), 1);
     assert.equal(second.ended(), 0);
     assert.equal(legacy.ended(), 0);
-    assert.deepEqual(session.health(), { ok: true, hasCanvas: false, clients: 2 });
+    // [connector] P0-A-2 health 新增 reconnecting（断线宽限中连接数）
+    assert.deepEqual(session.health(), { ok: true, hasCanvas: false, clients: 2, reconnecting: 0 });
     await assert.rejects(pending, /会话已撤销/);
     session.dispose();
 });
@@ -533,4 +535,59 @@ test("canvas_apply_ops enforces expected revision and state hash before dispatch
     } finally {
         session.dispose();
     }
+});
+
+test("[connector] P0-A-2 a closed stream keeps canvas state during grace and a reconnect restores it", () => {
+    const scheduled: Array<{ delay: number; callback: () => void }> = [];
+    const session = new CanvasSession({
+        graceMs: 8_000,
+        now: () => 1_000_000,
+        timers: {
+            setTimeout(callback: () => void, delay: number) {
+                scheduled.push({ delay, callback });
+                return scheduled.length;
+            },
+            clearTimeout() { /* noop */ },
+        },
+    });
+    const first = eventResponse();
+    session.openEvents(new URL("http://127.0.0.1/events?clientId=grace-client"), first.response as never);
+    session.updateState({ nodes: [] }, "grace-client");
+    // 断线：进入宽限期，画布状态与连接注册得以保留
+    first.response.emit("close");
+    assert.equal(session.health().clients, 0);
+    assert.equal(session.health().hasCanvas, true, "画布状态应在宽限期内保留");
+    assert.equal(session.health().reconnecting, 1);
+    // 宽限期内同 clientId 重连 → 撤销宽限，状态恢复可用
+    const second = eventResponse();
+    session.openEvents(new URL("http://127.0.0.1/events?clientId=grace-client"), second.response as never);
+    assert.equal(session.health().reconnecting, 0);
+    assert.equal(session.health().hasCanvas, true);
+    session.dispose();
+});
+
+test("[connector] P0-A-2 a stream that never reconnects clears canvas state after grace expires", () => {
+    const scheduled: Array<{ delay: number; callback: () => void }> = [];
+    const session = new CanvasSession({
+        graceMs: 8_000,
+        now: () => 1_000_000,
+        timers: {
+            setTimeout(callback: () => void, delay: number) {
+                scheduled.push({ delay, callback });
+                return scheduled.length;
+            },
+            clearTimeout() { /* noop */ },
+        },
+    });
+    const first = eventResponse();
+    session.openEvents(new URL("http://127.0.0.1/events?clientId=expire-client"), first.response as never);
+    session.updateState({ nodes: [] }, "expire-client");
+    first.response.emit("close");
+    assert.equal(session.health().hasCanvas, true, "断线后画布状态先保留");
+    const graceEntry = scheduled.find((item) => item.delay === 8_000);
+    assert.ok(graceEntry, "宽限到期定时器应被调度");
+    graceEntry!.callback();
+    assert.equal(session.health().hasCanvas, false, "宽限超时未重连应清理画布状态");
+    assert.equal(session.health().reconnecting, 0);
+    session.dispose();
 });

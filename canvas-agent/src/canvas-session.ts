@@ -6,17 +6,39 @@ import { buildCanvasContext, findCanvasNodes, getCanvasConnection, getCanvasGene
 import { type ToolName } from "./schemas.js";
 import { compactCanvasState, compactNode, isToolName, nextCanvasX, parseToolInput } from "./tools.js";
 import type { CanvasNode, CanvasNodeType, CanvasSnapshot } from "./types.js";
+import { GraceTracker, type GraceTrackerTimers } from "./grace-tracker.js";
 
 type PendingRequest = { clientId: string; recoverable: boolean; resolve: (value: unknown) => void; reject: (error: Error) => void };
 type CanvasClient = { response: ServerResponse; timer: NodeJS.Timeout; runtimeSessionId?: string };
+// [connector] P0-A-2：画布状态归属从"仅 clientId"升级为"clientId + runtimeSessionId"，
+// 防止旧标签/旧会话晚到的 close 误清新标签上报的状态。
+type StateOwner = { clientId: string; runtimeSessionId?: string };
+
+export type CanvasSessionOptions = {
+    // [connector] P0-A-2 断线宽限时长（毫秒），默认 8000
+    graceMs?: number;
+    now?: () => number;
+    timers?: GraceTrackerTimers;
+};
 
 export class CanvasSession {
     private clients = new Map<string, CanvasClient>();
     private pending = new Map<string, PendingRequest>();
     private canvasState: CanvasSnapshot | null = null;
+    private stateOwner: StateOwner | null = null;
+    private readonly graceTracker: GraceTracker;
+
+    constructor(options: CanvasSessionOptions = {}) {
+        this.graceTracker = new GraceTracker({
+            graceMs: options.graceMs,
+            now: options.now,
+            timers: options.timers,
+            onExpired: (clientId) => this.handleGraceExpired(clientId),
+        });
+    }
 
     health() {
-        return { ok: true, hasCanvas: Boolean(this.canvasState), clients: this.clients.size };
+        return { ok: true, hasCanvas: Boolean(this.canvasState), clients: this.clients.size, reconnecting: this.graceTracker.activeCount() };
     }
 
     openEvents(url: URL, res: ServerResponse, runtimeSessionId?: string) {
@@ -30,12 +52,15 @@ export class CanvasSession {
             clearInterval(previous.timer);
             previous.response.end();
         }
+        // [connector] P0-A-2：同 clientId 重连成功 → 撤销断线宽限，画布状态与 pending 得以保留
+        this.graceTracker.cancel(clientId);
         res.on("close", () => {
             clearInterval(timer);
             if (this.clients.get(clientId)?.response !== res) return;
             this.clients.delete(clientId);
-            if (this.canvasState?.clientId === clientId) this.canvasState = null;
-            this.rejectPendingClient(clientId, new Error("画布连接已断开"), true);
+            // [connector] P0-A-2：不再立即清空画布，进入断线宽限等待同 clientId 重连；
+            // 超时未重连才由 handleGraceExpired 清理 state/pending（保留可恢复请求）。
+            this.graceTracker.enter(clientId);
         });
     }
 
@@ -45,7 +70,10 @@ export class CanvasSession {
             if (client.runtimeSessionId !== runtimeSessionId) continue;
             this.clients.delete(clientId);
             clearInterval(client.timer);
-            if (this.canvasState?.clientId === clientId) this.canvasState = null;
+            if (this.stateOwner?.clientId === clientId) {
+                this.canvasState = null;
+                this.stateOwner = null;
+            }
             this.rejectPendingClient(clientId, error);
             client.response.end();
         }
@@ -65,6 +93,11 @@ export class CanvasSession {
         }
         const revision = incomingRevision ?? (this.canvasState ? currentRevision + 1 : 0);
         this.canvasState = { ...candidate, revision };
+        // [connector] P0-A-2：记录画布状态归属（clientId + runtimeSessionId），供宽限超时/会话撤销精准清理
+        this.stateOwner = {
+            clientId: clientId ?? "",
+            runtimeSessionId: clientId ? this.clients.get(clientId)?.runtimeSessionId : undefined,
+        };
         return { accepted: true, idempotent: Boolean(previousState && incomingRevision === currentRevision && actualHash === hashState(previousState)), revision, stateHash: actualHash };
     }
 
@@ -86,9 +119,21 @@ export class CanvasSession {
         });
         this.clients.clear();
         this.canvasState = null;
+        this.stateOwner = null;
         const error = new Error("Canvas session disposed");
         this.pending.forEach((request) => request.reject(error));
         this.pending.clear();
+    }
+
+    // [connector] P0-A-2：断线宽限超时且该 clientId 未重连——仅当画布状态仍归属它时才清理，
+    // 防止旧标签/旧会话晚到的 close 误清其他连接上报的画布状态。
+    private handleGraceExpired(clientId: string) {
+        if (this.clients.has(clientId)) return;
+        if (this.stateOwner?.clientId === clientId) {
+            this.canvasState = null;
+            this.stateOwner = null;
+        }
+        this.rejectPendingClient(clientId, new Error("画布连接已断开"), true);
     }
 
     async callTool(name: unknown, rawInput: unknown) {
