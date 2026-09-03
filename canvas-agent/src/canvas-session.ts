@@ -246,6 +246,94 @@ export class CanvasSession {
             input = { ops: [runGenerationOp(data.nodeId, generationMode(data.mode), data.prompt, data.retry)] };
             tool = "canvas_apply_ops";
         }
+        if (tool === "canvas_create_storyboard_shots") {
+            if (!this.clients.size || !this.canvasState) throw new Error("当前没有已连接画布");
+            const data = input as { shots: Array<{ shotId: string; title: string; description?: string; position?: number }>; x?: number; direction?: "row" | "column" };
+            const existingNodes = this.canvasState.nodes || [];
+            const shotNodeMap = new Map<string, CanvasNode>();
+            for (const node of existingNodes) {
+                const sid = String(node.metadata?.shotId || (typeof node.metadata?.projectionKey === "string" && node.metadata.projectionKey.startsWith("shot:") ? node.metadata.projectionKey.slice(5) : ""));
+                if (sid) shotNodeMap.set(sid, node);
+            }
+
+            const seenShotIds = new Set<string>();
+            const duplicateShotMappings: Record<string, string> = {};
+            const existingNodeIds: string[] = [];
+            const updatedNodeIds: string[] = [];
+            const createdNodeIds: string[] = [];
+
+            const ops: unknown[] = [];
+            const startX = typeof data.x === "number" ? data.x : nextCanvasX(this.canvasState);
+            const startY = 560;
+            const isColumn = data.direction === "column";
+            let newShotIndex = 0;
+
+            for (const shot of data.shots) {
+                if (seenShotIds.has(shot.shotId)) {
+                    duplicateShotMappings[shot.shotId] = shotNodeMap.get(shot.shotId)?.id || "";
+                    continue;
+                }
+                seenShotIds.add(shot.shotId);
+
+                const existingNode = shotNodeMap.get(shot.shotId);
+                if (existingNode) {
+                    existingNodeIds.push(existingNode.id);
+                    updatedNodeIds.push(existingNode.id);
+                    ops.push({
+                        type: "update_node",
+                        id: existingNode.id,
+                        patch: { title: shot.title },
+                        metadata: {
+                            workflowTitle: shot.title,
+                            workflowDescription: shot.description || existingNode.metadata?.workflowDescription || "",
+                            shotId: shot.shotId,
+                            projectionKey: `shot:${shot.shotId}`,
+                            projectionVersion: (Number(existingNode.metadata?.projectionVersion) || 1) + 1,
+                            domainProjectId: this.canvasState.domainProjectId,
+                        },
+                    });
+                } else {
+                    const nodeId = `shot-node-${shot.shotId}`;
+                    createdNodeIds.push(nodeId);
+                    const nodeX = isColumn ? startX : startX + newShotIndex * 360;
+                    const nodeY = isColumn ? startY + newShotIndex * 260 : startY;
+                    newShotIndex++;
+
+                    ops.push({
+                        type: "add_node",
+                        id: nodeId,
+                        nodeType: "video",
+                        title: shot.title,
+                        position: { x: nodeX, y: nodeY },
+                        width: 320,
+                        height: 240,
+                        metadata: {
+                            workflowKind: "shot",
+                            workflowTitle: shot.title,
+                            workflowDescription: shot.description || "",
+                            shotId: shot.shotId,
+                            projectionKey: `shot:${shot.shotId}`,
+                            projectionVersion: 1,
+                            domainProjectId: this.canvasState.domainProjectId,
+                            status: "idle",
+                            generationMode: "video",
+                        },
+                    });
+                }
+            }
+
+            if (ops.length > 0) {
+                await this.requestCanvasTool("canvas_apply_ops", { ops });
+            }
+
+            return {
+                ok: true,
+                createdNodeIds,
+                updatedNodeIds,
+                existingNodeIds,
+                duplicateShotMappings,
+            };
+        }
         if (tool !== "canvas_apply_ops") throw new Error(`未知工具：${tool}`);
         if (!this.clients.size) throw new Error("当前没有已连接画布");
         const currentContext = buildCanvasContext(this.canvasState);

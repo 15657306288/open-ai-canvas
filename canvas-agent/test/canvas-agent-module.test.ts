@@ -591,3 +591,68 @@ test("[connector] P0-A-2 a stream that never reconnects clears canvas state afte
     assert.equal(session.health().reconnecting, 0);
     session.dispose();
 });
+
+test("canvas_create_storyboard_shots idempotently projects shots, updates existing and retains positions", async () => {
+    const session = new CanvasSession();
+    const events = eventResponse();
+    session.openEvents(new URL("http://127.0.0.1/events?clientId=storyboard-client"), events.response as never);
+    session.updateState({
+        projectId: "canvas-proj-1",
+        domainProjectId: "drama-proj-1",
+        nodes: [
+            {
+                id: "custom-positioned-shot-1",
+                type: "video",
+                title: "镜头 1 · 原版",
+                position: { x: 1200, y: 800 },
+                width: 320,
+                height: 240,
+                metadata: {
+                    workflowKind: "shot",
+                    shotId: "shot-001",
+                    projectionKey: "shot:shot-001",
+                    projectionVersion: 1,
+                    workflowTitle: "镜头 1 · 原版",
+                    workflowDescription: "初始描述",
+                },
+            },
+        ],
+        connections: [],
+    }, "storyboard-client");
+
+    try {
+        const promise = session.callTool("canvas_create_storyboard_shots", {
+            shots: [
+                { shotId: "shot-001", title: "镜头 1 · 更新版", description: "更新后的画面" },
+                { shotId: "shot-002", title: "镜头 2 · 新镜头", description: "全新镜头画面" },
+                { shotId: "shot-001", title: "重复传入", description: "重复内容" },
+            ],
+        });
+
+        const call = latestToolCall(events.writes());
+        assert.equal(call.name, "canvas_apply_ops");
+        const ops = (call.input as { ops: Array<Record<string, unknown>> }).ops;
+
+        // shot-001 必须生成 update_node 操作
+        const updateOp = ops.find((op) => op.type === "update_node" && op.id === "custom-positioned-shot-1");
+        assert.ok(updateOp, "已有镜头必须触发 update_node");
+        assert.equal((updateOp.patch as Record<string, unknown>)?.title, "镜头 1 · 更新版");
+        assert.equal((updateOp.metadata as Record<string, unknown>)?.workflowDescription, "更新后的画面");
+        assert.equal((updateOp.metadata as Record<string, unknown>)?.projectionVersion, 2);
+
+        // shot-002 必须生成 add_node 操作
+        const addOp = ops.find((op) => op.type === "add_node" && (op.metadata as Record<string, unknown>)?.shotId === "shot-002");
+        assert.ok(addOp, "新镜头必须触发 add_node");
+        assert.equal(addOp.title, "镜头 2 · 新镜头");
+
+        session.resolveResult({ requestId: call.requestId, result: { accepted: true } });
+        const result = await promise as any;
+        assert.equal(result.ok, true);
+        assert.deepEqual(result.existingNodeIds, ["custom-positioned-shot-1"]);
+        assert.deepEqual(result.updatedNodeIds, ["custom-positioned-shot-1"]);
+        assert.equal(result.createdNodeIds.length, 1);
+        assert.ok(result.duplicateShotMappings["shot-001"]);
+    } finally {
+        session.dispose();
+    }
+});

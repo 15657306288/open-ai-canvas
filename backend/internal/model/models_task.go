@@ -58,6 +58,15 @@ type TaskTextDelta struct {
 	ExpiresAt time.Time `json:"expiresAt" gorm:"index"`
 }
 
+type AgentRunMetadata struct {
+	RuntimeProfile         string   `json:"runtimeProfile,omitempty"`
+	EffectiveSkillIDs      []string `json:"effectiveSkillIds,omitempty"`
+	EffectiveSkillVersions []string `json:"effectiveSkillVersions,omitempty"`
+	TurnID                 string   `json:"turnId,omitempty"`
+	ToolTraceSummary       string   `json:"toolTraceSummary,omitempty"`
+	SemanticEntityIDs      []string `json:"semanticEntityIds,omitempty"`
+}
+
 type Session struct {
 	ID                 string        `json:"id" gorm:"primaryKey;size:36"`
 	UserID             string        `json:"userId" gorm:"index;size:36"`
@@ -66,6 +75,7 @@ type Session struct {
 	Prompt             string        `json:"prompt"`
 	CanvasSnapshotJSON string        `json:"canvasSnapshotJson" gorm:"type:text"`
 	CanvasOpsJSON      string        `json:"canvasOpsJson" gorm:"type:text"`
+	MetadataJSON       string        `json:"metadataJson,omitempty" gorm:"type:text"`
 	CreatedAt          time.Time     `json:"createdAt"`
 	UpdatedAt          time.Time     `json:"updatedAt"`
 }

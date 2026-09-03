@@ -1273,6 +1273,7 @@ function isConnectionErrorMessage(item: AgentChatItem) {
 
 function toolName(name: string) {
     if (name === "canvas_apply_ops") return "画布操作";
+    if (name === "canvas_create_storyboard_shots") return "投影分镜镜头";
     if (name === "canvas_get_state") return "读取画布";
     if (name === "canvas_get_context") return "读取上下文";
     if (name === "canvas_find_nodes") return "检索节点";

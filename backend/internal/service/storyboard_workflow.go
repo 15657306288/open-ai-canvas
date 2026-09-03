@@ -24,6 +24,18 @@ func (s *Service) processAgentStoryboardTask(ctx context.Context, task model.Tas
 	if err != nil {
 		return nil, nil, err
 	}
+	if len(semanticShots) > 0 {
+		metadata := model.AgentRunMetadata{
+			RuntimeProfile:    "storyboard_director_v1",
+			EffectiveSkillIDs: []string{"storyboard-director"},
+			TurnID:            task.SessionID,
+			ToolTraceSummary:  fmt.Sprintf("persist_shots: %d semantic shots persisted", len(semanticShots)),
+			SemanticEntityIDs: semanticShotIDs(semanticShots),
+		}
+		if encoded, err := json.Marshal(metadata); err == nil {
+			_ = s.LogTask(task.UserID, task.ID, task.TraceID, task.RequestID, "info", "分镜语义实体已持久化", string(encoded))
+		}
+	}
 	return s.buildAgentStoryboardResult(task, plan, assets, input.ProjectStyle, semanticShots)
 }
 

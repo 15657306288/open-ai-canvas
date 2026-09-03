@@ -90,10 +90,17 @@ export function verifyCanvasAgentOps(before: CanvasAgentSnapshot, after: CanvasA
     const overlapWarnings = findCanvasNodeOverlaps(after.nodes, createdNodeIds);
     if (overlapWarnings.length) warnings.push(...overlapWarnings);
     const generation: CanvasAgentGenerationVerification[] = [];
-    const addNodeCount = ops.filter((op) => op.type === "add_node").length;
-    if (createdNodeIds.length < addNodeCount) {
+    const addNodeOps = ops.filter((op) => op.type === "add_node");
+    const matchedUpsertOrCreated = new Set(createdNodeIds);
+    for (const op of addNodeOps) {
+        const opShotId = op.metadata?.shotId ? String(op.metadata.shotId) : "";
+        const opKey = op.metadata?.projectionKey ? String(op.metadata.projectionKey) : (opShotId ? `shot:${opShotId}` : "");
+        const matched = after.nodes.find((n) => (op.id && n.id === op.id) || (opShotId && String(n.metadata?.shotId || "") === opShotId) || (opKey && String(n.metadata?.projectionKey || "") === opKey));
+        if (matched) matchedUpsertOrCreated.add(matched.id);
+    }
+    if (matchedUpsertOrCreated.size < addNodeOps.length) {
         failedPostconditions.add("add_node:count");
-        warnings.push(`预期新增 ${addNodeCount} 个节点，最终只观察到 ${createdNodeIds.length} 个`);
+        warnings.push(`预期新增或更新 ${addNodeOps.length} 个节点，最终只匹配到 ${matchedUpsertOrCreated.size} 个`);
     }
 
     const requireAfterNode = (nodeId: string) => {
@@ -322,17 +329,41 @@ export function applyCanvasAgentOps(snapshot: CanvasAgentSnapshot, ops?: CanvasA
         if (op.type === "add_node") {
             const nodeType = Object.values(CanvasNodeType).includes(op.nodeType as CanvasNodeType) ? op.nodeType! : CanvasNodeType.Text;
             const spec = getNodeSpec(nodeType);
-            const node: CanvasNodeData = {
-                id: op.id || `${nodeType}-${Date.now()}-${index}`,
-                type: nodeType,
-                title: op.title || spec.title,
-                position: op.position || { x: op.x ?? index * 36, y: op.y ?? index * 36 },
-                width: op.width || spec.width,
-                height: op.height || spec.height,
-                metadata: { ...spec.metadata, ...op.metadata },
-            };
-            nodes = [...nodes, node];
-            selectedNodeIds = [node.id];
+            const opShotId = op.metadata?.shotId ? String(op.metadata.shotId) : "";
+            const opProjectionKey = op.metadata?.projectionKey ? String(op.metadata.projectionKey) : (opShotId ? `shot:${opShotId}` : "");
+            const existingIndex = nodes.findIndex((n) => {
+                if (op.id && n.id === op.id) return true;
+                if (opShotId && String(n.metadata?.shotId || "") === opShotId) return true;
+                if (opProjectionKey && String(n.metadata?.projectionKey || "") === opProjectionKey) return true;
+                return false;
+            });
+
+            if (existingIndex >= 0) {
+                const existing = nodes[existingIndex];
+                const updated: CanvasNodeData = {
+                    ...existing,
+                    type: nodeType,
+                    title: op.title || existing.title || spec.title,
+                    position: existing.position || op.position || { x: op.x ?? index * 36, y: op.y ?? index * 36 },
+                    width: op.width || existing.width || spec.width,
+                    height: op.height || existing.height || spec.height,
+                    metadata: { ...spec.metadata, ...existing.metadata, ...op.metadata },
+                };
+                nodes = nodes.map((n, i) => (i === existingIndex ? updated : n));
+                selectedNodeIds = [updated.id];
+            } else {
+                const node: CanvasNodeData = {
+                    id: op.id || `${nodeType}-${Date.now()}-${index}`,
+                    type: nodeType,
+                    title: op.title || spec.title,
+                    position: op.position || { x: op.x ?? index * 36, y: op.y ?? index * 36 },
+                    width: op.width || spec.width,
+                    height: op.height || spec.height,
+                    metadata: { ...spec.metadata, ...op.metadata },
+                };
+                nodes = [...nodes, node];
+                selectedNodeIds = [node.id];
+            }
         }
         if (op.type === "update_node") {
             if (!op.id) return;
