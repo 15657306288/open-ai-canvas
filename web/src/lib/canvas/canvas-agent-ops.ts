@@ -44,9 +44,20 @@ export type CanvasAgentGenerationVerification = {
     message: string;
 };
 
+export type ToolEffect = {
+    mutated: boolean;
+    createdIds: string[];
+    updatedIds: string[];
+    deletedIds: string[];
+    createdTaskIds: string[];
+    projectionChanged: boolean;
+    needsRefresh: boolean;
+};
+
 export type CanvasAgentPostcondition = {
     ok: boolean;
     changed: boolean;
+    effect: ToolEffect;
     ranGeneration: boolean;
     createdNodeIds: string[];
     createdConnectionIds: string[];
@@ -187,9 +198,20 @@ export function verifyCanvasAgentOps(before: CanvasAgentSnapshot, after: CanvasA
     const ranGeneration = generation.length > 0;
     const changed = hashCanvasAgentSnapshot(before) !== hashCanvasAgentSnapshot(after) || ranGeneration;
     const generationFailed = generation.some((item) => item.outcome === "not_started" || item.outcome === "failed" || item.outcome === "cancelled");
+    const effect: ToolEffect = {
+        mutated: changed,
+        createdIds: createdNodeIds,
+        updatedIds: [...affectedNodeIds].filter((id) => !createdNodeIds.includes(id)),
+        deletedIds: removedNodeIds,
+        createdTaskIds: generation.map((g) => g.taskId).filter((id): id is string => Boolean(id)),
+        projectionChanged: changed,
+        needsRefresh: changed,
+    };
+
     return {
         ok: missingNodeIds.size === 0 && missingConnectionIds.size === 0 && failedPostconditions.size === 0 && !generationFailed && overlapWarnings.length === 0,
         changed,
+        effect,
         ranGeneration,
         createdNodeIds,
         createdConnectionIds,

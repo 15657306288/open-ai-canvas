@@ -494,7 +494,8 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                           return {
                               ok: verification.ok,
                               message: canvasAgentPostconditionMessage(verification),
-                              data: { verification, snapshot: next },
+                              effect: verification.effect,
+                              data: { verification, snapshot: next, effect: verification.effect },
                               snapshot: next,
                           };
                       })()
