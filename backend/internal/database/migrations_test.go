@@ -89,6 +89,50 @@ func TestMigrateSchemaV3NormalizesLegacyAccessoryCategory(t *testing.T) {
 	}
 }
 
+func TestMigrateSchemaV4AddsResourceUploadKeyToExistingSchema(t *testing.T) {
+	db, err := Open(Config{Driver: "sqlite", DSN: "file:migration-resource-upload-key?mode=memory&cache=shared"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TABLE resources (id TEXT PRIMARY KEY, user_id TEXT NOT NULL)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&schemaMigration{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range schemaMigrations[:3] {
+		if err := db.Create(&schemaMigration{Version: item.version, Name: item.name, Checksum: item.checksum, AppliedAt: time.Now().UTC()}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := MigrateSchema(db); err != nil {
+		t.Fatalf("migrate existing schema: %v", err)
+	}
+	if !db.Migrator().HasColumn(&model.Resource{}, "upload_key") {
+		t.Fatal("resource upload_key column was not added")
+	}
+	if !db.Migrator().HasIndex(&model.Resource{}, "idx_resources_user_upload_key") {
+		t.Fatal("resource upload key index was not added")
+	}
+	var status SchemaStatus
+	status, err = ReadSchemaStatus(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !status.Ready || status.Current != CurrentSchemaVersion {
+		t.Fatalf("unexpected schema status: %#v", status)
+	}
+
+	firstKey := "same-upload"
+	if err := db.Exec(`INSERT INTO resources (id, user_id, upload_key) VALUES (?, ?, ?)`, "resource-1", "user-1", firstKey).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`INSERT INTO resources (id, user_id, upload_key) VALUES (?, ?, ?)`, "resource-2", "user-1", firstKey).Error; err == nil {
+		t.Fatal("duplicate resource upload key should be rejected")
+	}
+}
+
 func TestMigrateSchemaRollsBackFailedMigration(t *testing.T) {
 	db, err := Open(Config{Driver: "sqlite", DSN: "file:migration-rollback?mode=memory&cache=shared"})
 	if err != nil {

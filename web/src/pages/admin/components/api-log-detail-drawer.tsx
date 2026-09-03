@@ -70,10 +70,12 @@ function LogDetail({ log, querying, onQueryProviderTask }: { log: ApiCallLog; qu
         ],
         ["渠道 / 模型", `${log.channelName || "未记录渠道"} / ${log.model || "未识别模型"}`],
         ["能力", capabilityText(log.capability)],
+        ["请求阶段", requestKindText(log.requestKind)],
+        ["计费属性", log.billable ? "计费调用" : "不计费"],
         ["总耗时", formatDuration(log.durationMs)],
         ["视频轮询", log.capability === "video" ? `${log.pollCount || 0} 次` : "--"],
         ["Token", log.usageAvailable ? `${log.inputTokens} 输入 / ${log.outputTokens} 输出 / ${log.cachedTokens} 缓存` : "未返回"],
-        ["余额计费", billingText(log)],
+        ["积分计费", billingText(log)],
         ["上游成本", log.costAvailable ? `${log.currency || "USD"} ${(log.estimatedCostMicros / 1_000_000).toFixed(6)}` : "未配置成本"],
         ["错误信息", [log.errorCode, log.error].filter(Boolean).join(" · ") || "--"],
         ["方法与路径", `${log.method} ${log.path}`],
@@ -110,10 +112,16 @@ function LogDetail({ log, querying, onQueryProviderTask }: { log: ApiCallLog; qu
 }
 
 function billingText(log: ApiCallLog) {
-    if (!log.billingAvailable) return "未扣费";
+    if (!log.billable) return "不计费";
+    if (!log.billingAvailable) return "未扣积分";
     const status = log.billingStatus || "reserved";
     const statusLabel = ({ settled: "已结算", refunded: "已退回", uncertain: "待核对", running: "运行中", reserved: "已预授权" } as const)[status];
-    return `${formatCredits(log.billingAmountMicrocredits)} · ${statusLabel}`;
+    return `${formatCredits(log.billingAmountMicrocredits)} 积分 · ${statusLabel}`;
+}
+
+function requestKindText(value: ApiCallLog["requestKind"]) {
+    const labels: Partial<Record<ApiCallLog["requestKind"], string>> = { create: "模型生成", poll: "状态查询", download: "结果下载", repair: "结果修复" };
+    return labels[value] || "上游请求";
 }
 
 function PayloadPanel({ value, empty }: { value?: string; empty: string }) {
