@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
+import { agentFetch } from "./agent-fetch.js";
 import { AGENT_PROMPT, loadConfig, type CanvasAgentConfig, VERSION } from "./config.js";
 import { registerDreaminaMcp } from "./modules/dreamina-mcp.js";
 import { toolDescriptions, toolInputSchemas, toolNames, type ToolName } from "./schemas.js";
@@ -30,7 +31,13 @@ function registerCanvasTool(server: McpServer, config: CanvasAgentConfig, name: 
 }
 
 async function postCanvasAgentTool(config: CanvasAgentConfig, name: ToolName, input: unknown) {
-    const res = await fetch(`${config.url}/api/tools`, { method: "POST", headers: { "content-type": "application/json", "x-canvas-agent-token": config.token }, body: JSON.stringify({ name, input }) });
+    // [connector] P0-A-4：经 agentFetch 走 keepalive + 超时（POST 非只读不重试，避免重复副作用）
+    const res = await agentFetch(`${config.url}/api/tools`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-canvas-agent-token": config.token },
+        body: JSON.stringify({ name, input }),
+        timeoutMs: 30_000,
+    });
     const body = (await res.json()) as CanvasAgentToolResponse;
     if (!body.ok) throw new Error(body.error || "tool call failed");
     return body.result;
