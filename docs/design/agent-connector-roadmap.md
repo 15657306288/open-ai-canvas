@@ -323,11 +323,12 @@ OpenAPI 导入 Postman/GPT Actions 可调；bridge 本地不开端口、云端 A
 - **`/api/tools` 补 channel 分支**：渠道工具（channel_* / model_*）走本地 ctx，画布工具走 `session.callTool` —— 补齐 bridge 转发对全部 50 工具的覆盖。
 - **一键启动**：`启动影策L3服务器.command`（幂等：broker → Runtime+bridge → 网关，自动取局域网 IP）。
 - **验证**：外部 MCP 客户端 → 网关 `channel_list` 返回 3 渠道 121 模型；`canvas_get_context` 无画布错误透传（isError）；无 token 401；局域网 IP 访问网关正常。
-- **外部 Agent 接入配置**：`http://<网关IP>:17801/mcp` + Bearer `<gateway token>`（默认 `gateway-2026`，对外部署请改强随机值）。
+- **外部 Agent 接入配置**：`http://<网关IP>:17801/mcp` + Bearer `<gateway token>`；生产环境必须使用强随机值，仓库不保存真实凭据。
 
 ### 安全与运维备注
-- Broker `request`/`bridges` 端点当前无鉴权（仅 429 限流）——对外暴露需在网关/Broker 前置鉴权代理，或收紧 broker 绑定网卡。
-- `启动影策L3服务器.command` 内 `BRIDGE_TOKEN`/`GATEWAY_TOKEN` 为本地开发默认值，公网部署务必更换。
+- Broker 的 bridge 注册与远程 Agent API 使用两套独立凭据：`CANVAS_BROKER_REGISTRATION_TOKEN` 仅用于首次注册/换证，`CANVAS_BROKER_AGENT_TOKEN` 用于 `request`/`bridges`/`request/:id` 与状态接口；两者均应配置强随机值。
+- `启动影策L3服务器.command` 不保存真实凭据；集中配置位于本机 `~/.infinite-canvas/l3.env`，不得提交仓库。
+- 未配置 token 仅适用于 loopback 开发；Broker/Gateway 对外监听时必须配置对应 token。
 
 ### 配置固化（launchd 托管 · 2026-09-04）
 - **集中配置** `~/.infinite-canvas/l3.env`（端口/token/bridgeId/目录），模板 `deploy/l3.env.example`；改 token 后 `l3-manage.sh restart` 生效。
@@ -341,6 +342,17 @@ OpenAPI 导入 Postman/GPT Actions 可调；bridge 本地不开端口、云端 A
 
 ### 公网暴露安全加固（2026-09-04）
 - **背景**：broker 远程侧端点（`request`/`bridges`/`request/:id`）原无鉴权，公网暴露=无鉴权远程执行。
-- **加固**：broker 新增 `CANVAS_BROKER_GATEWAY_TOKEN`（env/options），配置后 `request`/`bridges`/`result` 及 `GET /` 全部强制 `Authorization: Bearer`（常量时间比较），401 拒绝；未配置则向后兼容本地。网关（gateway-server）调 broker 三处均携带该 Bearer。
-- **token 强随机化**：`~/.infinite-canvas/l3.env` 的 bridge/gateway/broker-gateway 三 token 全部换为 `openssl rand -hex 24` 强随机值；wrapper 注入。
-- **验证**：无 token/错 token → 401；对 token → 全通；公网 Cloudflare Quick Tunnel POC 全链路通过（external → tunnel → 17801 → broker → bridge → runtime，50 工具 + 3 渠道 121 模型）。
+- **加固**：broker 新增 `CANVAS_BROKER_AGENT_TOKEN`（兼容旧 `CANVAS_BROKER_GATEWAY_TOKEN`）和 `CANVAS_BROKER_REGISTRATION_TOKEN`；配置后远程 Agent API 与 bridge 注册分别使用独立 `Authorization: Bearer`，401 拒绝。网关调 broker 时携带 Agent token。
+- **队列保护**：队列满时只清理已完成结果，不丢弃 `pending`/`running` 请求；无法安全入队时返回 409。
+- **token 强随机化**：本机 `~/.infinite-canvas/l3.env` 使用独立的 bridge、registration、broker-agent、gateway 四类凭据；wrapper 只负责注入，不把真实值写入仓库。
+- **验证**：无 token/错 token → 401；对 token → 全通；bridge token 轮换、队列满保护与 L3 全链路测试通过。
+
+### 正式公网落地（Cloudflare Tunnel · 2026-09-04）
+- **最终入口**：`https://yingce.cc.cd/mcp`（外部任意 Agent 经公网直连画布），Bearer `<gateway token>`。
+- **拓扑**：公网 → Cloudflare 边缘 → 本机 `cloudflared`（Named Tunnel `yingce-canvas`）→ 本地 ingress → `127.0.0.1:17801`（MCP 网关）→ Broker → Runtime（零入站端口主动外连）；`yingce.cc.cd` 其余路径仍指向影策 web（`127.0.0.1:3100`）。
+- **为什么不用 Cloudflare 远程隧道 path 路由**：在承载 `yingce.cc.cd` 的远程隧道（newapi）里加 `/mcp` 规则后，实测仍被同域通配规则 `* → 3100` 抢占（405 nginx），等待+重启 cloudflared 均不生效 → 该同域多路径匹配不可靠。
+- **改为本地 config 隧道**：`~/.cloudflared/yingce-canvas.yml` 本地 ingress 从上到下首个匹配、确定生效：`yingce.cc.cd /mcp → 17801`、`yingce.cc.cd → 3100`、兜底 404。隧道 `cloudflared tunnel --config <yml> run yingce-canvas`（注意 `--config/--no-autoupdate` 须在 `run` 之前）。
+- **DNS**：`yingce.cc.cd` 记录（CNAME 隧道类型）目标切到 `62493ea4-fc1e-4f14-b1df-bfb4067da444.cfargotunnel.com`，代理保持开（橙色云朵）。
+- **托管**：launchd `com.yingce.canvas-tunnel`（wrapper `~/.infinite-canvas/l3-run-tunnel.sh`）；四件套（broker/runtime/gateway/tunnel）全部 RunAtLoad+KeepAlive。
+- **验证**：公网 `POST https://yingce.cc.cd/mcp` → initialize 200（serverInfo canvas-gateway 0.1.0）、tools/list 50 工具、channel_list 3 渠道 121 模型；无/错 token 401；web `GET /` 200 不受影响。
+- **外部 Agent 接入**：MCP 配置 `url = "https://yingce.cc.cd/mcp"` + `http_headers { Authorization = "Bearer <gateway token>" }`（token 见本机 `~/.infinite-canvas/l3.env` 的 `CANVAS_L3_GATEWAY_TOKEN`）。
