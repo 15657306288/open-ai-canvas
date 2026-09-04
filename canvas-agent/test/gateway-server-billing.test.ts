@@ -121,3 +121,27 @@ test("[lifecycle] remote 模式：连接器不本地定价，reserve 传 0，金
     assert.equal(r.content[0].text, "BACKEND_PRICED");
     assert.equal(logs.at(-1)!.microcredits, 20_000, "日志金额应为后端返回的实际冻结金额");
 });
+
+test("[lifecycle] remote 模式：画布真实选择的模型（args.model）随 reserve 传给后端定价", async () => {
+    class RemoteFake extends FakeAccount {
+        override kind = "remote" as const;
+        override reserveResult: ReserveOutcome = { ok: true, orderId: "ord_model", microcredits: 10_000 };
+        reservedModel: string | undefined;
+        override async reserve(s: string, amount: number, idem: string, _tool: string, modelKey?: string): Promise<ReserveOutcome> {
+            this.reservedModel = modelKey;
+            return super.reserve(s, amount, idem);
+        }
+    }
+    const acct = new RemoteFake();
+    const { deps } = depsFor(acct, async () => "VIDEO_OK");
+    const r = await runBilledCall(
+        "canvas_generate_video",
+        { model: "agnes-video-2.5-flash", prompt: "test", seconds: "5" },
+        keyAuth,
+        deps,
+    );
+
+    assert.equal(acct.reservedModel, "agnes-video-2.5-flash", "reserve 必须携带画布选择的模型");
+    assert.deepEqual(acct.seq, ["reserve", "call", "settle", "record"]);
+    assert.equal(r.content[0].text, "VIDEO_OK");
+});

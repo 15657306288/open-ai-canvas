@@ -62,7 +62,7 @@ export interface AccountProvider {
     authenticateClient(clientId: string, clientSecret: string): Promise<AuthOutcome>;
     resolveSubject(subjectId: string): Promise<Principal | undefined>;
     /** 调用工具前冻结/预扣 amountMicrocredits（正整数）；同一 idempotencyKey 贯穿本次调用。 */
-    reserve(subjectId: string, amountMicrocredits: number, idempotencyKey: string, tool: string): Promise<ReserveOutcome>;
+    reserve(subjectId: string, amountMicrocredits: number, idempotencyKey: string, tool: string, modelKey?: string): Promise<ReserveOutcome>;
     /** 工具成功后结算（幂等）。 */
     settle(orderId: string, idempotencyKey: string): Promise<TerminalOutcome>;
     /** 工具失败后退款/释放冻结（幂等）。 */
@@ -123,7 +123,7 @@ export class LocalAccountProvider implements AccountProvider {
         return k && k.enabled ? toPrincipal(k) : undefined;
     }
 
-    async reserve(subjectId: string, amount: number, idempotencyKey: string, tool: string): Promise<ReserveOutcome> {
+    async reserve(subjectId: string, amount: number, idempotencyKey: string, tool: string, modelKey?: string): Promise<ReserveOutcome> {
         if (!subjectId || !idempotencyKey || !tool) return { ok: false, code: "rejected", message: "计费参数不完整" };
         if (!validMicrocredits(amount)) return { ok: false, code: "rejected", message: "amountMicrocredits 必须是正整数" };
 
@@ -245,14 +245,14 @@ export class RemoteAccountProvider implements AccountProvider {
         }
     }
 
-    async reserve(subjectId: string, amount: number, idempotencyKey: string, tool: string): Promise<ReserveOutcome> {
+    async reserve(subjectId: string, amount: number, idempotencyKey: string, tool: string, modelKey?: string): Promise<ReserveOutcome> {
         if (!subjectId || !idempotencyKey || !tool) return { ok: false, code: "rejected", message: "计费参数不完整" };
-        // 金额语义：remote 下 amount=0 表示由后端按工具定价（连接器不参与定价）；正数仍兼容显式金额。
+        // 金额语义：remote 下 amount=0 表示由后端定价（优先画布真实选择的模型 modelKey）；正数仍兼容显式金额。
         if (!Number.isInteger(amount) || amount < 0) return { ok: false, code: "rejected", message: "amountMicrocredits 必须是非负整数" };
         try {
             const r = await this.request<{ orderId?: string; status?: string; amountMicrocredits?: number }>(
                 `/accounts/${encodeURIComponent(subjectId)}/reservations`,
-                { ...(amount > 0 ? { amountMicrocredits: amount } : {}), tool, scene: "mcp", idempotencyKey },
+                { ...(amount > 0 ? { amountMicrocredits: amount } : {}), tool, ...(modelKey ? { modelKey } : {}), scene: "mcp", idempotencyKey },
             );
             if (r.status === 200 && r.env.code === 0 && r.env.data?.orderId) {
                 this.orderSubject.set(r.env.data.orderId, subjectId);

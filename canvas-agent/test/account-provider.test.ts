@@ -150,6 +150,25 @@ test("[account] Remote reserve amount=0 走后端定价：请求不含金额、�
     srv.close();
 });
 
+test("[account] Remote reserve 携带画布真实选择的模型 modelKey 给后端定价", async () => {
+    let requestBody: any = null;
+    const srv = await startInternalServer((_req, body, res) => {
+        requestBody = JSON.parse(body);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ code: 0, data: { orderId: "ord_m", status: "reserved", amountMicrocredits: 10_000, idempotencyKey: requestBody.idempotencyKey }, msg: "ok" }));
+    });
+    const acct = new RemoteAccountProvider({ baseUrl: srv.base, serviceToken: "svc-token", keyStore: new KeyStore(tmpStore()) });
+
+    const r = await acct.reserve("user-1", 0, "idem-m", "canvas_generate_video", "agnes-video-2.5-flash");
+    assert.equal(r.ok, true);
+    assert.equal(requestBody.modelKey, "agnes-video-2.5-flash", "请求体必须携带 modelKey");
+    assert.equal("amountMicrocredits" in requestBody, false);
+    // 不带 modelKey 时不出现该字段
+    await acct.reserve("user-1", 0, "idem-m2", "canvas_get_context");
+    assert.equal("modelKey" in requestBody, false);
+    srv.close();
+});
+
 test("[account] Remote 402/错误 envelope/网络不可达 全部 fail-closed", async () => {
     // 402 与非法 envelope
     const srv = await startInternalServer((req, _body, res) => {
