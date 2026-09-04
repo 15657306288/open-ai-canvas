@@ -58,9 +58,9 @@
 
 ---
 
-## 3. 当前进度：P0 全部完成 ✅（A 稳定性 + B 协议门面 + bridge + 渠道工具化）；P1 媒体读取（Q5）完成 ✅
+## 3. 当前进度：P0 全部完成 ✅（A 稳定性 + B 协议门面 + bridge + 渠道工具化）；P1 媒体读取（Q5）完成 ✅；P2 完成 ✅
 
-三个分支已全部推上 fork 做云备份，git 全链路（SSH 推送 + HTTPS 代理拉上游）已长期稳定。**P0-A 五块、P0-B-1/2 协议门面、P0-B-3 主动外连 bridge、P0-B-4 渠道工具化、P1 媒体读取（Q5）全部完成**，全量 364 测试零失败。剩余为 P1（前端四态面板、渠道直连视频联调）与 P2（直连生成深度联调、Agent Card/metrics）。
+三个分支已全部推上 fork 做云备份，git 全链路（SSH 推送 + HTTPS 代理拉上游）已长期稳定。**P0-A 五块、P0-B-1/2 协议门面、P0-B-3 主动外连 bridge、P0-B-4 渠道工具化、P1 媒体读取（Q5）、P2（metrics + Agent Card + bridge 限流 + OpenAPI 深度联调）全部完成**，全量 372 测试零失败。剩余仅 P1 尾项（前端四态面板、红鸟/artbox 视频直连联调待平台/充值）与仓库治理待办。
 
 P0-A 已提交（`feat(connector):` 前缀，全在 `feat/universal-agent-connector`，已推 fork）：
 1. ✅ `5243a65` 会话滑动续期 + TTL/时钟窗可配 + nonce LRU（`local-runtime-session.ts`：TTL 30min/绝对 12h/时钟窗 60s/nonce 2048 LRU，对外 expiresAt 不变、协议零破坏）
@@ -104,7 +104,12 @@ P0-B 已提交：
   - ✅ **artbox 视频端点确认** `/v1/video/generations`（存在），但**用户余额 ¥0 无法实际生成**（需充值后再联调）。
   - ⏳ **红鸟视频端点待平台确认**：`/api/v1/models` 可读（26 模型全量），但视频提交端点（`/v1/video/generations`、`/v1/tasks`、`/v1/generations` 等 20+ 候选）全部 404；红鸟为"AI 创作系统"工作台，公开 REST 生成端点需从红鸟工作台/官方文档确认后回填 videoUrl/taskUrl。
   - 本机目录已回补全量：**3 渠道 / 121 模型**（a6api 87 + artbox 8 + 红鸟 26），密钥隔离验证通过（channel 列表视图无 apiKey）。红鸟 26 为接口当前真实状态（22 视频 + 4 图片，含 pricing + tasks 参数）。
-- [ ] P2：OpenAPI 直连生成深度联调、`/.well-known/agent.json` Agent Card、metrics。
+- [x] ~~P2：OpenAPI 直连生成深度联调、`/.well-known/agent.json` Agent Card、metrics~~ **已完成**（commit `7298c5d`，见 §3）：
+  - ✅ **metrics**：新增 `src/metrics.ts` registry（计数/时延/状态 gauge，JSON + Prometheus 双格式）；`canvas-session.callTool` 挂钩 `tools.called/errors` 与时延；canvas-agent module 注入单例 + 媒体审计计数；local-runtime 挂 `GET /metrics`（`?format=prometheus`）。
+  - ✅ **Agent Card**：`GET /.well-known/agent.json`（A2A 预留 + 平台发现：name/capabilities/protocol/endpoints/security/tools），随 OpenAPI 门面挂载；openapi-server 支持注入渠道 ctx（可测试）。
+  - ✅ **bridge 429 限流**：broker 按 bridge 限流（默认 60 次/60s，超限 `code 42901`）。
+  - ✅ **OpenAPI 深度联调**：端到端冒烟通过（`/openapi.json` 50 paths 含渠道+画布+health；`channel_list` 3 渠道 121 模型密钥隔离；`model_list_logical` 4 逻辑模型；红鸟 26 模型；`/metrics`；`agent.json`）。
+  - 测试：metrics 3 + openapi-deep 3 + bridge 429 1 = **+7，全量 372 tests / 0 fail / 7 cancelled（既有）**。
 - [ ] Windows 五个渠道插件源码回补 Mac（`plugin-packages/` 经 fork 同步或按 v1.2.5 协议重建）。
 
 ---
@@ -121,4 +126,4 @@ P0-B 已提交：
 ---
 
 ## 6. 一句话现状
-方案 v1.1 与交接报告已落 `feat/universal-agent-connector` 分支，上游已追平、在途工作已安全固化、**分支已推上 fork 云备份、SSH+代理长期稳定**；**P0 全部完成 + P1 媒体读取（Q5）+ soak 脚本完成、渠道直连联调部分完成**：A 稳定性五块（`5243a65`→`0a09795`）、B-1 MCP HTTP（`19a045e`）、B-2 OpenAPI（`80d31b4`）、B-3 主动外连 bridge（`6052f7e`）、B-4 渠道工具化（`f28685b`）、P1 媒体读取（`c2c5524`）、P1 渠道直连联调修复（`8b82415`：a6api 文本端到端通过 + baseUrl 约定/业务码/task_id 提取 + soak 脚本），全量 365 测试 0 失败；本机 `~/.infinite-canvas/channel-catalog.json` 三渠道真实密钥 + 121 模型；下一阶段 P2（OpenAPI 深度联调、Agent Card/metrics）+ P1 剩余（前端四态面板、红鸟/artbox 视频联调待平台/充值）。
+方案 v1.1 与交接报告已落 `feat/universal-agent-connector` 分支，上游已追平、在途工作已安全固化、**分支已推上 fork 云备份、SSH+代理长期稳定**；**P0 全部完成 + P1 媒体读取（Q5）+ soak 脚本完成、渠道直连联调部分完成 + P2 全部完成**：A 稳定性五块（`5243a65`→`0a09795`）、B-1 MCP HTTP（`19a045e`）、B-2 OpenAPI（`80d31b4`）、B-3 主动外连 bridge（`6052f7e`）、B-4 渠道工具化（`f28685b`）、P1 媒体读取（`c2c5524`）、P1 渠道直连联调修复（`8b82415`：a6api 文本端到端通过 + baseUrl 约定/业务码/task_id 提取 + soak 脚本）、P2 metrics+Agent Card+限流+OpenAPI 深度联调（`7298c5d`），全量 372 测试 0 失败；本机 `~/.infinite-canvas/channel-catalog.json` 三渠道真实密钥 + 121 模型；剩余仅 P1 尾项（前端四态面板、红鸟/artbox 视频联调待平台/充值）与仓库治理待办。
