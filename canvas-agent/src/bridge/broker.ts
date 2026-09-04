@@ -51,6 +51,10 @@ export interface CanvasBridgeBrokerOptions {
     offlineAfterSeconds?: number;
     /** [connector] P2 §9.5 每 bridge 的远程提交限流（默认 60 次/60s，超限返回 429） */
     rateLimit?: { maxRequests: number; windowMs: number };
+    /** [connector] 远程 Agent 侧（request/bridges/result）鉴权 token。
+     *  为空则不启用（向后兼容本地）；公网暴露必须设置。
+     *  网关通过 Authorization: Bearer <gatewayToken> 调用。 */
+    gatewayToken?: string;
 }
 
 export interface CanvasBridgeBroker {
@@ -69,6 +73,7 @@ export function createCanvasBridgeBroker(options: CanvasBridgeBrokerOptions = {}
     const maxWaitMs = (options.maxWaitSeconds ?? 25) * 1000;
     const offlineAfterMs = (options.offlineAfterSeconds ?? 90) * 1000;
     const rateLimit = options.rateLimit ?? { maxRequests: 60, windowMs: 60_000 };
+    const gatewayToken = options.gatewayToken ?? "";
 
     const bridges = new Map<string, CanvasBridgeRecord>();
     /** bridgeId -> 正在长轮询等待的 resolver 列表 */
@@ -135,6 +140,17 @@ export function createCanvasBridgeBroker(options: CanvasBridgeBrokerOptions = {}
         const auth = req.headers.authorization ?? "";
         const expected = `Bearer ${record.token}`;
         // 常量时间比较，避免时序侧信道（token 是连接凭据）
+        if (auth.length !== expected.length) return false;
+        let diff = 0;
+        for (let i = 0; i < auth.length; i++) diff |= auth.charCodeAt(i) ^ expected.charCodeAt(i);
+        return diff === 0;
+    }
+
+    /** 远程 Agent 侧鉴权（request/bridges/result）。gatewayToken 未配置时不启用。 */
+    function authorizeGateway(req: IncomingMessage): boolean {
+        if (!gatewayToken) return true; // 未启用鉴权（向后兼容本地部署）
+        const auth = req.headers.authorization ?? "";
+        const expected = `Bearer ${gatewayToken}`;
         if (auth.length !== expected.length) return false;
         let diff = 0;
         for (let i = 0; i < auth.length; i++) diff |= auth.charCodeAt(i) ^ expected.charCodeAt(i);
@@ -302,6 +318,10 @@ export function createCanvasBridgeBroker(options: CanvasBridgeBrokerOptions = {}
 
         // ---------- 远程 Agent 侧 ----------
         if (path === "/api/canvas-bridge/request" && req.method === "POST") {
+            if (!authorizeGateway(req)) {
+                fail(res, 401, 40100, "未授权：缺少/错误的网关凭据");
+                return;
+            }
             const body = (await readBody(req)) as { bridgeId?: string; name?: string; input?: Record<string, unknown> };
             if (!body.bridgeId || !body.name) {
                 fail(res, 400, 40005, "request 需要 bridgeId/name");
@@ -328,6 +348,10 @@ export function createCanvasBridgeBroker(options: CanvasBridgeBrokerOptions = {}
 
         const resultMatch = path.match(/^\/api\/canvas-bridge\/request\/([^/]+)$/);
         if (resultMatch && req.method === "GET") {
+            if (!authorizeGateway(req)) {
+                fail(res, 401, 40100, "未授权：缺少/错误的网关凭据");
+                return;
+            }
             const requestId = decodeURIComponent(resultMatch[1]);
             for (const record of bridges.values()) {
                 const item = record.queue.find((q) => q.requestId === requestId);
@@ -349,6 +373,10 @@ export function createCanvasBridgeBroker(options: CanvasBridgeBrokerOptions = {}
         }
 
         if (path === "/api/canvas-bridge/bridges" && req.method === "GET") {
+            if (!authorizeGateway(req)) {
+                fail(res, 401, 40100, "未授权：缺少/错误的网关凭据");
+                return;
+            }
             const list = Array.from(bridges.values()).map((record) => ({
                 bridgeId: record.bridgeId,
                 endpoint: record.endpoint,

@@ -41,6 +41,7 @@ const BROKER_URL = (env.CANVAS_BROKER_URL ?? "http://127.0.0.1:17800").replace(/
 const BRIDGE_ID = env.CANVAS_BRIDGE_ID ?? "";
 const SCHEMA_URL = ((env.CANVAS_SCHEMA_RUNTIME_URL ?? "http://127.0.0.1:17371").replace(/\/+$/, "")) + "/mcp";
 const SCHEMA_TOKEN = env.CANVAS_SCHEMA_RUNTIME_TOKEN ?? "";
+const BROKER_GATEWAY_TOKEN = env.CANVAS_BROKER_GATEWAY_TOKEN ?? "";
 const TOOL_TIMEOUT_MS = Number(env.CANVAS_TOOL_TIMEOUT_MS ?? 120_000);
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -86,7 +87,9 @@ async function loadToolsWithRetry(): Promise<ToolMeta[]> {
 
 /** 获取在线 bridge 列表 */
 async function listBridges(): Promise<Array<{ bridgeId: string; online: boolean }>> {
-    const res = await fetch(`${BROKER_URL}/api/canvas-bridge/bridges`);
+    const headers: Record<string, string> = {};
+    if (BROKER_GATEWAY_TOKEN) headers.authorization = `Bearer ${BROKER_GATEWAY_TOKEN}`;
+    const res = await fetch(`${BROKER_URL}/api/canvas-bridge/bridges`, { headers });
     const body = (await res.json()) as { code?: number; data?: { bridges?: Array<{ bridgeId: string; online: boolean }> } };
     if (body.code !== 0 || !body.data?.bridges) return [];
     return body.data.bridges;
@@ -105,9 +108,12 @@ async function callViaBridge(name: string, input: Record<string, unknown>): Prom
     const bridgeId = await pickBridgeId();
     if (!bridgeId) throw new Error("没有在线的画布 bridge（请先启动本地 Runtime 并启用 bridge 外连）");
 
+    const brokerHeaders: Record<string, string> = { "content-type": "application/json" };
+    if (BROKER_GATEWAY_TOKEN) brokerHeaders.authorization = `Bearer ${BROKER_GATEWAY_TOKEN}`;
+
     const submitRes = await fetch(`${BROKER_URL}/api/canvas-bridge/request`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: brokerHeaders,
         body: JSON.stringify({ bridgeId, name, input }),
     });
     const submitBody = (await submitRes.json()) as { code?: number; data?: { requestId: string }; msg?: string };
@@ -116,7 +122,9 @@ async function callViaBridge(name: string, input: Record<string, unknown>): Prom
 
     const deadline = Date.now() + TOOL_TIMEOUT_MS;
     while (Date.now() < deadline) {
-        const resultRes = await fetch(`${BROKER_URL}/api/canvas-bridge/request/${encodeURIComponent(requestId)}`);
+        const resultRes = await fetch(`${BROKER_URL}/api/canvas-bridge/request/${encodeURIComponent(requestId)}`, {
+            headers: brokerHeaders,
+        });
         const resultBody = (await resultRes.json()) as { code?: number; msg?: string; data?: { status: string; result?: unknown; error?: string } };
         if (resultBody.code !== 0) throw new Error(resultBody.msg || "查询 bridge 结果失败");
         const data = resultBody.data!;

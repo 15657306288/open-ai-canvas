@@ -338,3 +338,9 @@ OpenAPI 导入 Postman/GPT Actions 可调；bridge 本地不开端口、云端 A
   - `gateway-server.ts`：拉 Schema 加重试（10 次/2s），launchd 同时拉起时等待 Runtime 就绪，避免启动即崩。
   - `bridge/client.ts`：poll 失败自动**重新 register**，Broker 重启后 bridge 无需手动干预自动恢复接入。
 - **验证**：launchd 三件套上线；杀 broker 后 12s 自动拉起（KeepAlive）+ bridge 自动重注册；外部 MCP 客户端全链路 `channel_list` 3 渠道 121 模型。
+
+### 公网暴露安全加固（2026-09-04）
+- **背景**：broker 远程侧端点（`request`/`bridges`/`request/:id`）原无鉴权，公网暴露=无鉴权远程执行。
+- **加固**：broker 新增 `CANVAS_BROKER_GATEWAY_TOKEN`（env/options），配置后 `request`/`bridges`/`result` 及 `GET /` 全部强制 `Authorization: Bearer`（常量时间比较），401 拒绝；未配置则向后兼容本地。网关（gateway-server）调 broker 三处均携带该 Bearer。
+- **token 强随机化**：`~/.infinite-canvas/l3.env` 的 bridge/gateway/broker-gateway 三 token 全部换为 `openssl rand -hex 24` 强随机值；wrapper 注入。
+- **验证**：无 token/错 token → 401；对 token → 全通；公网 Cloudflare Quick Tunnel POC 全链路通过（external → tunnel → 17801 → broker → bridge → runtime，50 工具 + 3 渠道 121 模型）。
