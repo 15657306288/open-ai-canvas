@@ -38,6 +38,8 @@ export interface CanvasBridgeRecord {
     capabilities?: Record<string, unknown>;
     lastSeenAt: number;
     queue: CanvasBridgePendingRequest[];
+    /** [connector] P2 §9.5 限流：远程 Agent 提交请求的时间戳窗口 */
+    requestTimestamps: number[];
 }
 
 export interface CanvasBridgeBrokerOptions {
@@ -47,6 +49,8 @@ export interface CanvasBridgeBrokerOptions {
     maxWaitSeconds?: number;
     /** 心跳超时判定秒数（超过视为离线） */
     offlineAfterSeconds?: number;
+    /** [connector] P2 §9.5 每 bridge 的远程提交限流（默认 60 次/60s，超限返回 429） */
+    rateLimit?: { maxRequests: number; windowMs: number };
 }
 
 export interface CanvasBridgeBroker {
@@ -64,6 +68,7 @@ export function createCanvasBridgeBroker(options: CanvasBridgeBrokerOptions = {}
     const maxPending = options.maxPendingPerBridge ?? 200;
     const maxWaitMs = (options.maxWaitSeconds ?? 25) * 1000;
     const offlineAfterMs = (options.offlineAfterSeconds ?? 90) * 1000;
+    const rateLimit = options.rateLimit ?? { maxRequests: 60, windowMs: 60_000 };
 
     const bridges = new Map<string, CanvasBridgeRecord>();
     /** bridgeId -> 正在长轮询等待的 resolver 列表 */
@@ -74,7 +79,7 @@ export function createCanvasBridgeBroker(options: CanvasBridgeBrokerOptions = {}
     function getOrCreateBridge(bridgeId: string, token: string, endpoint: string): CanvasBridgeRecord {
         let record = bridges.get(bridgeId);
         if (!record) {
-            record = { bridgeId, token, endpoint, lastSeenAt: now(), queue: [] };
+            record = { bridgeId, token, endpoint, lastSeenAt: now(), queue: [], requestTimestamps: [] };
             bridges.set(bridgeId, record);
         }
         // 更新 token/endpoint（允许重注册刷新）
@@ -82,6 +87,21 @@ export function createCanvasBridgeBroker(options: CanvasBridgeBrokerOptions = {}
         record.endpoint = endpoint;
         record.lastSeenAt = now();
         return record;
+    }
+
+    // [connector] P2 §9.5 限流：窗口内请求数超上限返回 true（应拒绝并回 429）
+    function rateLimited(bridgeId: string): boolean {
+        const record = bridges.get(bridgeId);
+        if (!record) return true;
+        const windowStart = now() - rateLimit.windowMs;
+        const recent = record.requestTimestamps.filter((t) => t > windowStart);
+        if (recent.length >= rateLimit.maxRequests) {
+            record.requestTimestamps = recent;
+            return true;
+        }
+        recent.push(now());
+        record.requestTimestamps = recent;
+        return false;
     }
 
     function notifyWaiters(bridgeId: string) {
@@ -290,6 +310,11 @@ export function createCanvasBridgeBroker(options: CanvasBridgeBrokerOptions = {}
             const record = bridges.get(body.bridgeId);
             if (!record) {
                 fail(res, 404, 40401, `bridge 未注册：${body.bridgeId}`);
+                return;
+            }
+            // [connector] P2 §9.5 限流：远程提交侧按 bridge 限频，超限 429
+            if (rateLimited(body.bridgeId)) {
+                fail(res, 429, 42901, "请求过于频繁，请稍后重试（限流窗口内已达上限）");
                 return;
             }
             const requestId = enqueue(body.bridgeId, { name: body.name, input: body.input ?? {} });

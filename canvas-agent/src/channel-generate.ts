@@ -11,6 +11,7 @@
 
 import { agentFetch } from "./agent-fetch.js";
 import type { ChannelCatalogProvider, ModelCapability } from "./channel-catalog.js";
+import { getMetricsRegistry } from "./metrics.js";
 
 export interface ChannelGenerateInput {
     channelId: string;
@@ -70,6 +71,23 @@ export function createChannelGenerateClient(catalog: ChannelCatalogProvider): Ch
     }
 
     async function generate(input: ChannelGenerateInput): Promise<{ taskId: string; status: ChannelTask["status"] }> {
+        // [connector] P2 §9.4 渠道生成可观测
+        const started = Date.now();
+        const metrics = getMetricsRegistry();
+        metrics.incCounter(`channel.generate.${input.capability}`);
+        try {
+            const outcome = await generateInner(input);
+            metrics.observeLatency("channel.generate", Date.now() - started);
+            if (outcome.status === "failed") metrics.incCounter("channel.generate.errors");
+            return outcome;
+        } catch (error) {
+            metrics.observeLatency("channel.generate", Date.now() - started);
+            metrics.incCounter("channel.generate.errors");
+            throw error;
+        }
+    }
+
+    async function generateInner(input: ChannelGenerateInput): Promise<{ taskId: string; status: ChannelTask["status"] }> {
         const channel = catalog.resolveChannel(input.channelId);
         if (!channel) throw new Error(`渠道不存在：${input.channelId}`);
         if (!channel.enabled) throw new Error(`渠道已停用：${input.channelId}`);

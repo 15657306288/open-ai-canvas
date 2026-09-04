@@ -12,14 +12,20 @@ import { ZodType } from "zod";
 import { VERSION, type CanvasAgentConfig } from "./config.js";
 import { toolInputSchemas, toolNames, type ToolName } from "./schemas.js";
 import { agentFetch } from "./agent-fetch.js";
-import { channelToolDefs, channelToolNames } from "./channel-tools.js";
+import { channelToolDefs, channelToolNames, type ChannelToolContext } from "./channel-tools.js";
 import { getChannelToolContext } from "./mcp-server.js";
 
-export function createOpenApiHandler(config: CanvasAgentConfig): RequestHandler {
+export function createOpenApiHandler(config: CanvasAgentConfig, channelContext?: ChannelToolContext): RequestHandler {
+    const ctx = channelContext ?? getChannelToolContext();
     return (req: Request, res: Response) => {
         const pathname = new URL(req.url ?? "/", config.url).pathname;
         if (req.method === "GET" && pathname === "/openapi.json") {
             json(res, 200, buildOpenApiSpec(config));
+            return;
+        }
+        // [connector] P2 §9.4 A2A 预留 + 平台发现：Agent Card
+        if (req.method === "GET" && pathname === "/.well-known/agent.json") {
+            json(res, 200, buildAgentCard(config));
             return;
         }
         if (req.method === "POST" && pathname.startsWith("/tools/")) {
@@ -32,7 +38,7 @@ export function createOpenApiHandler(config: CanvasAgentConfig): RequestHandler 
                         const input = Buffer.isBuffer(req.body) && req.body.length
                             ? JSON.parse(req.body.toString("utf8"))
                             : {};
-                        const result = await tool.handler(getChannelToolContext(), tool.inputSchema.parse(input));
+                        const result = await tool.handler(ctx, tool.inputSchema.parse(input));
                         json(res, 200, { ok: true, result });
                     } catch (error) {
                         json(res, 500, { ok: false, error: error instanceof Error ? error.message : "channel tool call failed" });
@@ -142,6 +148,36 @@ export function buildOpenApiSpec(config: CanvasAgentConfig) {
                     responses: { "200": { description: "健康状态" } },
                 },
             },
+        },
+    };
+}
+
+// [connector] P2 §9.4 Agent Card（A2A 预留 + 平台发现）。标准 A2A Agent Card 字段，
+// 供外部 Agent/平台发现影策连接器的能力、协议端点与安全模型。
+export function buildAgentCard(config: CanvasAgentConfig) {
+    const base = config.url.replace(/\/+$/, "");
+    return {
+        name: "yingce-canvas（影策画布连接器）",
+        description: "影策本地 Runtime 的通用 Agent 连接器：外部 Agent 可经 MCP / OpenAPI 调用画布工具（读状态/读写节点/生成/媒体读取）与渠道工具（模型目录/直连生成），也可经主动外连 bridge 由云端 Agent 远程调用。",
+        url: base,
+        version: VERSION,
+        protocol: ["MCP", "OpenAPI"],
+        capabilities: ["canvas-read", "canvas-write", "media-read", "channel-read", "channel-generate"],
+        security: {
+            model: "master-token + scoped-session",
+            schemes: ["x-canvas-agent-token", "signed-session-scope"],
+            notes: "本地默认走 masterToken；远程经 bridge 的 bearer token；媒体/渠道等能力按 scope 授受。",
+        },
+        endpoints: {
+            mcp: `${base}/mcp`,
+            openapi: `${base}/openapi.json`,
+            health: `${base}/health`,
+            metrics: `${base}/metrics`,
+        },
+        tools: {
+            canvas: 40,
+            media: 1,
+            channel: 7,
         },
     };
 }

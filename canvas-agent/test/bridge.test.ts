@@ -164,3 +164,39 @@ test("[connector] P0-B-3 未注册 bridge 的 request 被拒 + bridges 列表在
     client.stop();
     await h.close();
 });
+
+test("[connector] P2 §9.5 bridge 限流：超频 request 返回 429", async () => {
+    const broker = createCanvasBridgeBroker({ rateLimit: { maxRequests: 3, windowMs: 60_000 } });
+    const brokerServer = http.createServer((req, res) => broker.handle(req, res));
+    await new Promise<void>((resolve) => brokerServer.listen(0, "127.0.0.1", () => resolve()));
+    const port = (brokerServer.address() as { port: number }).port;
+    const base = `http://127.0.0.1:${port}`;
+    try {
+        await fetch(`${base}/api/canvas-bridge/register`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ bridgeId: "rate-b", token: "rate-t", endpoint: "http://local" }),
+        });
+        for (let i = 0; i < 3; i++) {
+            const r = await fetch(`${base}/api/canvas-bridge/request`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ bridgeId: "rate-b", name: "canvas_get_state", input: {} }),
+            });
+            assert.equal(r.status, 200, `第 ${i + 1} 次应在限流内`);
+        }
+        const limited = await fetch(`${base}/api/canvas-bridge/request`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ bridgeId: "rate-b", name: "canvas_get_state", input: {} }),
+        });
+        assert.equal(limited.status, 429);
+        const body = (await limited.json()) as { code: number; msg: string };
+        assert.equal(body.code, 42901);
+        assert.match(body.msg, /过于频繁/);
+    } finally {
+        broker.close();
+        brokerServer.closeAllConnections?.();
+        await new Promise<void>((resolve) => brokerServer.close(() => resolve()));
+    }
+});

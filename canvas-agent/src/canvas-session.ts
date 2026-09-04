@@ -9,6 +9,7 @@ import type { CanvasNode, CanvasNodeType, CanvasSnapshot, ToolEffect } from "./t
 import { emptyToolEffect } from "./types.js";
 import { GraceTracker, type GraceTrackerTimers } from "./grace-tracker.js";
 import { CanvasMediaAccess, type MediaReadInput, type MediaReadResult } from "./media-access.js";
+import type { MetricsRegistry } from "./metrics.js";
 
 type PendingRequest = { clientId: string; recoverable: boolean; resolve: (value: unknown) => void; reject: (error: Error) => void };
 type CanvasClient = { response: ServerResponse; timer: NodeJS.Timeout; runtimeSessionId?: string };
@@ -23,6 +24,8 @@ export type CanvasSessionOptions = {
     timers?: GraceTrackerTimers;
     // [connector] P1-Q5 媒体读取器（未传时内部懒建）
     mediaAccess?: CanvasMediaAccess;
+    // [connector] P2 §9.4 可观测 registry（工具调用计数/时延/错误）
+    metrics?: MetricsRegistry;
 };
 
 export class CanvasSession {
@@ -32,6 +35,7 @@ export class CanvasSession {
     private stateOwner: StateOwner | null = null;
     private readonly graceTracker: GraceTracker;
     private readonly mediaAccess: CanvasMediaAccess;
+    private readonly metrics?: MetricsRegistry;
 
     constructor(options: CanvasSessionOptions = {}) {
         this.graceTracker = new GraceTracker({
@@ -41,6 +45,7 @@ export class CanvasSession {
             onExpired: (clientId) => this.handleGraceExpired(clientId),
         });
         this.mediaAccess = options.mediaAccess ?? new CanvasMediaAccess();
+        this.metrics = options.metrics;
     }
 
     /** [connector] P1-Q5 读取画布节点媒体（block base64 / url 短 TTL 签名链接） */
@@ -166,6 +171,24 @@ export class CanvasSession {
     }
 
     async callTool(name: unknown, rawInput: unknown) {
+        // [connector] P2 §9.4 工具调用可观测：计数 + 时延 + 错误
+        const started = Date.now();
+        const metrics = this.metrics;
+        if (metrics) metrics.incCounter(`tools.called.${String(name)}`);
+        try {
+            const result = await this.callToolInner(name, rawInput);
+            if (metrics) metrics.observeLatency("tools", Date.now() - started);
+            return result;
+        } catch (error) {
+            if (metrics) {
+                metrics.observeLatency("tools", Date.now() - started);
+                metrics.incCounter("tools.errors");
+            }
+            throw error;
+        }
+    }
+
+    private async callToolInner(name: unknown, rawInput: unknown) {
         if (!isToolName(name)) throw new Error(`未知工具：${String(name)}`);
         let tool: ToolName = name;
         let input = parseToolInput(tool, rawInput) as Record<string, unknown>;

@@ -13,6 +13,8 @@ import {
     withAgentPrompt,
 } from "../agents.js";
 import { CanvasSession } from "../canvas-session.js";
+import { CanvasMediaAccess } from "../media-access.js";
+import { getMetricsRegistry } from "../metrics.js";
 import {
     ensureCanvasWorkspace,
     updateCanvasWorkspace,
@@ -29,7 +31,17 @@ export type CanvasAgentSession = Pick<
 
 export function createCanvasAgentHttpModule(
     config: LocalRuntimeConfig,
-    session: CanvasAgentSession = new CanvasSession(),
+    // [connector] P2 §9.4 默认注入 metrics 单例（工具计数/时延/错误 + 媒体读取审计计数）
+    session: CanvasAgentSession = new CanvasSession({
+        metrics: getMetricsRegistry(),
+        mediaAccess: new CanvasMediaAccess({
+            onAudit: (entry) => {
+                const metrics = getMetricsRegistry();
+                metrics.incCounter(`media.read.${entry.mode}`);
+                metrics.observeLatency("media", Date.now() - entry.atMs);
+            },
+        }),
+    }),
 ): LocalRuntimeModule {
     const emit = (type: string, payload: unknown) => session.emitAll(type, payload);
     const routes: LocalRuntimeProtectedRoute[] = [

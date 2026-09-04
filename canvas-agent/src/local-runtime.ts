@@ -8,6 +8,7 @@ import {
     type LocalRuntimeModuleId,
     type LocalRuntimeScope,
 } from "./local-runtime-contract.js";
+import { getMetricsRegistry } from "./metrics.js";
 import {
     assertExactKeys,
     exactAuthorityGuard,
@@ -100,6 +101,18 @@ export function createLocalRuntimeApp(options: CreateLocalRuntimeAppOptions): Ex
         const status = reconnecting > 0 ? "reconnecting" : clients > 0 ? "healthy" : hasCanvas ? "degraded" : "offline";
         res.json({ ok: true, status, ...health });
     });
+    // [connector] P2 §9.4 可观测：/metrics 输出连接器指标（计数/时延/错误率/在线画布/活跃连接器）。
+    //   带 ?format=prometheus 返回 Prometheus 文本格式，否则返回 JSON 快照。
+    app.get("/metrics", (_req, res) => {
+        const metrics = getMetricsRegistry();
+        const format = String(new URL(_req.url ?? "/", options.endpoint).searchParams.get("format") ?? "json");
+        if (format === "prometheus") {
+            res.setHeader("content-type", "text/plain; version=0.0.4");
+            res.send(metrics.toPrometheus());
+            return;
+        }
+        res.json({ ok: true, format: "json", ...metrics.snapshot() });
+    });
     app.get("/config", (_req, res) => res.json({
         ok: true,
         url: options.endpoint,
@@ -112,8 +125,9 @@ export function createLocalRuntimeApp(options: CreateLocalRuntimeAppOptions): Ex
         app.all("/mcp", options.mcpHandler);
     }
     // [connector] P0-B-2 OpenAPI 兜底：/openapi.json（spec）+ /tools/:name（单工具执行）
+    // [connector] P2 §9.4 Agent Card（A2A 预留 + 平台发现）随 OpenAPI 门面一并挂载
     if (options.openApiHandler) {
-        app.all(["/openapi.json", "/tools/:name"], options.openApiHandler);
+        app.all(["/openapi.json", "/tools/:name", "/.well-known/agent.json"], options.openApiHandler);
     }
 
     app.post(
