@@ -7,22 +7,25 @@ import os from "node:os";
 import path from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { OAuthManager } from "../src/bridge/gateway-oauth.js";
+import type { AccountProvider, AuthOutcome, PreCheckOutcome, ChargeOutcome, Principal } from "../src/bridge/account-provider.js";
 
-// 最小假 KeyStore：只实现 OAuthManager 用到的 verify / verifyClientSecret / get
-function fakeKeyStore() {
-    const id = "k_test1";
+// 最小假 AccountProvider：OAuth 流程只用到 authenticateByKey / authenticateClient
+function fakeAccount(): AccountProvider {
+    const principal: Principal = { subjectId: "k_test1", displayName: "测试客户", enabled: true };
+    const ok: AuthOutcome = { ok: true, principal };
     return {
-        id,
-        verify(plain: string) {
-            if (plain === "ak_good") return { ok: true as const, key: { id, name: "测试客户", enabled: true } };
-            return { ok: false as const, reason: "invalid" as const };
+        kind: "local",
+        async authenticateByKey(plain: string): Promise<AuthOutcome> {
+            return plain === "ak_good" ? ok : { ok: false, reason: "not_found", status: 401 };
         },
-        verifyClientSecret(cid: string, secret: string) {
-            if (cid === id && secret === "cs_good") return { ok: true as const, key: { id, name: "测试客户", enabled: true } };
-            return { ok: false as const, reason: "invalid" as const };
+        async authenticateClient(_c: string, secret: string): Promise<AuthOutcome> {
+            return secret === "cs_good" ? ok : { ok: false, reason: "bad_secret", status: 401 };
         },
-        get(keyId: string) { return keyId === id ? { id, name: "测试客户", enabled: true } : undefined; },
-    } as never;
+        async resolveSubject(): Promise<Principal | undefined> { return principal; },
+        async preCheck(): Promise<PreCheckOutcome> { return { allow: true }; },
+        async charge(): Promise<ChargeOutcome> { return { ok: true }; },
+        async recordCall(): Promise<void> {},
+    };
 }
 
 function pkce() {
@@ -33,7 +36,7 @@ function pkce() {
 
 async function startServer() {
     const storeFile = path.join(os.tmpdir(), `oauth-test-${crypto.randomBytes(6).toString("hex")}.json`);
-    const oauth = new OAuthManager({ keyStore: fakeKeyStore(), publicBaseUrl: "http://127.0.0.1:0", storeFile });
+    const oauth = new OAuthManager({ accounts: fakeAccount(), publicBaseUrl: "http://127.0.0.1:0", storeFile });
     const server = http.createServer((req: IncomingMessage, res: ServerResponse) => { void oauth.handle(req, res); });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const port = (server.address() as { port: number }).port;

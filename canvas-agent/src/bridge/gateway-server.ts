@@ -46,7 +46,8 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { AGENT_PROMPT, VERSION } from "../config.js";
 import { agentFetch } from "../agent-fetch.js";
 import { assertTokenForHost } from "./server-security.js";
-import { KeyStore, today } from "./gateway-keys.js";
+import { today } from "./gateway-keys.js";
+import { createAccountProvider, type AccountProvider } from "./account-provider.js";
 import { loadPricing, priceFor, type Pricing } from "./gateway-billing.js";
 import { OAuthManager } from "./gateway-oauth.js";
 
@@ -63,12 +64,13 @@ const TOOL_TIMEOUT_MS = Number(env.CANVAS_TOOL_TIMEOUT_MS ?? 120_000);
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const USAGE_LOG = env.CANVAS_GATEWAY_USAGE_LOG ?? path.join(process.env.HOME ?? ".", ".infinite-canvas", "gateway-usage.jsonl");
 
-const keyStore = new KeyStore();
+// 账户来源：local=本地 KeyStore（默认/内测）；remote=网站后端钱包（CANVAS_ACCOUNT_PROVIDER 切换）
+const account: AccountProvider = createAccountProvider();
 
 // 标准 MCP OAuth 2.1（发现/动态注册/PKCE 授权码/刷新）；对外公网基址用于 metadata 绝对 URL
 const PUBLIC_BASE_URL = (env.CANVAS_GATEWAY_PUBLIC_BASE_URL ?? "https://yingce.cc.cd").replace(/\/+$/, "");
 const OAUTH_STORE_FILE = env.CANVAS_OAUTH_STORE_FILE ?? path.join(process.env.HOME ?? ".", ".infinite-canvas", "oauth-store.json");
-const oauth = new OAuthManager({ keyStore, publicBaseUrl: PUBLIC_BASE_URL, storeFile: OAUTH_STORE_FILE });
+const oauth = new OAuthManager({ accounts: account, publicBaseUrl: PUBLIC_BASE_URL, storeFile: OAUTH_STORE_FILE });
 
 // P2 定价缓存：启动加载一次，mtime 变化自动重载（改价无需重启）
 const PRICING_FILE = process.env.CANVAS_GATEWAY_PRICING_FILE ?? path.join(process.env.HOME ?? ".", ".infinite-canvas", "gateway-pricing.json");
@@ -212,7 +214,7 @@ interface GwAuth {
  * 其次客户 API Key（Authorization Bearer ak_ 或 X-Api-Key）。
  * 返回 { type, ... } 表示通过；返回 { rejectStatus, rejectReason } 表示拒绝。
  */
-function authenticate(req: IncomingMessage): GwAuth {
+async function authenticate(req: IncomingMessage): Promise<GwAuth> {
     const auth = typeof req.headers.authorization === "string" ? req.headers.authorization : "";
     const bearer = auth.startsWith("Bearer ") ? auth.slice("Bearer ".length).trim() : "";
     const alt = typeof req.headers["x-canvas-agent-token"] === "string" ? req.headers["x-canvas-agent-token"] : "";
@@ -227,19 +229,19 @@ function authenticate(req: IncomingMessage): GwAuth {
     if (bearer.startsWith("at_")) {
         const rec = oauth.verifyAccessToken(bearer);
         if (!rec) return { type: "key", rejectStatus: 401, rejectReason: "invalid or expired access token" };
-        const k = keyStore.get(rec.keyId);
-        if (!k || !k.enabled) return { type: "key", rejectStatus: 401, rejectReason: "invalid or disabled API key" };
-        return { type: "key", keyId: rec.keyId, keyName: k.name };
+        const p = await account.resolveSubject(rec.keyId);
+        if (!p) return { type: "key", rejectStatus: 401, rejectReason: "invalid or disabled account" };
+        return { type: "key", keyId: p.subjectId, keyName: p.displayName };
     }
 
     // ③ 客户 API Key
     const candidate = bearer.startsWith("ak_") ? bearer : apiKeyHeader;
     if (candidate) {
-        const v = keyStore.verify(candidate);
-        if (v.ok && v.key) {
-            return { type: "key", keyId: v.key.id, keyName: v.key.name };
+        const v = await account.authenticateByKey(candidate);
+        if (v.ok) {
+            return { type: "key", keyId: v.principal.subjectId, keyName: v.principal.displayName };
         }
-        if (v.reason === "quota") {
+        if (v.status === 429) {
             return { type: "key", rejectStatus: 429, rejectReason: "quota exceeded: daily call limit reached" };
         }
         return { type: "key", rejectStatus: 401, rejectReason: "invalid or disabled API key" };
@@ -272,10 +274,10 @@ function createSessionServer(tools: ToolMeta[], auth: GwAuth): Server {
         const started = Date.now();
         const cost = priceFor(currentPricing(), name);
 
-        // P2 余额预检：启用余额控制的 Key，余额不足以支付本次调用 → 业务拒绝
+        // P2 余额预检：启用余额控制的账户，余额不足以支付本次调用 → 业务拒绝
         if (auth.type === "key" && auth.keyId) {
-            const k = keyStore.get(auth.keyId);
-            if (k && k.balance !== undefined && k.balance < cost) {
+            const pc = await account.preCheck(auth.keyId, cost);
+            if (!pc.allow) {
                 appendUsageLog({
                     ts: new Date().toISOString(),
                     date: today(),
@@ -284,14 +286,14 @@ function createSessionServer(tools: ToolMeta[], auth: GwAuth): Server {
                     tool: name,
                     ok: false,
                     error: "insufficient_balance",
-                    need: cost,
-                    balance: k.balance,
+                    need: pc.need,
+                    balance: pc.balance,
                     ms: Date.now() - started,
                 });
                 return {
                     content: [{
                         type: "text" as const,
-                        text: `[canvas-bridge] 402 Payment Required: 余额不足（本次需 ¥${cost.toFixed(2)}，当前余额 ¥${k.balance.toFixed(2)}，请充值）`,
+                        text: `[canvas-bridge] 402 Payment Required: 余额不足（本次需 ¥${pc.need.toFixed(2)}，当前余额 ¥${pc.balance.toFixed(2)}，请充值）`,
                     }],
                     isError: true,
                 };
@@ -303,7 +305,7 @@ function createSessionServer(tools: ToolMeta[], auth: GwAuth): Server {
             // P2 扣费 + 计量：按调用主体记录（JSONL 是账单数据源）
             let newBalance: number | undefined;
             if (auth.type === "key" && auth.keyId) {
-                const d = keyStore.deduct(auth.keyId, cost);
+                const d = await account.charge(auth.keyId, cost);
                 newBalance = d.balance;
             }
             appendUsageLog({
@@ -317,7 +319,7 @@ function createSessionServer(tools: ToolMeta[], auth: GwAuth): Server {
                 balance: newBalance,
                 ms: Date.now() - started,
             });
-            if (auth.type === "key" && auth.keyId) keyStore.recordUsage(auth.keyId, name);
+            if (auth.type === "key" && auth.keyId) await account.recordCall(auth.keyId, name);
             const text = typeof result === "string" ? result : JSON.stringify(result);
             return { content: [{ type: "text" as const, text }] };
         } catch (error) {
@@ -331,7 +333,7 @@ function createSessionServer(tools: ToolMeta[], auth: GwAuth): Server {
                 error: error instanceof Error ? error.message : String(error),
                 ms: Date.now() - started,
             });
-            if (auth.type === "key" && auth.keyId) keyStore.recordUsage(auth.keyId, name);
+            if (auth.type === "key" && auth.keyId) await account.recordCall(auth.keyId, name);
             return {
                 content: [{ type: "text" as const, text: `[canvas-bridge] ${error instanceof Error ? error.message : String(error)}` }],
                 isError: true,
@@ -352,7 +354,7 @@ async function main() {
         void (async () => {
             // 标准 MCP OAuth 端点（发现/动态注册/授权/token），不经过 MCP 鉴权
             if (await oauth.handle(req, res)) return;
-            const auth = authenticate(req);
+            const auth = await authenticate(req);
             if (auth.rejectStatus) {
                 const code = auth.rejectStatus === 429 ? -32029 : -32001;
                 res.statusCode = auth.rejectStatus;
@@ -415,7 +417,7 @@ async function main() {
     httpServer.listen(PORT, HOST, () => {
         console.log(`[canvas-gateway] MCP gateway listening on ${HOST}:${PORT}/mcp`);
         console.log(`[canvas-gateway] broker=${BROKER_URL} defaultBridge=${BRIDGE_ID || "(auto: 第一个在线)"}`);
-        console.log(`[canvas-gateway] auth=master(${GATEWAY_TOKEN ? "on" : "off"}) + api-key(store=${keyStore.filePath})`);
+        console.log(`[canvas-gateway] auth=master(${GATEWAY_TOKEN ? "on" : "off"}) + account-provider=${account.kind}`);
         console.log(`[canvas-gateway] usage-log=${USAGE_LOG}`);
         console.log(`[canvas-gateway] pricing=${PRICING_FILE} (default ${priceFor(currentPricing(), "default")}/${pricing.currency})`);
         console.log(`[canvas-gateway] oauth=标准 MCP OAuth2.1（discovery/register/authorize/token）public=${PUBLIC_BASE_URL} store=${OAUTH_STORE_FILE}`);

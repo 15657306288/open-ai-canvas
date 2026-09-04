@@ -18,7 +18,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { KeyStore } from "./gateway-keys.js";
+import type { AccountProvider } from "./account-provider.js";
 
 const SCOPE = "mcp:tools";
 const ACCESS_TTL_MS = Number(process.env.CANVAS_OAUTH_ACCESS_TTL ?? 3600_000); // 1h
@@ -54,7 +54,7 @@ function pkceS256(verifier: string): string {
 }
 
 export class OAuthManager {
-    private readonly keyStore: KeyStore;
+    private readonly accounts: AccountProvider;
     readonly publicBaseUrl: string;
     private readonly storeFile: string;
     private clients = new Map<string, RegisteredClient>();
@@ -62,8 +62,8 @@ export class OAuthManager {
     private readonly codes = new Map<string, CodeRecord>();
     private readonly accessTokens = new Map<string, AccessRecord>();
 
-    constructor(opts: { keyStore: KeyStore; publicBaseUrl: string; storeFile: string }) {
-        this.keyStore = opts.keyStore;
+    constructor(opts: { accounts: AccountProvider; publicBaseUrl: string; storeFile: string }) {
+        this.accounts = opts.accounts;
         this.publicBaseUrl = opts.publicBaseUrl.replace(/\/+$/, "");
         this.storeFile = opts.storeFile;
         this.load();
@@ -265,17 +265,18 @@ export class OAuthManager {
             res.statusCode = 400; res.setHeader("content-type", "text/plain; charset=utf-8");
             res.end("invalid client or redirect_uri"); return true;
         }
-        const v = this.keyStore.verify(apiKey);
-        if (!v.ok || !v.key) {
+        const v = await this.accounts.authenticateByKey(apiKey);
+        if (!v.ok) {
             const u = new URL("/authorize", "http://localhost");
             params.forEach((val, key) => u.searchParams.set(key, val));
             res.statusCode = 302;
             res.setHeader("location", `${u.pathname}?${u.searchParams.toString()}&error=${encodeURIComponent("Key 无效或已停用，请重试")}`);
             res.end(); return true;
         }
+        const subjectId = v.principal.subjectId;
         const code = randomToken("oc_", 24);
         this.codes.set(code, {
-            clientId, redirectUri, codeChallenge, keyId: v.key.id, scope, exp: Date.now() + CODE_TTL_MS,
+            clientId, redirectUri, codeChallenge, keyId: subjectId, scope, exp: Date.now() + CODE_TTL_MS,
         });
         redirectBack({ code });
         return true;
@@ -325,9 +326,10 @@ export class OAuthManager {
             // P3 兼容：client_id=key.id，client_secret=cs_…（哈希校验）
             const cid = String(body.client_id ?? "");
             const secret = String(body.client_secret ?? "");
-            const cv = this.keyStore.verifyClientSecret(cid, secret);
-            if (!cv.ok || !cv.key) return this.tokenError(res, "invalid_client", "invalid client credentials", 401), true;
-            const access = this.issueAccess(cid, cv.key.id, SCOPE);
+            const cv = await this.accounts.authenticateClient(cid, secret);
+            if (!cv.ok) return this.tokenError(res, "invalid_client", "invalid client credentials", 401), true;
+            const subjectId = cv.principal.subjectId;
+            const access = this.issueAccess(cid, subjectId, SCOPE);
             this.json(res, 200, { token_type: "Bearer", ...access });
             return true;
         }
