@@ -300,3 +300,31 @@ OpenAPI 导入 Postman/GPT Actions 可调；bridge 本地不开端口、云端 A
 - [ ] http-server 挂载并共享 CanvasSession；CORS/鉴权（Bearer+token）
 - [ ] config/CLI 开关；无画布快速失败 no_canvas_connected
 - [ ] Inspector + 一个真实 Agent 联调；stdio/网页回归；docs/connect/mcp-http.md
+
+## 15. L 分层落地状态（L1/L2/L3，Mac 当服务器）
+
+> 目标：不止 Codex，任何 MCP 客户端（豆包/WorkBuddy/Hermes 等）都能调用影策画布。三层递进，均已实现并验证。
+
+### L1 本机（Codex 直连 /mcp）
+- `/mcp` Streamable HTTP 门面（50 工具：canvas 32 / project 10 / channel 5 / model 2 / dreamina 1），Runtime 常驻 `127.0.0.1:17371`。
+- `~/.codex/config.toml` `[mcp_servers.yingce]` 走 `url = http://127.0.0.1:17371/mcp` + `x-canvas-agent-token` 头。
+
+### L2 局域网（其他电脑可连本机 Runtime）
+- `CANVAS_HOST=0.0.0.0` 对外监听；`CANVAS_AUTHORITY` 逗号分隔权威 Host（`exactAuthorityGuard` 多 authority，未声明 Host 仍 421）。
+- `/mcp` 配 token 即强制 Bearer 校验（`Authorization: Bearer` 或 `x-canvas-agent-token`，无 token 401）。
+- 已验证：局域网 `http://192.168.31.244:17371/mcp` + token 通 / 401 / 421。commit `9683fba`。
+
+### L3 公网 / 网站用户（经云端 broker 网关调用本机画布）
+- **架构**：外部 Agent → MCP 网关(`:17801/mcp`, Bearer) → Broker(`:17800`, 队列转发) ← 主动外连 bridge ← 本地 Runtime(`:17371`)。
+  本机 Runtime 零入站端口，只主动外连 Broker（register/heartbeat/poll/result）。
+- **新增入口**：
+  - `canvas-agent/src/bridge/broker-server.ts`：Broker 独立 server（`node dist/bridge/broker-server.js`，默认 `0.0.0.0:17800`）。
+  - `canvas-agent/src/bridge/gateway-server.ts`：MCP 网关（`node dist/bridge/gateway-server.js`，默认 `0.0.0.0:17801`），启动时连 Schema Runtime 拉工具定义，`tools/call` 经 Broker `/api/canvas-bridge/request` 转发并轮询 `/request/:id`。
+- **`/api/tools` 补 channel 分支**：渠道工具（channel_* / model_*）走本地 ctx，画布工具走 `session.callTool` —— 补齐 bridge 转发对全部 50 工具的覆盖。
+- **一键启动**：`启动影策L3服务器.command`（幂等：broker → Runtime+bridge → 网关，自动取局域网 IP）。
+- **验证**：外部 MCP 客户端 → 网关 `channel_list` 返回 3 渠道 121 模型；`canvas_get_context` 无画布错误透传（isError）；无 token 401；局域网 IP 访问网关正常。
+- **外部 Agent 接入配置**：`http://<网关IP>:17801/mcp` + Bearer `<gateway token>`（默认 `gateway-2026`，对外部署请改强随机值）。
+
+### 安全与运维备注
+- Broker `request`/`bridges` 端点当前无鉴权（仅 429 限流）——对外暴露需在网关/Broker 前置鉴权代理，或收紧 broker 绑定网卡。
+- `启动影策L3服务器.command` 内 `BRIDGE_TOKEN`/`GATEWAY_TOKEN` 为本地开发默认值，公网部署务必更换。

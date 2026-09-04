@@ -1,5 +1,7 @@
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 
+import { channelToolDefs, channelToolNames } from "../channel-tools.js";
+import { getChannelToolContext } from "../mcp-server.js";
 import {
     archiveCodexThread,
     listCodexThreads,
@@ -71,6 +73,13 @@ export function createCanvasAgentHttpModule(
         canvasRoute("POST", "/api/tools", async (req, res) => {
             const body = jsonRecord(req);
             try {
+                // [connector] P0-B-4 渠道工具走本地 ctx（目录/生成），画布工具走 session.callTool
+                if (channelToolNames.includes(String(body.name ?? ""))) {
+                    const tool = channelToolDefs.find((t) => t.name === body.name)!;
+                    const result = await tool.handler(getChannelToolContext(), tool.inputSchema.parse(body.input || {}));
+                    res.json({ ok: true, result });
+                    return;
+                }
                 res.json({ ok: true, result: await session.callTool(body.name, body.input || {}) });
             } catch (error) {
                 // [connector] P0-B-1 错误透传：MCP/OpenAPI 等外部 agent 需看到真实失败原因（如"当前没有已连接画布"）
