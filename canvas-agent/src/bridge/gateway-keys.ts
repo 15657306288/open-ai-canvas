@@ -45,6 +45,8 @@ export interface ApiKey {
     lastUsedAt?: string;
     quota: KeyQuota;
     usage: KeyUsage;
+    /** P2 计费余额（CNY 元，可选；undefined=不启用余额控制） */
+    balance?: number;
 }
 
 interface KeyFile {
@@ -117,7 +119,7 @@ export class KeyStore {
         fs.renameSync(tmp, this.file);
     }
 
-    createKey(opts: { name: string; dailyCalls?: number }): { key: string; record: ApiKey } {
+    createKey(opts: { name: string; dailyCalls?: number; balance?: number }): { key: string; record: ApiKey } {
         const key = generateKey();
         const now = new Date().toISOString();
         const record: ApiKey = {
@@ -128,6 +130,7 @@ export class KeyStore {
             createdAt: now,
             quota: { dailyCalls: opts.dailyCalls ?? 0 }, // 0 = 不限制
             usage: { date: today(), calls: 0, totalCalls: 0, byTool: {} },
+            balance: opts.balance,
         };
         this.data.keys.push(record);
         this.save();
@@ -169,7 +172,33 @@ export class KeyStore {
     }
 
     get(idOrName: string): ApiKey | undefined {
+        this.reloadIfChanged();
         return this.resolve(idOrName);
+    }
+
+    /** P2 充值：为 Key 增加余额（CNY 元），返回新余额 */
+    topup(idOrName: string, amount: number): { ok: boolean; balance?: number } {
+        this.reloadIfChanged();
+        const k = this.resolve(idOrName);
+        if (!k) return { ok: false };
+        k.balance = Math.round(((k.balance ?? 0) + amount) * 100) / 100;
+        this.save();
+        try { this.lastMtime = fs.statSync(this.file).mtimeMs; } catch { /* ignore */ }
+        return { ok: true, balance: k.balance };
+    }
+
+    /** P2 扣费：调用后按实际费用扣减余额（不会扣成负数，不足时返回 ok=false） */
+    deduct(idOrName: string, amount: number): { ok: boolean; balance?: number } {
+        this.reloadIfChanged();
+        const k = this.resolve(idOrName);
+        if (!k) return { ok: false };
+        if (k.balance === undefined) return { ok: true, balance: undefined }; // 未启用余额控制
+        const next = Math.round((k.balance - amount) * 100) / 100;
+        if (next < -0.000001) return { ok: false, balance: k.balance }; // 不允许欠费（余额不足在调用前拦截）
+        k.balance = next;
+        this.save();
+        try { this.lastMtime = fs.statSync(this.file).mtimeMs; } catch { /* ignore */ }
+        return { ok: true, balance: k.balance };
     }
 
     /** 校验明文 Key：哈希比对 + 启用状态 + 日配额。ok=false 时 reason 供网关转 HTTP 状态 */
@@ -219,6 +248,7 @@ function printRecord(k: ApiKey): void {
     console.log(`  enabled : ${k.enabled ? "✓" : "✗（已停用）"}`);
     console.log(`  created : ${k.createdAt}`);
     console.log(`  quota   : 日 ${k.quota.dailyCalls === 0 ? "不限" : k.quota.dailyCalls} 次调用`);
+    console.log(`  balance : ${k.balance === undefined ? "未启用（按日配额计）" : `¥ ${k.balance.toFixed(2)}`}`);
     console.log(`  usage   : 今日 ${k.usage.calls} 次 / 累计 ${k.usage.totalCalls} 次`);
 }
 
@@ -235,17 +265,35 @@ function cliMain(): void {
     if (cmd === "add") {
         const name = argValue("--name");
         if (!name) {
-            console.error("用法: gateway-keys add --name <客户名> [--quota <日调用上限>]");
+            console.error("用法: gateway-keys add --name <客户名> [--quota <日调用上限>] [--balance <预存金额(元)>]");
             process.exit(1);
         }
         const dailyCalls = argValue("--quota") ? Number(argValue("--quota")) : 0;
-        const { key, record } = store.createKey({ name, dailyCalls: Number.isFinite(dailyCalls) ? dailyCalls : 0 });
+        const balance = argValue("--balance") ? Number(argValue("--balance")) : undefined;
+        const { key, record } = store.createKey({ name, dailyCalls: Number.isFinite(dailyCalls) ? dailyCalls : 0, balance: balance !== undefined && Number.isFinite(balance) ? balance : undefined });
         console.log("已颁发客户 Key（明文仅此一次，之后只存哈希，请妥善保存）：");
         console.log();
         console.log(`  ${key}`);
         console.log();
         console.log("Key 信息：");
         printRecord(record);
+        return;
+    }
+
+    if (cmd === "topup" || cmd === "balance") {
+        const target = rest[0];
+        if (!target) { console.error(`用法: gateway-keys ${cmd} <id|name> [金额]`); process.exit(1); }
+        if (cmd === "topup") {
+            const amount = Number(rest[1]);
+            if (!Number.isFinite(amount) || amount <= 0) { console.error("金额必须为正数"); process.exit(1); }
+            const r = store.topup(target, amount);
+            if (!r.ok) { console.error(`未找到：${target}`); process.exit(1); }
+            console.log(`已充值 ¥${amount.toFixed(2)} → ${target} 余额 ¥${(r.balance ?? 0).toFixed(2)}`);
+        } else {
+            const k = store.get(target);
+            if (!k) { console.error(`未找到：${target}`); process.exit(1); }
+            console.log(`${k.name} (${k.id}) 余额：${k.balance === undefined ? "未启用余额控制" : `¥ ${k.balance.toFixed(2)}`}`);
+        }
         return;
     }
 
@@ -292,11 +340,13 @@ function cliMain(): void {
 
     if (hasFlag("--help") || !cmd) {
         console.log(`用法: gateway-keys <cmd>
-  add   --name <客户名> [--quota <日调用上限>]   颁发客户 Key（打印一次明文）
+  add   --name <客户名> [--quota <日调用上限>] [--balance <预存金额>]   颁发客户 Key（打印一次明文）
   list                                         列出全部 Key
   revoke <id|name>                             停用
   enable <id|name>                             启用
   reset  <id|name>                             重置当日计数
+  topup  <id|name> <金额>                      充值（P2 余额）
+  balance <id|name>                            查询余额
   usage  <id|name>                             查看用量明细`);
         return;
     }

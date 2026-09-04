@@ -47,6 +47,7 @@ import { AGENT_PROMPT, VERSION } from "../config.js";
 import { agentFetch } from "../agent-fetch.js";
 import { assertTokenForHost } from "./server-security.js";
 import { KeyStore, today } from "./gateway-keys.js";
+import { loadPricing, priceFor, type Pricing } from "./gateway-billing.js";
 
 const env = process.env;
 const PORT = Number(env.CANVAS_GATEWAY_PORT ?? 17801);
@@ -62,6 +63,24 @@ const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const USAGE_LOG = env.CANVAS_GATEWAY_USAGE_LOG ?? path.join(process.env.HOME ?? ".", ".infinite-canvas", "gateway-usage.jsonl");
 
 const keyStore = new KeyStore();
+
+// P2 定价缓存：启动加载一次，mtime 变化自动重载（改价无需重启）
+const PRICING_FILE = process.env.CANVAS_GATEWAY_PRICING_FILE ?? path.join(process.env.HOME ?? ".", ".infinite-canvas", "gateway-pricing.json");
+let pricing: Pricing = loadPricing();
+let pricingMtime = statMtimeMs(PRICING_FILE);
+
+function statMtimeMs(file: string): number {
+    try { return fs.statSync(file).mtimeMs; } catch { return 0; }
+}
+
+function currentPricing(): Pricing {
+    const m = statMtimeMs(PRICING_FILE);
+    if (m !== pricingMtime) {
+        pricing = loadPricing();
+        pricingMtime = m;
+    }
+    return pricing;
+}
 
 assertTokenForHost(HOST, GATEWAY_TOKEN, "CANVAS_GATEWAY_TOKEN");
 
@@ -232,9 +251,42 @@ function createSessionServer(tools: ToolMeta[], auth: GwAuth): Server {
         const name = request.params.name;
         const args = (request.params.arguments ?? {}) as Record<string, unknown>;
         const started = Date.now();
+        const cost = priceFor(currentPricing(), name);
+
+        // P2 余额预检：启用余额控制的 Key，余额不足以支付本次调用 → 业务拒绝
+        if (auth.type === "key" && auth.keyId) {
+            const k = keyStore.get(auth.keyId);
+            if (k && k.balance !== undefined && k.balance < cost) {
+                appendUsageLog({
+                    ts: new Date().toISOString(),
+                    date: today(),
+                    keyId: auth.keyId,
+                    keyName: auth.keyName ?? "",
+                    tool: name,
+                    ok: false,
+                    error: "insufficient_balance",
+                    need: cost,
+                    balance: k.balance,
+                    ms: Date.now() - started,
+                });
+                return {
+                    content: [{
+                        type: "text" as const,
+                        text: `[canvas-bridge] 402 Payment Required: 余额不足（本次需 ¥${cost.toFixed(2)}，当前余额 ¥${k.balance.toFixed(2)}，请充值）`,
+                    }],
+                    isError: true,
+                };
+            }
+        }
+
         try {
             const result = await callViaBridge(name, args);
-            // 计量：按调用主体记录（P2 数据源）
+            // P2 扣费 + 计量：按调用主体记录（JSONL 是账单数据源）
+            let newBalance: number | undefined;
+            if (auth.type === "key" && auth.keyId) {
+                const d = keyStore.deduct(auth.keyId, cost);
+                newBalance = d.balance;
+            }
             appendUsageLog({
                 ts: new Date().toISOString(),
                 date: today(),
@@ -242,6 +294,8 @@ function createSessionServer(tools: ToolMeta[], auth: GwAuth): Server {
                 keyName: auth.type === "key" ? auth.keyName : "master",
                 tool: name,
                 ok: true,
+                cost,
+                balance: newBalance,
                 ms: Date.now() - started,
             });
             if (auth.type === "key" && auth.keyId) keyStore.recordUsage(auth.keyId, name);
@@ -335,6 +389,7 @@ async function main() {
         console.log(`[canvas-gateway] broker=${BROKER_URL} defaultBridge=${BRIDGE_ID || "(auto: 第一个在线)"}`);
         console.log(`[canvas-gateway] auth=master(${GATEWAY_TOKEN ? "on" : "off"}) + api-key(store=${keyStore.filePath})`);
         console.log(`[canvas-gateway] usage-log=${USAGE_LOG}`);
+        console.log(`[canvas-gateway] pricing=${PRICING_FILE} (default ${priceFor(currentPricing(), "default")}/${pricing.currency})`);
     });
 
     function shutdown() {

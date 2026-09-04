@@ -368,3 +368,14 @@ OpenAPI 导入 Postman/GPT Actions 可调；bridge 本地不开端口、云端 A
 - **热重载**：KeyStore 按文件 mtime 自动热重载，CLI 颁发/吊销后网关**无需重启**即时生效。
 - **CLI**（`node dist/bridge/gateway-keys.js`）：`add --name <客户> [--quota <日上限>]` / `list` / `revoke|enable|reset <id|name>` / `usage <id|name>`。
 - **验证**：公网客户 Key 全链路（50 工具 / 3 渠道 121 模型）；无凭据/错误 Key 401；配额满额 429；用量 JSONL 落盘；6 个单测全绿（含热重载测试）。
+
+### P2 商业化计量计费（2026-09-04）
+- **目标**：在 P1 Key 基础上实现"计量 + 定价 + 账单 + 余额扣费"商业闭环。
+- **新增**：
+  - `canvas-agent/src/bridge/gateway-billing.ts`：定价表 + 用量聚合 + 账单 CLI（`bill`/`report`/`pricing`）。
+  - `gateway-keys.ts`：Key 增加 `balance`（CNY 元）+ `topup`（充值）/`deduct`（扣费，不允许负余额）。
+  - `gateway-server.ts`：余额预检（不足返回业务 402）+ 调用后扣费 + `cost` 写入用量 JSONL。
+- **计费模型**：按工具调用次数（per-call）计费；定价表 `~/.infinite-canvas/gateway-pricing.json` 支持**精确名**、**前缀通配**（`canvas_*`）、**默认单价**三级命中；改价热重载（mtime），无需重启。
+- **规则**：失败调用不计费（`ok=false` → cost 0）；余额不足调用前拦截（402 Payment Required）；未配置余额的 Key 不受影响（仅日配额）。
+- **CLI**：`gateway-billing bill [--date D] [--key K]` / `report` / `pricing`；`gateway-keys topup <id|name> <金额>` / `balance <id|name>`。
+- **验证**：公网客户 Key 成功调用扣费（余额 10→9.98）、失败调用 0 计费、零余额 402 拦截、账单/报表正确；10 个单测全绿（定价三级命中、聚合计费、余额扣费/不足拦截）。
