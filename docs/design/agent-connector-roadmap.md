@@ -356,3 +356,15 @@ OpenAPI 导入 Postman/GPT Actions 可调；bridge 本地不开端口、云端 A
 - **托管**：launchd `com.yingce.canvas-tunnel`（wrapper `~/.infinite-canvas/l3-run-tunnel.sh`）；四件套（broker/runtime/gateway/tunnel）全部 RunAtLoad+KeepAlive。
 - **验证**：公网 `POST https://yingce.cc.cd/mcp` → initialize 200（serverInfo canvas-gateway 0.1.0）、tools/list 50 工具、channel_list 3 渠道 121 模型；无/错 token 401；web `GET /` 200 不受影响。
 - **外部 Agent 接入**：MCP 配置 `url = "https://yingce.cc.cd/mcp"` + `http_headers { Authorization = "Bearer <gateway token>" }`（token 见本机 `~/.infinite-canvas/l3.env` 的 `CANVAS_L3_GATEWAY_TOKEN`）。
+
+### P1 商业化 Key 网关（2026-09-04）
+- **目标**：把单一共享内部 token 升级为多租户客户 API Key 体系，支持颁发/吊销/配额/计量，为计费打底。
+- **新增**：
+  - `canvas-agent/src/bridge/gateway-keys.ts`：KeyStore（SHA-256 哈希存储，明文只在颁发时打印一次）+ 管理 CLI。
+  - `canvas-agent/src/bridge/gateway-server.ts`：认证升级为 master token（内部）或客户 Key（`Authorization: Bearer ak_…` 或 `X-Api-Key`）。
+- **安全**：磁盘只存哈希；Key 泄露可单独吊销（`revoke`），不影响其他客户；默认 `~/.infinite-canvas/gateway-keys.json`（0600）。
+- **配额**：每 Key 日调用上限（`quota.dailyCalls`，0=不限），满额后该 Key 所有请求 429（`-32029`）。
+- **计量**：每次工具调用追加写 JSONL（`~/.infinite-canvas/gateway-usage.jsonl`），含 keyId/keyName/tool/ok/ms/日期——P2 计费数据源。
+- **热重载**：KeyStore 按文件 mtime 自动热重载，CLI 颁发/吊销后网关**无需重启**即时生效。
+- **CLI**（`node dist/bridge/gateway-keys.js`）：`add --name <客户> [--quota <日上限>]` / `list` / `revoke|enable|reset <id|name>` / `usage <id|name>`。
+- **验证**：公网客户 Key 全链路（50 工具 / 3 渠道 121 模型）；无凭据/错误 Key 401；配额满额 429；用量 JSONL 落盘；6 个单测全绿（含热重载测试）。

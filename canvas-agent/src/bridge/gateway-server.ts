@@ -1,8 +1,14 @@
-// [connector] L3 broker MCP 网关 —— 对外标准 MCP 端点
+// [connector] L3 broker MCP 网关 —— 对外标准 MCP 端点（P1 商业化 Key 网关版）
 //
 // 独立可运行：node dist/bridge/gateway-server.js
 // 让外部 agent（Codex/豆包/WorkBuddy/任意 MCP 客户端）只配一个固定 URL 即可调用
 // 通过 broker 注册的画布 Runtime（本机或远端任意一台）。
+//
+// P1 商业化 Key 体系：
+//   - 认证优先级：① 内部 master token（CANVAS_GATEWAY_TOKEN）② 客户 API Key。
+//   - 客户 Key：`Authorization: Bearer ak_...` 或 `X-Api-Key: ak_...`，
+//     由 KeyStore（gateway-keys.ts）哈希校验，支持按 Key 停用/日配额（超额 429）。
+//   - 每次工具调用写入 JSONL 明细（~/.infinite-canvas/gateway-usage.jsonl），供 P2 计量计费。
 //
 // 工作原理：
 //   1) 启动时连接 Schema Runtime（默认本机 127.0.0.1:17371/mcp）拉取工具定义，
@@ -14,8 +20,12 @@
 // 环境变量：
 //   CANVAS_GATEWAY_PORT          监听端口（默认 17801）
 //   CANVAS_GATEWAY_HOST          监听地址（默认 0.0.0.0）
-//   CANVAS_GATEWAY_TOKEN         外部 agent 连接网关的 Bearer 凭据（默认空=不鉴权，建议设置）
+//   CANVAS_GATEWAY_TOKEN         内部 master Bearer 凭据（建议设置）
+//   CANVAS_GATEWAY_KEYS_FILE     客户 Key 存储文件（默认 ~/.infinite-canvas/gateway-keys.json）
+//   CANVAS_GATEWAY_USAGE_LOG     用量明细 JSONL（默认 ~/.infinite-canvas/gateway-usage.jsonl）
 //   CANVAS_BROKER_URL            Broker 地址（默认 http://127.0.0.1:17800）
+//   CANVAS_BROKER_AGENT_TOKEN    网关调用 Broker 的 Bearer 凭据
+//   CANVAS_BROKER_GATEWAY_TOKEN  旧名称兼容项
 //   CANVAS_BRIDGE_ID             默认目标 bridgeId（空=取第一个在线 bridge）
 //   CANVAS_SCHEMA_RUNTIME_URL    Schema Runtime 地址（默认 http://127.0.0.1:17371）
 //   CANVAS_SCHEMA_RUNTIME_TOKEN  Schema Runtime 的 /mcp 凭据（默认空）
@@ -23,15 +33,20 @@
 
 import http from "node:http";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import type { Request, Response } from "express";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 import { AGENT_PROMPT, VERSION } from "../config.js";
+import { agentFetch } from "../agent-fetch.js";
+import { assertTokenForHost } from "./server-security.js";
+import { KeyStore, today } from "./gateway-keys.js";
 
 const env = process.env;
 const PORT = Number(env.CANVAS_GATEWAY_PORT ?? 17801);
@@ -41,8 +56,37 @@ const BROKER_URL = (env.CANVAS_BROKER_URL ?? "http://127.0.0.1:17800").replace(/
 const BRIDGE_ID = env.CANVAS_BRIDGE_ID ?? "";
 const SCHEMA_URL = ((env.CANVAS_SCHEMA_RUNTIME_URL ?? "http://127.0.0.1:17371").replace(/\/+$/, "")) + "/mcp";
 const SCHEMA_TOKEN = env.CANVAS_SCHEMA_RUNTIME_TOKEN ?? "";
-const BROKER_GATEWAY_TOKEN = env.CANVAS_BROKER_GATEWAY_TOKEN ?? "";
+const BROKER_AGENT_TOKEN = env.CANVAS_BROKER_AGENT_TOKEN ?? env.CANVAS_BROKER_GATEWAY_TOKEN ?? "";
 const TOOL_TIMEOUT_MS = Number(env.CANVAS_TOOL_TIMEOUT_MS ?? 120_000);
+const MAX_BODY_BYTES = 2 * 1024 * 1024;
+const USAGE_LOG = env.CANVAS_GATEWAY_USAGE_LOG ?? path.join(process.env.HOME ?? ".", ".infinite-canvas", "gateway-usage.jsonl");
+
+const keyStore = new KeyStore();
+
+assertTokenForHost(HOST, GATEWAY_TOKEN, "CANVAS_GATEWAY_TOKEN");
+
+/** 追加一行用量明细（P2 计量计费数据源；追加写，不覆盖） */
+function appendUsageLog(entry: Record<string, unknown>): void {
+    try {
+        fs.mkdirSync(path.dirname(USAGE_LOG), { recursive: true });
+        fs.appendFileSync(USAGE_LOG, `${JSON.stringify(entry)}\n`);
+    } catch {
+        // 日志写入失败不影响主流程
+    }
+}
+
+async function brokerFetch(path: string, init: RequestInit = {}, timeoutMs = 10_000): Promise<Response> {
+    const method = String(init.method ?? "GET").toUpperCase();
+    const headers = new Headers(init.headers);
+    if (method === "POST" && !headers.has("content-type")) headers.set("content-type", "application/json");
+    if (BROKER_AGENT_TOKEN) headers.set("authorization", `Bearer ${BROKER_AGENT_TOKEN}`);
+    return agentFetch(`${BROKER_URL}${path}`, {
+        ...init,
+        headers,
+        timeoutMs,
+        retries: method === "GET" ? 1 : 0,
+    });
+}
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -87,9 +131,7 @@ async function loadToolsWithRetry(): Promise<ToolMeta[]> {
 
 /** 获取在线 bridge 列表 */
 async function listBridges(): Promise<Array<{ bridgeId: string; online: boolean }>> {
-    const headers: Record<string, string> = {};
-    if (BROKER_GATEWAY_TOKEN) headers.authorization = `Bearer ${BROKER_GATEWAY_TOKEN}`;
-    const res = await fetch(`${BROKER_URL}/api/canvas-bridge/bridges`, { headers });
+    const res = await brokerFetch("/api/canvas-bridge/bridges");
     const body = (await res.json()) as { code?: number; data?: { bridges?: Array<{ bridgeId: string; online: boolean }> } };
     if (body.code !== 0 || !body.data?.bridges) return [];
     return body.data.bridges;
@@ -108,12 +150,8 @@ async function callViaBridge(name: string, input: Record<string, unknown>): Prom
     const bridgeId = await pickBridgeId();
     if (!bridgeId) throw new Error("没有在线的画布 bridge（请先启动本地 Runtime 并启用 bridge 外连）");
 
-    const brokerHeaders: Record<string, string> = { "content-type": "application/json" };
-    if (BROKER_GATEWAY_TOKEN) brokerHeaders.authorization = `Bearer ${BROKER_GATEWAY_TOKEN}`;
-
-    const submitRes = await fetch(`${BROKER_URL}/api/canvas-bridge/request`, {
+    const submitRes = await brokerFetch("/api/canvas-bridge/request", {
         method: "POST",
-        headers: brokerHeaders,
         body: JSON.stringify({ bridgeId, name, input }),
     });
     const submitBody = (await submitRes.json()) as { code?: number; data?: { requestId: string }; msg?: string };
@@ -122,9 +160,7 @@ async function callViaBridge(name: string, input: Record<string, unknown>): Prom
 
     const deadline = Date.now() + TOOL_TIMEOUT_MS;
     while (Date.now() < deadline) {
-        const resultRes = await fetch(`${BROKER_URL}/api/canvas-bridge/request/${encodeURIComponent(requestId)}`, {
-            headers: brokerHeaders,
-        });
+        const resultRes = await brokerFetch(`/api/canvas-bridge/request/${encodeURIComponent(requestId)}`, {}, Math.max(1, Math.min(10_000, deadline - Date.now())));
         const resultBody = (await resultRes.json()) as { code?: number; msg?: string; data?: { status: string; result?: unknown; error?: string } };
         if (resultBody.code !== 0) throw new Error(resultBody.msg || "查询 bridge 结果失败");
         const data = resultBody.data!;
@@ -135,8 +171,52 @@ async function callViaBridge(name: string, input: Record<string, unknown>): Prom
     throw new Error(`画布工具调用超时（${TOOL_TIMEOUT_MS}ms）`);
 }
 
+/** 认证主体：内部 master 或某个客户 Key */
+interface GwAuth {
+    type: "master" | "key";
+    keyId?: string;
+    keyName?: string;
+    /** 认证失败时的 HTTP 状态：401 凭据无效 / 429 配额耗尽 */
+    rejectStatus?: number;
+    rejectReason?: string;
+}
+
+/**
+ * 解析并校验请求凭据。
+ * 优先内部 master token（Authorization Bearer / x-canvas-agent-token），
+ * 其次客户 API Key（Authorization Bearer ak_ 或 X-Api-Key）。
+ * 返回 { type, ... } 表示通过；返回 { rejectStatus, rejectReason } 表示拒绝。
+ */
+function authenticate(req: IncomingMessage): GwAuth {
+    const auth = typeof req.headers.authorization === "string" ? req.headers.authorization : "";
+    const bearer = auth.startsWith("Bearer ") ? auth.slice("Bearer ".length).trim() : "";
+    const alt = typeof req.headers["x-canvas-agent-token"] === "string" ? req.headers["x-canvas-agent-token"] : "";
+    const apiKeyHeader = typeof req.headers["x-api-key"] === "string" ? req.headers["x-api-key"].trim() : "";
+
+    // ① 内部 master
+    if (GATEWAY_TOKEN && (bearer === GATEWAY_TOKEN || alt === GATEWAY_TOKEN)) {
+        return { type: "master" };
+    }
+
+    // ② 客户 API Key
+    const candidate = bearer.startsWith("ak_") ? bearer : apiKeyHeader;
+    if (candidate) {
+        const v = keyStore.verify(candidate);
+        if (v.ok && v.key) {
+            return { type: "key", keyId: v.key.id, keyName: v.key.name };
+        }
+        if (v.reason === "quota") {
+            return { type: "key", rejectStatus: 429, rejectReason: "quota exceeded: daily call limit reached" };
+        }
+        return { type: "key", rejectStatus: 401, rejectReason: "invalid or disabled API key" };
+    }
+
+    // ③ 未提供任何凭据
+    return { type: "key", rejectStatus: 401, rejectReason: "Unauthorized: missing credentials" };
+}
+
 /** 为单个 MCP 会话创建低层 Server（inputSchema 原样透传 JSON Schema） */
-function createSessionServer(tools: ToolMeta[]): Server {
+function createSessionServer(tools: ToolMeta[], auth: GwAuth): Server {
     const server = new Server(
         { name: "canvas-gateway", version: VERSION },
         { capabilities: { tools: { listChanged: false } }, instructions: AGENT_PROMPT },
@@ -151,11 +231,34 @@ function createSessionServer(tools: ToolMeta[]): Server {
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const name = request.params.name;
         const args = (request.params.arguments ?? {}) as Record<string, unknown>;
+        const started = Date.now();
         try {
             const result = await callViaBridge(name, args);
+            // 计量：按调用主体记录（P2 数据源）
+            appendUsageLog({
+                ts: new Date().toISOString(),
+                date: today(),
+                keyId: auth.type === "key" ? auth.keyId : "master",
+                keyName: auth.type === "key" ? auth.keyName : "master",
+                tool: name,
+                ok: true,
+                ms: Date.now() - started,
+            });
+            if (auth.type === "key" && auth.keyId) keyStore.recordUsage(auth.keyId, name);
             const text = typeof result === "string" ? result : JSON.stringify(result);
             return { content: [{ type: "text" as const, text }] };
         } catch (error) {
+            appendUsageLog({
+                ts: new Date().toISOString(),
+                date: today(),
+                keyId: auth.type === "key" ? auth.keyId : "master",
+                keyName: auth.type === "key" ? auth.keyName : "master",
+                tool: name,
+                ok: false,
+                error: error instanceof Error ? error.message : String(error),
+                ms: Date.now() - started,
+            });
+            if (auth.type === "key" && auth.keyId) keyStore.recordUsage(auth.keyId, name);
             return {
                 content: [{ type: "text" as const, text: `[canvas-bridge] ${error instanceof Error ? error.message : String(error)}` }],
                 isError: true,
@@ -170,32 +273,34 @@ async function main() {
     const tools = await loadToolsWithRetry();
     console.log(`[canvas-gateway] 已从 ${SCHEMA_URL} 拉取 ${tools.length} 个工具定义`);
 
-    // MCP Streamable HTTP 会话管理（含网关自身 Bearer 鉴权）
+    // MCP Streamable HTTP 会话管理（P1：master token 或客户 API Key 鉴权）
     const sessions = new Map<string, { transport: StreamableHTTPServerTransport; server: Server }>();
     const httpServer = http.createServer((req, res) => {
-        if (GATEWAY_TOKEN) {
-            const auth = typeof req.headers.authorization === "string" ? req.headers.authorization : "";
-            const bearer = auth.startsWith("Bearer ") ? auth.slice("Bearer ".length).trim() : "";
-            const alt = typeof req.headers["x-canvas-agent-token"] === "string" ? req.headers["x-canvas-agent-token"] : "";
-            if (bearer !== GATEWAY_TOKEN && alt !== GATEWAY_TOKEN) {
-                res.statusCode = 401;
-                res.setHeader("content-type", "application/json");
-                res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32001, message: "Unauthorized: invalid gateway token" }, id: null }));
-                return;
-            }
+        const auth = authenticate(req);
+        if (auth.rejectStatus) {
+            const code = auth.rejectStatus === 429 ? -32029 : -32001;
+            res.statusCode = auth.rejectStatus;
+            res.setHeader("content-type", "application/json");
+            res.setHeader("x-canvas-auth", auth.rejectReason ?? "denied");
+            res.end(JSON.stringify({ jsonrpc: "2.0", error: { code, message: auth.rejectReason }, id: null }));
+            return;
         }
-        void handleMcpRequest(req as Request, res as Response);
+        void handleMcpRequest(req, res, auth);
     });
 
-    async function handleMcpRequest(req: Request, res: Response) {
+    async function handleMcpRequest(req: IncomingMessage, res: ServerResponse, auth: GwAuth) {
         const headerSessionId = typeof req.headers["mcp-session-id"] === "string" ? req.headers["mcp-session-id"] : undefined;
         let session = headerSessionId ? sessions.get(headerSessionId) : undefined;
+        if (headerSessionId && !session) {
+            jsonRpcError(res, 404, -32001, "Session not found");
+            return;
+        }
         if (!session) {
             if (req.method !== "POST") {
                 jsonRpcError(res, 404, -32001, "Session not found");
                 return;
             }
-            const sessionServer = createSessionServer(tools);
+            const sessionServer = createSessionServer(tools, auth);
             const transport = new StreamableHTTPServerTransport({
                 sessionIdGenerator: () => crypto.randomUUID(),
                 enableJsonResponse: true,
@@ -206,11 +311,15 @@ async function main() {
             await sessionServer.connect(transport);
         }
         let parsedBody: unknown;
-        if (req.method === "POST" && Buffer.isBuffer(req.body) && req.body.length) {
+        if (req.method === "POST") {
             try {
-                parsedBody = JSON.parse(req.body.toString("utf8"));
-            } catch {
-                jsonRpcError(res, 400, -32700, "Parse error: Invalid JSON");
+                parsedBody = await readJsonBody(req);
+            } catch (error) {
+                if (error instanceof BodyTooLargeError) {
+                    jsonRpcError(res, 413, -32013, "Request body too large");
+                } else {
+                    jsonRpcError(res, 400, -32700, "Parse error: Invalid JSON");
+                }
                 return;
             }
         }
@@ -224,7 +333,8 @@ async function main() {
     httpServer.listen(PORT, HOST, () => {
         console.log(`[canvas-gateway] MCP gateway listening on ${HOST}:${PORT}/mcp`);
         console.log(`[canvas-gateway] broker=${BROKER_URL} defaultBridge=${BRIDGE_ID || "(auto: 第一个在线)"}`);
-        console.log(`[canvas-gateway] auth=${GATEWAY_TOKEN ? "enabled (Bearer)" : "disabled"}`);
+        console.log(`[canvas-gateway] auth=master(${GATEWAY_TOKEN ? "on" : "off"}) + api-key(store=${keyStore.filePath})`);
+        console.log(`[canvas-gateway] usage-log=${USAGE_LOG}`);
     });
 
     function shutdown() {
@@ -238,9 +348,26 @@ async function main() {
     process.on("SIGTERM", shutdown);
 }
 
-function jsonRpcError(res: Response, status: number, code: number, message: string) {
+async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    for await (const chunk of req) {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        size += buffer.length;
+        if (size <= MAX_BODY_BYTES) chunks.push(buffer);
+    }
+    if (size > MAX_BODY_BYTES) throw new BodyTooLargeError();
+    const raw = Buffer.concat(chunks).toString("utf8");
+    return raw.trim() ? JSON.parse(raw) : undefined;
+}
+
+class BodyTooLargeError extends Error {}
+
+function jsonRpcError(res: ServerResponse, status: number, code: number, message: string) {
     if (res.headersSent) return;
-    res.status(status).json({ jsonrpc: "2.0", error: { code, message }, id: null });
+    res.statusCode = status;
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ jsonrpc: "2.0", error: { code, message }, id: null }));
 }
 
 void main();
