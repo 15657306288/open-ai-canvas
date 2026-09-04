@@ -1,0 +1,320 @@
+{
+  "apiVersion": "yingce.plugin/v2",
+  "id": "hongniao-image-res",
+  "name": "红鸟高清图",
+  "version": "2.0.0",
+  "author": "影策 / yingce-dev",
+  "description": "红鸟高分辨率图片渠道插件（ph-gpt-image-2k / ph-gpt-image-4k）。",
+  "documentation": "# 红鸟高清图\n\n该目录是渠道 Provider 插件源码。后端从生成的 `hongniao-image-res.yingce-plugin` 包加载，不依赖系统内置 `host:` 适配器。\n\n完整接口见 [docs/interface.md](docs/interface.md)。\n\n\n# 红鸟高清图\n\n## 鉴权与入口\n\n- 鉴权：`Authorization: Bearer <apiKey>`。\n- 默认 Base URL：`https://api.openai.com`。\n- 生成：`POST /v1/images/generations`，`application/json`。\n- 编辑：`POST /v1/images/edits`，`multipart/form-data`。\n\n## 配置字段\n\n| 字段 | 类型 | 必填 | 说明 |\n| --- | --- | --- | --- |\n| `apiKey` | secret | 是 | OpenAI API Key，由宿主写入 Bearer 鉴权头。 |\n| `baseUrl` | string | 否 | 上游根地址，默认 `https://api.openai.com`。 |\n\n## 请求字段\n\n| 上游字段 | 类型 | 必填 | 统一来源 | 说明 |\n| --- | --- | --- | --- | --- |\n| `model` | string | 是 | `request.model` | 图片模型 ID。 |\n| `prompt` | string | 是 | `request.prompt` | 生成/编辑提示词。 |\n| `image` | file 或 file[] | 编辑必填 | `request.images[role!=mask]` | 编辑源图；重复 multipart part 保持输入顺序。 |\n| `mask` | file | 否 | `request.images[role=mask]` | 蒙版；由业务层显式标记，插件不按下标猜测。 |\n| `n` | integer | 否 | `request.imageCount` | 输出数量；具体上限由模型 profile 决定。 |\n| `size` | string | 否 | `request.aspectRatio` | OpenAI 使用尺寸枚举，不等同于任意比例。 |\n| `quality` | string | 否 | `request.quality` | 如 `auto/high/medium/low/hd/standard`，以模型为准。 |\n| `background` | string | 否 | `providerOptions.hongniao-image-res.background` | 如 `transparent/opaque/auto`。 |\n| `output_format` | string | 否 | `providerOptions.hongniao-image-res.output_format` | 如 `png/jpeg/webp`。 |\n| `output_compression` | integer | 否 | `providerOptions.hongniao-image-res.output_compression` | 压缩质量百分比，支持范围由模型决定。 |\n| `moderation` | string | 否 | `providerOptions.hongniao-image-res.moderation` | 内容审核强度。 |\n| `response_format` | string | 否 | `providerOptions.hongniao-image-res.response_format` | 兼容模型可选 `url` 或 `b64_json`。 |\n| `style` | string | 否 | `providerOptions.hongniao-image-res.style` | DALL·E 系列兼容字段。 |\n| `user` | string | 否 | `providerOptions.hongniao-image-res.user` | 终端用户追踪标识。 |\n\n## 响应\n\n- `data[].url` 转为统一图片 URL。\n- `data[].b64_json` 转为 `data:image/png;base64,...`。\n- `usage` 原样进入统一结果 usage。\n- `error.code`/`error.message` 进入失败状态与用户可读错误。\n\n## 场景保证\n\n- 单图编辑、多图编辑、蒙版编辑均使用显式 `role`，不使用 `0/1` 推断语义。\n- multipart 文件由后端读取资源或下载 URL 后上传，上游不会收到浏览器 blob URL。\n- 模型不支持的字段由模型 capability profile 拦截；插件不静默降级成整图生成。\n\n<!-- YINGCE_MANIFEST_CONTRACT_START -->\n## Manifest 完整接口定义\n\n以下 JSON 与插件包内实际 `manifest.json` 逐字段一致，覆盖插件身份、权限、配置、鉴权、参数、校验、创建、Agent、查询、取消、结果下载、响应和 Agent 响应映射。`documentation` 字段的值就是当前完整文档；为避免文档在自身内部无限递归，JSON 中仅用等义占位文本表示正文。\n\n```json\n{\n  \"apiVersion\": \"yingce.plugin/v2\",\n  \"id\": \"hongniao-image-res\",\n  \"name\": \"OpenAI Images\",\n  \"version\": \"2.0.0\",\n  \"author\": \"OpenAI / 影策\",\n  \"description\": \"OpenAI Images generations 与 multipart edits 协议插件。\",\n  \"documentation\": \"<当前插件的完整 documentation，由 README.md 与 docs/interface.md 拼接而成；为避免 JSON 递归，此处不重复展开正文。>\",\n  \"permissions\": [\n    \"generation.run\",\n    \"media.read\"\n  ],\n  \"configuration\": {\n    \"fields\": [\n      {\n        \"name\": \"apiKey\",\n        \"type\": \"secret\",\n        \"label\": \"API Key\",\n        \"required\": true\n      },\n      {\n        \"name\": \"baseUrl\",\n        \"type\": \"string\",\n        \"label\": \"Base URL\",\n        \"default\": \"https://api.openai.com\"\n      }\n    ]\n  },\n  \"contributes\": {\n    \"providers\": [\n      {\n        \"id\": \"hongniao-image-res\",\n        \"label\": \"OpenAI Images\",\n        \"capabilities\": [\n          \"image\"\n        ],\n        \"scopes\": [\n          \"admin.system-channel\",\n          \"user.custom-channel\",\n          \"canvas\",\n          \"creation\",\n          \"agent\"\n        ],\n        \"baseUrl\": \"https://api.openai.com\",\n        \"auth\": {\n          \"type\": \"bearer\",\n          \"field\": \"apiKey\"\n        },\n        \"parameters\": [\n          {\n            \"name\": \"model\",\n            \"type\": \"string\",\n            \"required\": true,\n            \"mapping\": \"model\",\n            \"description\": \"图片模型 ID。\"\n          },\n          {\n            \"name\": \"prompt\",\n            \"type\": \"string\",\n            \"required\": true,\n            \"mapping\": \"prompt\",\n            \"description\": \"生成或编辑提示词。\"\n          },\n          {\n            \"name\": \"images\",\n            \"type\": \"media[]\",\n            \"mapping\": \"image multipart parts\",\n            \"description\": \"role=edit_source 的源图；支持多图时按 order 重复 image part。\"\n          },\n          {\n            \"name\": \"mask\",\n            \"type\": \"media\",\n            \"mapping\": \"mask multipart part\",\n            \"description\": \"role=mask 的蒙版。\"\n          },\n          {\n            \"name\": \"imageCount\",\n            \"type\": \"integer\",\n            \"mapping\": \"n\",\n            \"description\": \"输出数量。\"\n          },\n          {\n            \"name\": \"aspectRatio\",\n            \"type\": \"string\",\n            \"mapping\": \"size\",\n            \"description\": \"模型支持的尺寸枚举。\"\n          },\n          {\n            \"name\": \"quality\",\n            \"type\": \"string\",\n            \"mapping\": \"quality\",\n            \"description\": \"模型支持的质量枚举。\"\n          },\n          {\n            \"name\": \"background\",\n            \"type\": \"string\",\n            \"mapping\": \"background\",\n            \"description\": \"来自 providerOptions.hongniao-image-res.background。\"\n          },\n          {\n            \"name\": \"output_format\",\n            \"type\": \"string\",\n            \"mapping\": \"output_format\",\n            \"description\": \"来自 providerOptions.hongniao-image-res.output_format。\"\n          },\n          {\n            \"name\": \"output_compression\",\n            \"type\": \"integer\",\n            \"mapping\": \"output_compression\",\n            \"description\": \"来自 providerOptions.hongniao-image-res.output_compression。\"\n          },\n          {\n            \"name\": \"moderation\",\n            \"type\": \"string\",\n            \"mapping\": \"moderation\",\n            \"description\": \"来自 providerOptions.hongniao-image-res.moderation。\"\n          },\n          {\n            \"name\": \"response_format\",\n            \"type\": \"string\",\n            \"mapping\": \"response_format\",\n            \"description\": \"兼容模型返回 URL 或 b64_json。\"\n          },\n          {\n            \"name\": \"style\",\n            \"type\": \"string\",\n            \"mapping\": \"style\",\n            \"description\": \"DALL·E 系列兼容字段。\"\n          },\n          {\n            \"name\": \"user\",\n            \"type\": \"string\",\n            \"mapping\": \"user\",\n            \"description\": \"终端用户追踪标识。\"\n          }\n        ],\n        \"create\": {\n          \"method\": \"POST\",\n          \"path\": \"/v1/images/generations\",\n          \"pathTemplate\": {\n            \"$if\": {\n              \"condition\": {\n                \"$gt\": [\n                  {\n                    \"$len\": {\n                      \"$ref\": \"request.images\"\n                    }\n                  },\n                  0\n                ]\n              },\n              \"then\": \"/v1/images/edits\",\n              \"else\": \"/v1/images/generations\"\n            }\n          },\n          \"contentType\": \"application/json\",\n          \"contentTypeTemplate\": {\n            \"$if\": {\n              \"condition\": {\n                \"$gt\": [\n                  {\n                    \"$len\": {\n                      \"$ref\": \"request.images\"\n                    }\n                  },\n                  0\n                ]\n              },\n              \"then\": \"multipart/form-data\",\n              \"else\": \"application/json\"\n            }\n          },\n          \"body\": {\n            \"model\": {\n              \"$ref\": \"request.model\"\n            },\n            \"prompt\": {\n              \"$ref\": \"request.prompt\"\n            },\n            \"n\": {\n              \"$omitEmpty\": {\n                \"$ref\": \"request.imageCount\"\n              }\n            },\n            \"size\": {\n              \"$omitEmpty\": {\n                \"$ref\": \"request.aspectRatio\"\n              }\n            },\n            \"quality\": {\n              \"$omitEmpty\": {\n                \"$ref\": \"request.quality\"\n              }\n            },\n            \"background\": {\n              \"$omitEmpty\": {\n                \"$ref\": \"request.providerOptions.hongniao-image-res.background\"\n              }\n            },\n            \"output_format\": {\n              \"$omitEmpty\": {\n                \"$ref\": \"request.providerOptions.hongniao-image-res.output_format\"\n              }\n            },\n            \"output_compression\": {\n              \"$omitEmpty\": {\n                \"$ref\": \"request.providerOptions.hongniao-image-res.output_compression\"\n              }\n            },\n            \"moderation\": {\n              \"$omitEmpty\": {\n                \"$ref\": \"request.providerOptions.hongniao-image-res.moderation\"\n              }\n            },\n            \"response_format\": {\n              \"$omitEmpty\": {\n                \"$ref\": \"request.providerOptions.hongniao-image-res.response_format\"\n              }\n            },\n            \"style\": {\n              \"$omitEmpty\": {\n                \"$ref\": \"request.providerOptions.hongniao-image-res.style\"\n              }\n            },\n            \"user\": {\n              \"$omitEmpty\": {\n                \"$ref\": \"request.providerOptions.hongniao-image-res.user\"\n              }\n            }\n          },\n          \"files\": [\n            {\n              \"name\": \"image\",\n              \"source\": {\n                \"$filter\": {\n                  \"from\": {\n                    \"$ref\": \"request.images\"\n                  },\n                  \"as\": \"media\",\n                  \"where\": {\n                    \"$ne\": [\n                      {\n                        \"$ref\": \"media.role\"\n                      },\n                      \"mask\"\n                    ]\n                  }\n                }\n              },\n              \"filename\": \"source.png\"\n            },\n            {\n              \"name\": \"mask\",\n              \"source\": {\n                \"$filter\": {\n                  \"from\": {\n                    \"$ref\": \"request.images\"\n                  },\n                  \"as\": \"media\",\n                  \"where\": {\n                    \"$eq\": [\n                      {\n                        \"$ref\": \"media.role\"\n                      },\n                      \"mask\"\n                    ]\n                  }\n                }\n              },\n              \"filename\": \"mask.png\"\n            }\n          ]\n        },\n        \"response\": {\n          \"status\": \"succeeded\",\n          \"images\": {\n            \"$map\": {\n              \"from\": {\n                \"$ref\": \"response.data\"\n              },\n              \"as\": \"item\",\n              \"in\": {\n                \"url\": {\n                  \"$omitEmpty\": {\n                    \"$ref\": \"item.url\"\n                  }\n                },\n                \"dataUrl\": {\n                  \"$if\": {\n                    \"condition\": {\n                      \"$ref\": \"item.b64_json\"\n                    },\n                    \"then\": {\n                      \"$concat\": [\n                        \"data:image/png;base64,\",\n                        {\n                          \"$ref\": \"item.b64_json\"\n                        }\n                      ]\n                    },\n                    \"else\": null\n                  }\n                }\n              }\n            }\n          },\n          \"usage\": {\n            \"$ref\": \"response.usage\"\n          },\n          \"errorPaths\": [\n            \"error.code\"\n          ],\n          \"messagePaths\": [\n            \"error.message\"\n          ]\n        }\n      }\n    ]\n  }\n}\n```\n<!-- YINGCE_MANIFEST_CONTRACT_END -->\n",
+  "permissions": [
+    "generation.run",
+    "media.read"
+  ],
+  "configuration": {
+    "fields": [
+      {
+        "name": "apiKey",
+        "type": "secret",
+        "label": "API Key",
+        "required": true
+      },
+      {
+        "name": "baseUrl",
+        "type": "string",
+        "label": "Base URL",
+        "default": "https://api.openai.com"
+      }
+    ]
+  },
+  "contributes": {
+    "providers": [
+      {
+        "id": "hongniao-image-res",
+        "label": "红鸟高清图",
+        "capabilities": [
+          "image"
+        ],
+        "scopes": [
+          "admin.system-channel",
+          "user.custom-channel",
+          "canvas",
+          "creation",
+          "agent"
+        ],
+        "baseUrl": "https://open.hongniaoai.com/api",
+        "auth": {
+          "type": "bearer",
+          "field": "apiKey"
+        },
+        "parameters": [
+          {
+            "name": "model",
+            "type": "string",
+            "required": true,
+            "mapping": "model",
+            "description": "图片模型 ID。"
+          },
+          {
+            "name": "prompt",
+            "type": "string",
+            "required": true,
+            "mapping": "prompt",
+            "description": "生成或编辑提示词。"
+          },
+          {
+            "name": "images",
+            "type": "media[]",
+            "mapping": "image multipart parts",
+            "description": "role=edit_source 的源图；支持多图时按 order 重复 image part。"
+          },
+          {
+            "name": "mask",
+            "type": "media",
+            "mapping": "mask multipart part",
+            "description": "role=mask 的蒙版。"
+          },
+          {
+            "name": "imageCount",
+            "type": "integer",
+            "mapping": "n",
+            "description": "输出数量。"
+          },
+          {
+            "name": "aspectRatio",
+            "type": "string",
+            "mapping": "size",
+            "description": "模型支持的尺寸枚举。"
+          },
+          {
+            "name": "quality",
+            "type": "string",
+            "mapping": "quality",
+            "description": "模型支持的质量枚举。"
+          },
+          {
+            "name": "background",
+            "type": "string",
+            "mapping": "background",
+            "description": "来自 providerOptions.hongniao-image-res.background。"
+          },
+          {
+            "name": "output_format",
+            "type": "string",
+            "mapping": "output_format",
+            "description": "来自 providerOptions.hongniao-image-res.output_format。"
+          },
+          {
+            "name": "output_compression",
+            "type": "integer",
+            "mapping": "output_compression",
+            "description": "来自 providerOptions.hongniao-image-res.output_compression。"
+          },
+          {
+            "name": "moderation",
+            "type": "string",
+            "mapping": "moderation",
+            "description": "来自 providerOptions.hongniao-image-res.moderation。"
+          },
+          {
+            "name": "response_format",
+            "type": "string",
+            "mapping": "response_format",
+            "description": "兼容模型返回 URL 或 b64_json。"
+          },
+          {
+            "name": "style",
+            "type": "string",
+            "mapping": "style",
+            "description": "DALL·E 系列兼容字段。"
+          },
+          {
+            "name": "user",
+            "type": "string",
+            "mapping": "user",
+            "description": "终端用户追踪标识。"
+          }
+        ],
+        "create": {
+          "method": "POST",
+          "path": "/v1/images/generations",
+          "pathTemplate": {
+            "$if": {
+              "condition": {
+                "$gt": [
+                  {
+                    "$len": {
+                      "$ref": "request.images"
+                    }
+                  },
+                  0
+                ]
+              },
+              "then": "/v1/images/edits",
+              "else": "/v1/images/generations"
+            }
+          },
+          "contentType": "application/json",
+          "contentTypeTemplate": {
+            "$if": {
+              "condition": {
+                "$gt": [
+                  {
+                    "$len": {
+                      "$ref": "request.images"
+                    }
+                  },
+                  0
+                ]
+              },
+              "then": "multipart/form-data",
+              "else": "application/json"
+            }
+          },
+          "body": {
+            "model": {
+              "$ref": "request.model"
+            },
+            "prompt": {
+              "$ref": "request.prompt"
+            },
+            "n": {
+              "$omitEmpty": {
+                "$ref": "request.imageCount"
+              }
+            },
+            "size": {
+              "$omitEmpty": {
+                "$ref": "request.aspectRatio"
+              }
+            },
+            "quality": {
+              "$omitEmpty": {
+                "$ref": "request.quality"
+              }
+            },
+            "background": {
+              "$omitEmpty": {
+                "$ref": "request.providerOptions.hongniao-image-res.background"
+              }
+            },
+            "output_format": {
+              "$omitEmpty": {
+                "$ref": "request.providerOptions.hongniao-image-res.output_format"
+              }
+            },
+            "output_compression": {
+              "$omitEmpty": {
+                "$ref": "request.providerOptions.hongniao-image-res.output_compression"
+              }
+            },
+            "moderation": {
+              "$omitEmpty": {
+                "$ref": "request.providerOptions.hongniao-image-res.moderation"
+              }
+            },
+            "response_format": {
+              "$omitEmpty": {
+                "$ref": "request.providerOptions.hongniao-image-res.response_format"
+              }
+            },
+            "style": {
+              "$omitEmpty": {
+                "$ref": "request.providerOptions.hongniao-image-res.style"
+              }
+            },
+            "user": {
+              "$omitEmpty": {
+                "$ref": "request.providerOptions.hongniao-image-res.user"
+              }
+            }
+          },
+          "files": [
+            {
+              "name": "image",
+              "source": {
+                "$filter": {
+                  "from": {
+                    "$ref": "request.images"
+                  },
+                  "as": "media",
+                  "where": {
+                    "$ne": [
+                      {
+                        "$ref": "media.role"
+                      },
+                      "mask"
+                    ]
+                  }
+                }
+              },
+              "filename": "source.png"
+            },
+            {
+              "name": "mask",
+              "source": {
+                "$filter": {
+                  "from": {
+                    "$ref": "request.images"
+                  },
+                  "as": "media",
+                  "where": {
+                    "$eq": [
+                      {
+                        "$ref": "media.role"
+                      },
+                      "mask"
+                    ]
+                  }
+                }
+              },
+              "filename": "mask.png"
+            }
+          ]
+        },
+        "response": {
+          "status": "succeeded",
+          "images": {
+            "$map": {
+              "from": {
+                "$ref": "response.data"
+              },
+              "as": "item",
+              "in": {
+                "url": {
+                  "$omitEmpty": {
+                    "$ref": "item.url"
+                  }
+                },
+                "dataUrl": {
+                  "$if": {
+                    "condition": {
+                      "$ref": "item.b64_json"
+                    },
+                    "then": {
+                      "$concat": [
+                        "data:image/png;base64,",
+                        {
+                          "$ref": "item.b64_json"
+                        }
+                      ]
+                    },
+                    "else": null
+                  }
+                }
+              }
+            }
+          },
+          "usage": {
+            "$ref": "response.usage"
+          },
+          "errorPaths": [
+            "error.code"
+          ],
+          "messagePaths": [
+            "error.message"
+          ]
+        }
+      }
+    ]
+  }
+}
