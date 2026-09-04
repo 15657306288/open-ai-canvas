@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { OAuthManager } from "../src/bridge/gateway-oauth.js";
-import type { AccountProvider, AuthOutcome, PreCheckOutcome, ChargeOutcome, Principal } from "../src/bridge/account-provider.js";
+import type { AccountProvider, AuthOutcome, Principal } from "../src/bridge/account-provider.js";
 
 // 最小假 AccountProvider：OAuth 流程只用到 authenticateByKey / authenticateClient
 function fakeAccount(): AccountProvider {
@@ -22,8 +22,9 @@ function fakeAccount(): AccountProvider {
             return secret === "cs_good" ? ok : { ok: false, reason: "bad_secret", status: 401 };
         },
         async resolveSubject(): Promise<Principal | undefined> { return principal; },
-        async preCheck(): Promise<PreCheckOutcome> { return { allow: true }; },
-        async charge(): Promise<ChargeOutcome> { return { ok: true }; },
+        async reserve(): Promise<{ ok: true; orderId: string }> { return { ok: true, orderId: "lo_test" }; },
+        async settle(): Promise<{ ok: true }> { return { ok: true }; },
+        async refund(): Promise<{ ok: true }> { return { ok: true }; },
         async recordCall(): Promise<void> {},
     };
 }

@@ -1,19 +1,20 @@
-// [connector] P2 商业化计量计费 —— 定价表 + 用量聚合 + 账单
+// [connector] P0 商业化计量计费 —— 定价表 + 用量聚合 + 账单
 //
-// 数据源：P1 网关写入的用量明细 JSONL（默认 ~/.infinite-canvas/gateway-usage.jsonl）
-//        每行 { ts, date, keyId, keyName, tool, ok, ms[, cost] }。
+// 记账单位：microcredits（微积分，正整数）。1 积分(credit) = CREDITS_SCALE = 1_000_000 microcredits。
+//           全链路只传整数，不使用人民币元浮点数；人民币售价由网站充值商品侧决定，不在网关换算。
+// 数据源：网关写入的用量明细 JSONL（默认 ~/.infinite-canvas/gateway-usage.jsonl）
+//        每行 { ts, date, keyId, keyName, tool, ok, ms[, microcredits] }。
 // 定价表：~/.infinite-canvas/gateway-pricing.json（可用 CANVAS_GATEWAY_PRICING_FILE 覆盖）
 //   {
-//     "currency": "CNY",
-//     "default": { "perCall": 0.01 },                       // 未命中工具的默认单价（元/次）
-//     "byTool": {                                            // 精确名或前缀通配（canvas_*）
-//       "canvas_get_context": { "perCall": 0.02 },
-//       "video_generation":   { "perCall": 1.50 }
+//     "unit": "microcredits",
+//     "default": { "perCallMicrocredits": 10000 },   // 未命中工具的默认单价（=0.01 积分/次，占位可调）
+//     "byTool": {                                     // 精确名或前缀通配（canvas_*）
+//       "canvas_get_context": { "perCallMicrocredits": 20000 },
+//       "video_generation":   { "perCallMicrocredits": 1500000 }
 //     }
 //   }
 //
-// 计费模型：按工具调用次数计费（per-call）。画布/渠道操作以调用次数计价；
-// 若未来要按模型 token 计费，在网关 JSONL 追加 token 字段并在本模块加对应计价器即可。
+// 计费模型：按工具调用次数计费（per-call，整数微积分）。
 //
 // 用法：node dist/bridge/gateway-billing.js <cmd>
 //   report [--date <YYYY-MM-DD>] [--key <id|name>]   用量聚合（calls/工具分布/失败数）
@@ -23,12 +24,17 @@
 import fs from "node:fs";
 import path from "node:path";
 
+/** 1 积分 = 1_000_000 微积分。 */
+export const CREDITS_SCALE = 1_000_000;
+/** 默认每次调用单价（微积分）。占位值，商业化定价由运营确认后改定价表即可。 */
+const DEFAULT_PER_CALL_MICROCREDITS = 10_000;
+
 export interface ToolPricing {
-    perCall: number;
+    perCallMicrocredits: number;
 }
 
 export interface Pricing {
-    currency: string;
+    unit: "microcredits";
     default: ToolPricing;
     byTool: Record<string, ToolPricing>;
 }
@@ -41,32 +47,49 @@ export interface UsageEntry {
     tool: string;
     ok: boolean;
     ms: number;
-    cost?: number;
+    /** 本次调用记账金额（正整数微积分）；失败/未计费时可缺省。 */
+    microcredits?: number;
 }
 
 export const DEFAULT_PRICING_FILE = path.join(process.env.HOME ?? ".", ".infinite-canvas", "gateway-pricing.json");
 export const DEFAULT_USAGE_FILE = path.join(process.env.HOME ?? ".", ".infinite-canvas", "gateway-usage.jsonl");
 
 const DEFAULT_PRICING: Pricing = {
-    currency: "CNY",
-    default: { perCall: 0.01 },
+    unit: "microcredits",
+    default: { perCallMicrocredits: DEFAULT_PER_CALL_MICROCREDITS },
     byTool: {},
 };
+
+/** 强制为非负整数微积分；非法/浮点/负数归零（定价表不允许脏值进入计费）。 */
+function toMicrocredits(v: unknown): number {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    return Math.trunc(n);
+}
 
 export function loadPricing(file?: string): Pricing {
     const p = file ?? process.env.CANVAS_GATEWAY_PRICING_FILE ?? DEFAULT_PRICING_FILE;
     try {
         const raw = fs.readFileSync(p, "utf8");
-        const parsed = JSON.parse(raw) as Partial<Pricing>;
+        const parsed = JSON.parse(raw) as Partial<Pricing> & {
+            // 兼容旧人民币定价文件字段（perCall 元），但不做汇率换算：缺新字段时回退整数默认值。
+            default?: { perCallMicrocredits?: number };
+            byTool?: Record<string, { perCallMicrocredits?: number }>;
+        };
+        const byTool: Record<string, ToolPricing> = {};
+        for (const [k, v] of Object.entries(parsed.byTool ?? {})) {
+            const mc = toMicrocredits(v?.perCallMicrocredits);
+            if (mc > 0) byTool[k] = { perCallMicrocredits: mc };
+        }
         return {
-            currency: parsed.currency ?? "CNY",
-            default: { perCall: Number(parsed.default?.perCall ?? 0.01) },
-            byTool: parsed.byTool ?? {},
+            unit: "microcredits",
+            default: { perCallMicrocredits: toMicrocredits(parsed.default?.perCallMicrocredits) || DEFAULT_PER_CALL_MICROCREDITS },
+            byTool,
         };
     } catch {
         // 不存在则创建默认定价
         ensurePricingFile(p);
-        return { ...DEFAULT_PRICING };
+        return { ...DEFAULT_PRICING, byTool: {} };
     }
 }
 
@@ -77,16 +100,16 @@ function ensurePricingFile(file: string): void {
     } catch { /* ignore */ }
 }
 
-/** 命中工具单价：精确名 → 前缀通配（canvas_*）→ 默认 */
+/** 命中工具单价（正整数微积分）：精确名 → 前缀通配（canvas_*）→ 默认 */
 export function priceFor(pricing: Pricing, tool: string): number {
     const exact = pricing.byTool[tool];
-    if (exact) return Number(exact.perCall) || 0;
+    if (exact) return toMicrocredits(exact.perCallMicrocredits);
     for (const [pattern, p] of Object.entries(pricing.byTool)) {
         if (pattern.endsWith("*") && tool.startsWith(pattern.slice(0, -1))) {
-            return Number(p.perCall) || 0;
+            return toMicrocredits(p.perCallMicrocredits);
         }
     }
-    return Number(pricing.default.perCall) || 0;
+    return toMicrocredits(pricing.default.perCallMicrocredits);
 }
 
 /** 读取用量明细（JSONL），可过滤日期/Key */
@@ -109,15 +132,15 @@ export function readUsage(usageFile?: string, date?: string, key?: string): Usag
     return entries;
 }
 
-/** 按 Key 聚合用量 */
+/** 按 Key 聚合用量（金额全部为整数微积分累加） */
 export interface KeyAgg {
     keyId: string;
     keyName: string;
     calls: number;
     okCalls: number;
     failCalls: number;
-    byTool: Record<string, { calls: number; cost: number }>;
-    totalCost: number;
+    byTool: Record<string, { calls: number; microcredits: number }>;
+    totalMicrocredits: number;
 }
 
 export function aggregate(entries: UsageEntry[], pricing: Pricing): KeyAgg[] {
@@ -125,25 +148,32 @@ export function aggregate(entries: UsageEntry[], pricing: Pricing): KeyAgg[] {
     for (const e of entries) {
         let agg = map.get(e.keyId);
         if (!agg) {
-            agg = { keyId: e.keyId, keyName: e.keyName, calls: 0, okCalls: 0, failCalls: 0, byTool: {}, totalCost: 0 };
+            agg = { keyId: e.keyId, keyName: e.keyName, calls: 0, okCalls: 0, failCalls: 0, byTool: {}, totalMicrocredits: 0 };
             map.set(e.keyId, agg);
         }
         agg.calls += 1;
         if (e.ok) agg.okCalls += 1; else agg.failCalls += 1;
-        const cost = e.cost ?? (e.ok ? priceFor(pricing, e.tool) : 0);
-        agg.totalCost = Math.round((agg.totalCost + cost) * 100) / 100;
-        const t = (agg.byTool[e.tool] ??= { calls: 0, cost: 0 });
+        const mc = e.microcredits ?? (e.ok ? priceFor(pricing, e.tool) : 0);
+        agg.totalMicrocredits += mc;
+        const t = (agg.byTool[e.tool] ??= { calls: 0, microcredits: 0 });
         t.calls += 1;
-        t.cost = Math.round((t.cost + cost) * 100) / 100;
+        t.microcredits += mc;
     }
-    return [...map.values()].sort((a, b) => b.totalCost - a.totalCost);
+    return [...map.values()].sort((a, b) => b.totalMicrocredits - a.totalMicrocredits);
+}
+
+// ---------------- 展示层换算（仅用于人类可读输出，绝不回传计费链路） ----------------
+
+/** 微积分 → 积分数值（展示用）。 */
+export function formatCredits(microcredits: number): string {
+    return (microcredits / CREDITS_SCALE).toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function fmtAmount(microcredits: number): string {
+    return `${formatCredits(microcredits)} 积分`;
 }
 
 // ---------------- CLI ----------------
-
-function fmtMoney(v: number, currency: string): string {
-    return `${currency === "CNY" ? "¥" : ""}${v.toFixed(2)}`;
-}
 
 function cliMain(): void {
     const [, , cmd, ...rest] = process.argv;
@@ -154,12 +184,14 @@ function cliMain(): void {
     const pricing = loadPricing();
 
     if (cmd === "pricing") {
-        console.log(`币种: ${pricing.currency}`);
-        console.log(`默认单价: ${fmtMoney(pricing.default.perCall, pricing.currency)} / 次`);
+        console.log("记账单位: microcredits（1 积分 = 1,000,000 microcredits）");
+        console.log(`默认单价: ${pricing.default.perCallMicrocredits} microcredits（${fmtAmount(pricing.default.perCallMicrocredits)}）/ 次`);
         console.log("按工具定价：");
         const tools = Object.entries(pricing.byTool);
         if (!tools.length) console.log("  （未配置，全部走默认单价）");
-        for (const [tool, p] of tools) console.log(`  ${tool} → ${fmtMoney(p.perCall, pricing.currency)} / 次`);
+        for (const [tool, p] of tools) {
+            console.log(`  ${tool} → ${p.perCallMicrocredits} microcredits（${fmtAmount(p.perCallMicrocredits)}）/ 次`);
+        }
         return;
     }
 
@@ -184,15 +216,15 @@ function cliMain(): void {
         } else {
             let grand = 0;
             for (const a of aggs) {
-                console.log(`\n${a.keyName} (${a.keyId})  ——  合计 ${fmtMoney(a.totalCost, pricing.currency)}`);
-                const tools = Object.entries(a.byTool).sort((x, y) => y[1].cost - x[1].cost);
+                console.log(`\n${a.keyName} (${a.keyId})  ——  合计 ${fmtAmount(a.totalMicrocredits)}`);
+                const tools = Object.entries(a.byTool).sort((x, y) => y[1].microcredits - x[1].microcredits);
                 for (const [tool, t] of tools) {
-                    const unit = pricing.byTool[tool]?.perCall ?? pricing.default.perCall;
-                    console.log(`    ${tool} × ${t.calls}  @ ${fmtMoney(unit, pricing.currency)} = ${fmtMoney(t.cost, pricing.currency)}`);
+                    const unit = pricing.byTool[tool]?.perCallMicrocredits ?? pricing.default.perCallMicrocredits;
+                    console.log(`    ${tool} × ${t.calls}  @ ${unit} = ${t.microcredits} microcredits（${fmtAmount(t.microcredits)}）`);
                 }
-                grand = Math.round((grand + a.totalCost) * 100) / 100;
+                grand += a.totalMicrocredits;
             }
-            console.log(`\n账单合计: ${fmtMoney(grand, pricing.currency)}`);
+            console.log(`\n账单合计: ${fmtAmount(grand)}（${grand} microcredits）`);
         }
         return;
     }
