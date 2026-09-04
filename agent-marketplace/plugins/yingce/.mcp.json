@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "yingce": {
+      "type": "http",
+      "url": "https://yingce.cc.cd/mcp",
+      "oauth_resource": "https://yingce.cc.cd",
+      "scopes": [
+        "mcp:tools"
+      ],
+      "http_headers": {
+        "X-Yingce-Plugin-Version": "0.1.0",
+        "X-Yingce-Plugin-Client": "codex"
+      }
+    }
+  }
+}

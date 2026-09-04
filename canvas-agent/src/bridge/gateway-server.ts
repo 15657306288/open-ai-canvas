@@ -48,6 +48,7 @@ import { agentFetch } from "../agent-fetch.js";
 import { assertTokenForHost } from "./server-security.js";
 import { KeyStore, today } from "./gateway-keys.js";
 import { loadPricing, priceFor, type Pricing } from "./gateway-billing.js";
+import { OAuthManager } from "./gateway-oauth.js";
 
 const env = process.env;
 const PORT = Number(env.CANVAS_GATEWAY_PORT ?? 17801);
@@ -63,6 +64,11 @@ const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const USAGE_LOG = env.CANVAS_GATEWAY_USAGE_LOG ?? path.join(process.env.HOME ?? ".", ".infinite-canvas", "gateway-usage.jsonl");
 
 const keyStore = new KeyStore();
+
+// 标准 MCP OAuth 2.1（发现/动态注册/PKCE 授权码/刷新）；对外公网基址用于 metadata 绝对 URL
+const PUBLIC_BASE_URL = (env.CANVAS_GATEWAY_PUBLIC_BASE_URL ?? "https://yingce.cc.cd").replace(/\/+$/, "");
+const OAUTH_STORE_FILE = env.CANVAS_OAUTH_STORE_FILE ?? path.join(process.env.HOME ?? ".", ".infinite-canvas", "oauth-store.json");
+const oauth = new OAuthManager({ keyStore, publicBaseUrl: PUBLIC_BASE_URL, storeFile: OAUTH_STORE_FILE });
 
 // P2 定价缓存：启动加载一次，mtime 变化自动重载（改价无需重启）
 const PRICING_FILE = process.env.CANVAS_GATEWAY_PRICING_FILE ?? path.join(process.env.HOME ?? ".", ".infinite-canvas", "gateway-pricing.json");
@@ -217,13 +223,13 @@ function authenticate(req: IncomingMessage): GwAuth {
         return { type: "master" };
     }
 
-    // ② P3 OAuth2 access_token（client credentials 换取，短期）
+    // ② OAuth2 access_token（授权码 PKCE / client_credentials 换取，短期，OAuthManager 统一签发）
     if (bearer.startsWith("at_")) {
-        const keyId = resolveAccessToken(bearer);
-        if (!keyId) return { type: "key", rejectStatus: 401, rejectReason: "invalid or expired access token" };
-        const k = keyStore.get(keyId);
+        const rec = oauth.verifyAccessToken(bearer);
+        if (!rec) return { type: "key", rejectStatus: 401, rejectReason: "invalid or expired access token" };
+        const k = keyStore.get(rec.keyId);
         if (!k || !k.enabled) return { type: "key", rejectStatus: 401, rejectReason: "invalid or disabled API key" };
-        return { type: "key", keyId, keyName: k.name };
+        return { type: "key", keyId: rec.keyId, keyName: k.name };
     }
 
     // ③ 客户 API Key
@@ -243,70 +249,9 @@ function authenticate(req: IncomingMessage): GwAuth {
     return { type: "key", rejectStatus: 401, rejectReason: "Unauthorized: missing credentials" };
 }
 
-// ---------------- P3 OAuth2 client credentials ----------------
-const ACCESS_TOKEN_TTL_MS = Number(process.env.CANVAS_GATEWAY_TOKEN_TTL ?? 3600_000);
-const accessTokens = new Map<string, { keyId: string; exp: number }>();
-
-function issueAccessToken(keyId: string): { token: string; expiresIn: number } {
-    const token = `at_${crypto.randomBytes(24).toString("hex")}`;
-    accessTokens.set(token, { keyId, exp: Date.now() + ACCESS_TOKEN_TTL_MS });
-    return { token, expiresIn: Math.floor(ACCESS_TOKEN_TTL_MS / 1000) };
-}
-
-function resolveAccessToken(token: string): string | undefined {
-    const t = accessTokens.get(token);
-    if (!t) return undefined;
-    if (Date.now() > t.exp) { accessTokens.delete(token); return undefined; }
-    return t.keyId;
-}
-
-function handleTokenRequest(req: IncomingMessage, res: ServerResponse): void {
-    if (req.method !== "POST") {
-        res.statusCode = 405;
-        res.setHeader("content-type", "application/json");
-        res.end(JSON.stringify({ error: "method_not_allowed" }));
-        return;
-    }
-    readJsonBody(req).then((body) => {
-        const b = (body ?? {}) as Record<string, string>;
-        let clientId = b.client_id;
-        let clientSecret = b.client_secret;
-        const authHeader = typeof req.headers.authorization === "string" ? req.headers.authorization : "";
-        if (authHeader.startsWith("Basic ")) {
-            try {
-                const dec = Buffer.from(authHeader.slice(6).trim(), "base64").toString("utf8");
-                const i = dec.indexOf(":");
-                if (i > 0) { clientId = dec.slice(0, i); clientSecret = dec.slice(i + 1); }
-            } catch { /* ignore */ }
-        }
-        if (b.grant_type && b.grant_type !== "client_credentials") {
-            res.statusCode = 400;
-            res.setHeader("content-type", "application/json");
-            res.end(JSON.stringify({ error: "unsupported_grant_type", error_description: "仅支持 client_credentials" }));
-            return;
-        }
-        if (!clientId || !clientSecret) {
-            res.statusCode = 400;
-            res.setHeader("content-type", "application/json");
-            res.end(JSON.stringify({ error: "invalid_request", error_description: "缺少 client_id / client_secret" }));
-            return;
-        }
-        const v = keyStore.verifyClientSecret(clientId, clientSecret);
-        if (!v.ok || !v.key) {
-            res.statusCode = 401;
-            res.setHeader("content-type", "application/json");
-            res.end(JSON.stringify({ error: "invalid_client", error_description: v.reason === "disabled" ? "client is disabled" : "invalid client credentials" }));
-            return;
-        }
-        const { token, expiresIn } = issueAccessToken(v.key.id);
-        res.setHeader("content-type", "application/json");
-        res.end(JSON.stringify({ access_token: token, token_type: "Bearer", expires_in: expiresIn }));
-    }).catch(() => {
-        res.statusCode = 400;
-        res.setHeader("content-type", "application/json");
-        res.end(JSON.stringify({ error: "invalid_request", error_description: "parse error" }));
-    });
-}
+// ---------------- OAuth2 授权服务器（标准 MCP OAuth，见 gateway-oauth.ts） ----------------
+// token 签发/校验、动态注册、PKCE 授权码、client_credentials 全部由 OAuthManager 承担；
+// 端点：/.well-known/oauth-*、/register、/authorize、/token（/auth/token 作兼容别名）。
 
 /** 为单个 MCP 会话创建低层 Server（inputSchema 原样透传 JSON Schema） */
 function createSessionServer(tools: ToolMeta[], auth: GwAuth): Server {
@@ -404,21 +349,25 @@ async function main() {
     // MCP Streamable HTTP 会话管理（P1：master token 或客户 API Key 鉴权）
     const sessions = new Map<string, { transport: StreamableHTTPServerTransport; server: Server }>();
     const httpServer = http.createServer((req, res) => {
-        // P3 OAuth2 token 端点（不经过 MCP 鉴权）
-        if ((req.url ?? "").startsWith("/auth/token")) {
-            handleTokenRequest(req, res);
-            return;
-        }
-        const auth = authenticate(req);
-        if (auth.rejectStatus) {
-            const code = auth.rejectStatus === 429 ? -32029 : -32001;
-            res.statusCode = auth.rejectStatus;
-            res.setHeader("content-type", "application/json");
-            res.setHeader("x-canvas-auth", auth.rejectReason ?? "denied");
-            res.end(JSON.stringify({ jsonrpc: "2.0", error: { code, message: auth.rejectReason }, id: null }));
-            return;
-        }
-        void handleMcpRequest(req, res, auth);
+        void (async () => {
+            // 标准 MCP OAuth 端点（发现/动态注册/授权/token），不经过 MCP 鉴权
+            if (await oauth.handle(req, res)) return;
+            const auth = authenticate(req);
+            if (auth.rejectStatus) {
+                const code = auth.rejectStatus === 429 ? -32029 : -32001;
+                res.statusCode = auth.rejectStatus;
+                res.setHeader("content-type", "application/json");
+                res.setHeader("x-canvas-auth", auth.rejectReason ?? "denied");
+                // 401 时按 MCP OAuth 规范下发受保护资源元数据指针，供客户端自动发起 mcp login
+                if (auth.rejectStatus === 401) {
+                    res.setHeader("WWW-Authenticate",
+                        `Bearer resource_metadata="${PUBLIC_BASE_URL}/.well-known/oauth-protected-resource"`);
+                }
+                res.end(JSON.stringify({ jsonrpc: "2.0", error: { code, message: auth.rejectReason }, id: null }));
+                return;
+            }
+            await handleMcpRequest(req, res, auth);
+        })();
     });
 
     async function handleMcpRequest(req: IncomingMessage, res: ServerResponse, auth: GwAuth) {
@@ -469,7 +418,7 @@ async function main() {
         console.log(`[canvas-gateway] auth=master(${GATEWAY_TOKEN ? "on" : "off"}) + api-key(store=${keyStore.filePath})`);
         console.log(`[canvas-gateway] usage-log=${USAGE_LOG}`);
         console.log(`[canvas-gateway] pricing=${PRICING_FILE} (default ${priceFor(currentPricing(), "default")}/${pricing.currency})`);
-        console.log(`[canvas-gateway] oauth=/auth/token (client_credentials, ttl=${Math.floor(ACCESS_TOKEN_TTL_MS / 1000)}s)`);
+        console.log(`[canvas-gateway] oauth=标准 MCP OAuth2.1（discovery/register/authorize/token）public=${PUBLIC_BASE_URL} store=${OAUTH_STORE_FILE}`);
     });
 
     function shutdown() {

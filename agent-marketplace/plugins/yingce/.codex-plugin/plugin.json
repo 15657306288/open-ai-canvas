@@ -1,0 +1,41 @@
+{
+  "name": "yingce",
+  "version": "0.1.0",
+  "description": "影策画布：让任意 Agent 通过标准 MCP 调用你的可视化画布与多渠道模型（文本 / 图片 / 视频）。",
+  "author": {
+    "name": "Yingce"
+  },
+  "repository": "https://github.com/15657306288/open-ai-canvas",
+  "homepage": "https://yingce.cc.cd",
+  "keywords": [
+    "yingce",
+    "canvas",
+    "mcp",
+    "codex",
+    "agent",
+    "video",
+    "image",
+    "workflow"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "影策画布",
+    "shortDescription": "让 Agent 通过 MCP 读写你的可视化画布，并调用多渠道文本/图片/视频模型。",
+    "longDescription": "影策画布提供一块人与 Agent 共享的可视化画布：创建文本/图片/视频/音频节点、搭建工作流、调用内置多渠道模型生成素材、读取真实画布状态并做可验证的编辑。通过标准 MCP（Streamable HTTP + OAuth 2.1）接入，Codex 等任意兼容 Agent 安装插件并 mcp login 后即可使用，无需手工复制 Token。",
+    "developerName": "Yingce",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "读取当前影策画布上下文，概述画布上有哪些节点、连接关系和就绪资源。",
+      "把这个创意拆成一条完整的分镜工作流，在影策画布上创建文本、图片和视频节点并连线。",
+      "用画布上已有的角色素材作为参考，生成下一个分镜视频。"
+    ],
+    "brandColor": "#2563eb",
+    "websiteURL": "https://yingce.cc.cd"
+  },
+  "mcpServers": "./.mcp.json"
+}
