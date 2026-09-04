@@ -34,15 +34,17 @@ const IMAGE_RE = /\.(png|jpe?g|webp|gif|avif)$/i;
 const AUDIO_RE = /\.(mp3|wav|m4a|ogg|flac|aac)$/i;
 const MEDIA_RE = /\.(mp4|mov|webm|mkv|m4v|avi)$/i;
 
-/** 本地上传标记（assetFromUploadedResource 写入 payload.data.source）。 */
+/** 本地上传标记与画布产物标记（assetFromUploadedResource 写入 payload.data.source）。 */
 const SOURCE_UPLOADED = "uploaded";
+const SOURCE_CANVAS = "canvas";
 
-type AssetFilter = "all" | "project" | "uploaded";
+type AssetFilter = "all" | "project" | "uploaded" | "canvas";
 
 const FILTER_TABS: { id: AssetFilter; label: string }[] = [
     { id: "all", label: "全部" },
     { id: "project", label: "项目素材" },
     { id: "uploaded", label: "本地上传" },
+    { id: "canvas", label: "画布素材" },
 ];
 
 /** 按 MIME 与扩展名推断媒体 kind；非媒体文件返回 null。 */
@@ -201,15 +203,16 @@ function MediaPreview({ asset }: { asset: ProjectAsset }) {
 
 function SourceBadge({ source }: { source: string }) {
     const uploaded = source === SOURCE_UPLOADED;
+    const canvas = source === SOURCE_CANVAS;
     return (
         <span
             className={`rounded px-1 py-px text-[9px] leading-none ${
-                uploaded
+                uploaded || canvas
                     ? "bg-[var(--director-control-hover)] text-[var(--director-dock-fg-strong)]"
                     : "bg-[var(--director-control-hover)] text-[var(--director-dock-fg)]/70"
             }`}
         >
-            {uploaded ? "本地上传" : "项目素材"}
+            {uploaded ? "本地上传" : canvas ? "画布素材" : "项目素材"}
         </span>
     );
 }
@@ -230,7 +233,7 @@ export function EditorAssetIngest() {
 
     const [filter, setFilter] = useState<AssetFilter>("all");
     const [expandedId, setExpandedId] = useState<string | null>(null);
-    const [openGroups, setOpenGroups] = useState<{ uploaded: boolean; project: boolean }>({ uploaded: true, project: true });
+    const [openGroups, setOpenGroups] = useState<{ uploaded: boolean; project: boolean; canvas: boolean }>({ uploaded: true, project: true, canvas: true });
     const inputRef = useRef<HTMLInputElement | null>(null);
     const lastAddKey = useRef<string | null>(null);
     const lastAddAt = useRef(0);
@@ -264,6 +267,7 @@ export function EditorAssetIngest() {
             });
             const skipped = media.length - toImport.length;
             // 逐文件导入：单文件失败不中断整批，汇总失败数提示。
+            const linkedIds: string[] = [];
             for (const { file, kind } of toImport) {
                 try {
                     // 上传前探测真实时长（视频/音频），随 meta 入库供时间线片段使用。
@@ -291,6 +295,7 @@ export function EditorAssetIngest() {
                         continue;
                     }
                     okCount += 1;
+                    linkedIds.push(resource.id);
                 } catch (err) {
                     failedNames.push(file.name);
                     const detail = extractApiMessage(err);
@@ -298,7 +303,12 @@ export function EditorAssetIngest() {
                 }
             }
             if (okCount > 0) {
-                await refreshAssets();
+                // 刷新后校验本次挂载的素材是否都出现在列表里；若单次刷新因网络抖动
+                // 或后端提交延迟而拿不到最新结果，立即再刷新一次，避免列表停留在旧快照。
+                const firstList = await refreshAssets();
+                if (firstList && linkedIds.some((id) => !firstList.some((asset) => asset.id === id))) {
+                    await refreshAssets();
+                }
                 setImportNote(skipped > 0 ? `已导入 ${okCount} 个，跳过 ${skipped} 个重复文件` : `已导入 ${okCount} 个媒体`);
             } else if (skipped > 0 && failedNames.length === 0) {
                 setImportNote(`媒体库中已有同名素材，跳过 ${skipped} 个重复文件`);
@@ -336,9 +346,11 @@ export function EditorAssetIngest() {
     };
 
     const uploadedAssets = assets.filter((a) => a.source === SOURCE_UPLOADED);
-    const projectAssets = assets.filter((a) => a.source !== SOURCE_UPLOADED);
-    const groups: { id: "uploaded" | "project"; label: string; icon: typeof HardDrive; items: ProjectAsset[] }[] = [
+    const canvasAssets = assets.filter((a) => a.source === SOURCE_CANVAS);
+    const projectAssets = assets.filter((a) => a.source !== SOURCE_UPLOADED && a.source !== SOURCE_CANVAS);
+    const groups: { id: "uploaded" | "project" | "canvas"; label: string; icon: typeof HardDrive; items: ProjectAsset[] }[] = [
         { id: "uploaded", label: "本地上传", icon: HardDrive, items: uploadedAssets },
+        { id: "canvas", label: "画布素材", icon: Boxes, items: canvasAssets },
         { id: "project", label: "项目素材", icon: Boxes, items: projectAssets },
     ];
     const visibleGroups = groups.filter((g) => filter === "all" || g.id === filter);
@@ -416,7 +428,7 @@ export function EditorAssetIngest() {
                 ) : visibleGroups.every((g) => g.items.length === 0) ? (
                     <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center">
                         <p className="text-xs text-[var(--director-dock-fg)]/60">
-                            {filter === "uploaded" ? "暂无本地上传的媒体" : filter === "project" ? "暂无项目素材" : "项目暂无资产"}
+                            {filter === "uploaded" ? "暂无本地上传的媒体" : filter === "canvas" ? "暂无画布素材，请先在画布工作台生成分镜/预演" : filter === "project" ? "暂无项目素材" : "项目暂无资产"}
                         </p>
                         <p className="max-w-[180px] text-[11px] leading-relaxed text-[var(--director-dock-fg)]/45">点击上方导入媒体，或将文件拖入此区域</p>
                     </div>
@@ -487,7 +499,7 @@ export function EditorAssetIngest() {
                                                                     <dt className="text-[var(--director-dock-fg)]/60">分类</dt>
                                                                     <dd className="truncate text-right text-[var(--director-dock-fg-strong)]">{asset.category}</dd>
                                                                     <dt className="text-[var(--director-dock-fg)]/60">来源</dt>
-                                                                    <dd className="text-right text-[var(--director-dock-fg-strong)]">{source === SOURCE_UPLOADED ? "本地上传" : "项目素材"}</dd>
+                                                                     <dd className="text-right text-[var(--director-dock-fg-strong)]">{source === SOURCE_UPLOADED ? "本地上传" : source === SOURCE_CANVAS ? "画布素材" : "项目素材"}</dd>
                                                                     {asset.durationMs ? (
                                                                         <>
                                                                             <dt className="text-[var(--director-dock-fg)]/60">时长</dt>
