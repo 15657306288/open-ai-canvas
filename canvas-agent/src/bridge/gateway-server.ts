@@ -48,6 +48,7 @@ import { agentFetch } from "../agent-fetch.js";
 import { assertTokenForHost } from "./server-security.js";
 import { today } from "./gateway-keys.js";
 import { createAccountProvider, type AccountProvider } from "./account-provider.js";
+import { runBilledCall } from "./billing-lifecycle.js";
 import { loadPricing, priceFor, type Pricing } from "./gateway-billing.js";
 import { OAuthManager } from "./gateway-oauth.js";
 
@@ -271,74 +272,12 @@ function createSessionServer(tools: ToolMeta[], auth: GwAuth): Server {
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const name = request.params.name;
         const args = (request.params.arguments ?? {}) as Record<string, unknown>;
-        const started = Date.now();
-        const cost = priceFor(currentPricing(), name);
-
-        // P2 余额预检：启用余额控制的账户，余额不足以支付本次调用 → 业务拒绝
-        if (auth.type === "key" && auth.keyId) {
-            const pc = await account.preCheck(auth.keyId, cost);
-            if (!pc.allow) {
-                appendUsageLog({
-                    ts: new Date().toISOString(),
-                    date: today(),
-                    keyId: auth.keyId,
-                    keyName: auth.keyName ?? "",
-                    tool: name,
-                    ok: false,
-                    error: "insufficient_balance",
-                    need: pc.need,
-                    balance: pc.balance,
-                    ms: Date.now() - started,
-                });
-                return {
-                    content: [{
-                        type: "text" as const,
-                        text: `[canvas-bridge] 402 Payment Required: 余额不足（本次需 ¥${pc.need.toFixed(2)}，当前余额 ¥${pc.balance.toFixed(2)}，请充值）`,
-                    }],
-                    isError: true,
-                };
-            }
-        }
-
-        try {
-            const result = await callViaBridge(name, args);
-            // P2 扣费 + 计量：按调用主体记录（JSONL 是账单数据源）
-            let newBalance: number | undefined;
-            if (auth.type === "key" && auth.keyId) {
-                const d = await account.charge(auth.keyId, cost);
-                newBalance = d.balance;
-            }
-            appendUsageLog({
-                ts: new Date().toISOString(),
-                date: today(),
-                keyId: auth.type === "key" ? auth.keyId : "master",
-                keyName: auth.type === "key" ? auth.keyName : "master",
-                tool: name,
-                ok: true,
-                cost,
-                balance: newBalance,
-                ms: Date.now() - started,
-            });
-            if (auth.type === "key" && auth.keyId) await account.recordCall(auth.keyId, name);
-            const text = typeof result === "string" ? result : JSON.stringify(result);
-            return { content: [{ type: "text" as const, text }] };
-        } catch (error) {
-            appendUsageLog({
-                ts: new Date().toISOString(),
-                date: today(),
-                keyId: auth.type === "key" ? auth.keyId : "master",
-                keyName: auth.type === "key" ? auth.keyName : "master",
-                tool: name,
-                ok: false,
-                error: error instanceof Error ? error.message : String(error),
-                ms: Date.now() - started,
-            });
-            if (auth.type === "key" && auth.keyId) await account.recordCall(auth.keyId, name);
-            return {
-                content: [{ type: "text" as const, text: `[canvas-bridge] ${error instanceof Error ? error.message : String(error)}` }],
-                isError: true,
-            };
-        }
+        return runBilledCall(name, args, auth, {
+            account,
+            callTool: callViaBridge,
+            priceOf: (tool) => priceFor(currentPricing(), tool),
+            log: appendUsageLog,
+        });
     });
     return server;
 }
@@ -419,7 +358,7 @@ async function main() {
         console.log(`[canvas-gateway] broker=${BROKER_URL} defaultBridge=${BRIDGE_ID || "(auto: 第一个在线)"}`);
         console.log(`[canvas-gateway] auth=master(${GATEWAY_TOKEN ? "on" : "off"}) + account-provider=${account.kind}`);
         console.log(`[canvas-gateway] usage-log=${USAGE_LOG}`);
-        console.log(`[canvas-gateway] pricing=${PRICING_FILE} (default ${priceFor(currentPricing(), "default")}/${pricing.currency})`);
+        console.log(`[canvas-gateway] pricing=${PRICING_FILE} (default ${priceFor(currentPricing(), "default")} microcredits/call)`);
         console.log(`[canvas-gateway] oauth=标准 MCP OAuth2.1（discovery/register/authorize/token）public=${PUBLIC_BASE_URL} store=${OAUTH_STORE_FILE}`);
     });
 

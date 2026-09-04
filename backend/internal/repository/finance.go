@@ -15,13 +15,15 @@ import (
 )
 
 var (
-	ErrInsufficientCredits     = errors.New("insufficient credits")
-	ErrRedeemCodeInvalid       = errors.New("redeem code invalid")
-	ErrActiveTaskLimit         = errors.New("active task limit reached")
-	ErrTaskNotRetryable        = errors.New("task is not retryable")
-	ErrBillingStateConflict    = errors.New("billing state conflict")
-	ErrBillingUsageUnavailable = errors.New("billing usage unavailable")
-	ErrChannelModelInUse       = errors.New("channel model is in use")
+	ErrInsufficientCredits        = errors.New("insufficient credits")
+	ErrRedeemCodeInvalid          = errors.New("redeem code invalid")
+	ErrActiveTaskLimit            = errors.New("active task limit reached")
+	ErrTaskNotRetryable           = errors.New("task is not retryable")
+	ErrBillingStateConflict       = errors.New("billing state conflict")
+	ErrBillingIdempotencyConflict = errors.New("billing idempotency conflict")
+	ErrInvalidBillingAmount       = errors.New("billing amount must be positive")
+	ErrBillingUsageUnavailable    = errors.New("billing usage unavailable")
+	ErrChannelModelInUse          = errors.New("channel model is in use")
 )
 
 // 先抢占唯一业务键再更新账户，确保注册和签到奖励在多实例并发下只入账一次。
@@ -426,13 +428,77 @@ func (r *Repository) ReserveBillingOrder(order *model.BillingOrder) error {
 	})
 }
 
+// ReserveBillingOrderIdempotent inserts the order before freezing credits. The
+// unique business key therefore arbitrates concurrent retries before any
+// balance mutation; a failed reservation rolls the insert back with the same
+// transaction.
+func (r *Repository) ReserveBillingOrderIdempotent(order *model.BillingOrder) (*model.BillingOrder, error) {
+	if order == nil {
+		return nil, errors.New("billing order is required")
+	}
+	if order.AmountMicrocredits <= 0 {
+		return nil, ErrInvalidBillingAmount
+	}
+	if order.ID == "" {
+		order.ID = newRepositoryID()
+	}
+	if order.ReservedAmountMicrocredits <= 0 {
+		order.ReservedAmountMicrocredits = order.AmountMicrocredits
+	}
+
+	var result model.BillingOrder
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		created := tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "user_id"}, {Name: "idempotency_key"}},
+			DoNothing: true,
+		}).Create(order)
+		if created.Error != nil {
+			return created.Error
+		}
+		if created.RowsAffected == 0 {
+			if err := tx.First(&result, "user_id = ? AND idempotency_key = ?", order.UserID, order.IdempotencyKey).Error; err != nil {
+				return err
+			}
+			if !sameBillingReservation(&result, order) {
+				return ErrBillingIdempotencyConflict
+			}
+			return nil
+		}
+
+		account, err := reserveBillingCredits(tx, order)
+		if err != nil {
+			return err
+		}
+		if err := createBillingReserveLedger(tx, order, account); err != nil {
+			return err
+		}
+		result = *order
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func reserveBillingOrder(tx *gorm.DB, order *model.BillingOrder) error {
 	if order.ReservedAmountMicrocredits <= 0 {
 		order.ReservedAmountMicrocredits = order.AmountMicrocredits
 	}
+	account, err := reserveBillingCredits(tx, order)
+	if err != nil {
+		return err
+	}
+	if err := tx.Create(order).Error; err != nil {
+		return err
+	}
+	return createBillingReserveLedger(tx, order, account)
+}
+
+func reserveBillingCredits(tx *gorm.DB, order *model.BillingOrder) (model.CreditAccount, error) {
 	account := model.CreditAccount{UserID: order.UserID}
 	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&account).Error; err != nil {
-		return err
+		return account, err
 	}
 	updated := tx.Model(&model.CreditAccount{}).
 		Where("user_id = ? AND available_microcredits >= ?", order.UserID, order.AmountMicrocredits).
@@ -443,17 +509,18 @@ func reserveBillingOrder(tx *gorm.DB, order *model.BillingOrder) error {
 			"updated_at":             time.Now(),
 		})
 	if updated.Error != nil {
-		return updated.Error
+		return account, updated.Error
 	}
 	if updated.RowsAffected != 1 {
-		return ErrInsufficientCredits
+		return account, ErrInsufficientCredits
 	}
 	if err := tx.First(&account, "user_id = ?", order.UserID).Error; err != nil {
-		return err
+		return account, err
 	}
-	if err := tx.Create(order).Error; err != nil {
-		return err
-	}
+	return account, nil
+}
+
+func createBillingReserveLedger(tx *gorm.DB, order *model.BillingOrder, account model.CreditAccount) error {
 	return tx.Create(&model.CreditLedgerEntry{
 		ID:                         newRepositoryID(),
 		UserID:                     order.UserID,
@@ -469,9 +536,39 @@ func reserveBillingOrder(tx *gorm.DB, order *model.BillingOrder) error {
 	}).Error
 }
 
+func sameBillingReservation(existing *model.BillingOrder, requested *model.BillingOrder) bool {
+	return existing.UserID == requested.UserID &&
+		existing.IdempotencyKey == requested.IdempotencyKey &&
+		existing.ChannelID == requested.ChannelID &&
+		existing.ChannelModelID == requested.ChannelModelID &&
+		existing.PriceTierID == requested.PriceTierID &&
+		existing.PriceTierVersion == requested.PriceTierVersion &&
+		existing.PriceVersion == requested.PriceVersion &&
+		existing.Model == requested.Model &&
+		existing.Capability == requested.Capability &&
+		existing.Scene == requested.Scene &&
+		existing.BillingMode == requested.BillingMode &&
+		existing.UnitPriceMicrocredits == requested.UnitPriceMicrocredits &&
+		existing.MultiplierBasisPoints == requested.MultiplierBasisPoints &&
+		existing.Quantity == requested.Quantity &&
+		existing.AmountMicrocredits == requested.AmountMicrocredits &&
+		existing.ReservedAmountMicrocredits == requested.ReservedAmountMicrocredits &&
+		existing.InputTokenPriceMicrocredits == requested.InputTokenPriceMicrocredits &&
+		existing.OutputTokenPriceMicrocredits == requested.OutputTokenPriceMicrocredits &&
+		existing.CachedTokenPriceMicrocredits == requested.CachedTokenPriceMicrocredits
+}
+
 func (r *Repository) BillingOrder(id string) (*model.BillingOrder, error) {
 	var order model.BillingOrder
 	if err := r.db.First(&order, "id = ?", id).Error; err != nil {
+		return nil, err
+	}
+	return &order, nil
+}
+
+func (r *Repository) BillingOrderByUserAndIdempotencyKey(userID string, idempotencyKey string) (*model.BillingOrder, error) {
+	var order model.BillingOrder
+	if err := r.db.First(&order, "user_id = ? AND idempotency_key = ?", userID, idempotencyKey).Error; err != nil {
 		return nil, err
 	}
 	return &order, nil
