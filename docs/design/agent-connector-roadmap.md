@@ -379,3 +379,13 @@ OpenAPI 导入 Postman/GPT Actions 可调；bridge 本地不开端口、云端 A
 - **规则**：失败调用不计费（`ok=false` → cost 0）；余额不足调用前拦截（402 Payment Required）；未配置余额的 Key 不受影响（仅日配额）。
 - **CLI**：`gateway-billing bill [--date D] [--key K]` / `report` / `pricing`；`gateway-keys topup <id|name> <金额>` / `balance <id|name>`。
 - **验证**：公网客户 Key 成功调用扣费（余额 10→9.98）、失败调用 0 计费、零余额 402 拦截、账单/报表正确；10 个单测全绿（定价三级命中、聚合计费、余额扣费/不足拦截）。
+
+### P3 标准接入：OAuth2 client credentials 统一网关（2026-09-04）
+- **目标**：让企业客户/主流 agent 用行业标准方式接入（client_id/client_secret 换短期 access_token），替代直接裸传长期 Key。
+- **新增**：
+  - `gateway-keys.ts`：`--oauth` 颁发时生成 `client_secret`（`cs_` 前缀，哈希存储）+ `verifyClientSecret(client_id=key.id, secret)`。
+  - `gateway-server.ts`：`POST /auth/token` OAuth2 token 端点（`grant_type=client_credentials`，支持 JSON body 或 `Authorization: Basic`），签发短期 access_token（`at_` 前缀，默认 3600s，内存存储）；Bearer 校验优先级 master → **access_token** → 客户 Key；无效/过期 token 401。
+- **标准**：token 响应符合 RFC 6749（`access_token` / `token_type: Bearer` / `expires_in`）；错误码 `invalid_client` / `invalid_request` / `unsupported_grant_type`。
+- **隧道**：`yingce-canvas` 隧道新增 `yingce.cc.cd /auth/token → 17801` 路由（`~/.cloudflared/yingce-canvas.yml`）。
+- **验证**：公网 client_credentials 换 token（200）→ access_token 调 MCP（200）→ 无效 token 401 → 错误 secret 401 invalid_client → Basic auth 换 token 200；12 个单测全绿（含 client_secret 哈希/停用拒绝/非 oauth 拒绝）。
+- **后续统一网关建议**：规模商用后可在网关前叠加 Kong/KrakenD 等 API 网关做限流、监控、多环境路由；OAuth2 token 端点已按标准实现，可平滑对接授权服务器（如 Keycloak/Auth0）升级为授权码流。

@@ -47,6 +47,8 @@ export interface ApiKey {
     usage: KeyUsage;
     /** P2 计费余额（CNY 元，可选；undefined=不启用余额控制） */
     balance?: number;
+    /** P3 OAuth2 client credentials：client_secret 哈希（仅颁发时打印一次明文） */
+    clientSecretHash?: string;
 }
 
 interface KeyFile {
@@ -65,6 +67,11 @@ export function today(): string {
 
 export function generateKey(): string {
     return `ak_${crypto.randomBytes(16).toString("hex")}`;
+}
+
+/** P3 OAuth2 client_secret 格式 */
+export function generateClientSecret(): string {
+    return `cs_${crypto.randomBytes(24).toString("hex")}`;
 }
 
 export class KeyStore {
@@ -119,9 +126,10 @@ export class KeyStore {
         fs.renameSync(tmp, this.file);
     }
 
-    createKey(opts: { name: string; dailyCalls?: number; balance?: number }): { key: string; record: ApiKey } {
+    createKey(opts: { name: string; dailyCalls?: number; balance?: number; oauth?: boolean }): { key: string; record: ApiKey; clientSecret?: string } {
         const key = generateKey();
         const now = new Date().toISOString();
+        let clientSecret: string | undefined;
         const record: ApiKey = {
             id: `k_${crypto.randomBytes(4).toString("hex")}`,
             name: opts.name,
@@ -132,10 +140,14 @@ export class KeyStore {
             usage: { date: today(), calls: 0, totalCalls: 0, byTool: {} },
             balance: opts.balance,
         };
+        if (opts.oauth) {
+            clientSecret = generateClientSecret();
+            record.clientSecretHash = hashKey(clientSecret);
+        }
         this.data.keys.push(record);
         this.save();
         try { this.lastMtime = fs.statSync(this.file).mtimeMs; } catch { /* ignore */ }
-        return { key, record };
+        return { key, record, clientSecret };
     }
 
     private resolve(idOrName: string): ApiKey | undefined {
@@ -223,6 +235,16 @@ export class KeyStore {
         return { ok: true, key: k };
     }
 
+    /** P3 OAuth2 client credentials 校验：client_id = key.id，client_secret 哈希比对 */
+    verifyClientSecret(clientId: string, secret: string): { ok: boolean; key?: ApiKey; reason?: "not_found" | "disabled" | "bad_secret" } {
+        this.reloadIfChanged();
+        const k = this.resolve(clientId);
+        if (!k || !k.clientSecretHash) return { ok: false, reason: "not_found" };
+        if (!k.enabled) return { ok: false, key: k, reason: "disabled" };
+        if (hashKey(secret) !== k.clientSecretHash) return { ok: false, key: k, reason: "bad_secret" };
+        return { ok: true, key: k };
+    }
+
     /** 记录一次工具调用（配额消耗 + 明细），返回更新后的用量 */
     recordUsage(id: string, toolName: string): KeyUsage {
         this.reloadIfChanged();
@@ -249,6 +271,7 @@ function printRecord(k: ApiKey): void {
     console.log(`  created : ${k.createdAt}`);
     console.log(`  quota   : 日 ${k.quota.dailyCalls === 0 ? "不限" : k.quota.dailyCalls} 次调用`);
     console.log(`  balance : ${k.balance === undefined ? "未启用（按日配额计）" : `¥ ${k.balance.toFixed(2)}`}`);
+    console.log(`  oauth   : ${k.clientSecretHash ? "已启用 client credentials" : "未启用"}`);
     console.log(`  usage   : 今日 ${k.usage.calls} 次 / 累计 ${k.usage.totalCalls} 次`);
 }
 
@@ -265,15 +288,28 @@ function cliMain(): void {
     if (cmd === "add") {
         const name = argValue("--name");
         if (!name) {
-            console.error("用法: gateway-keys add --name <客户名> [--quota <日调用上限>] [--balance <预存金额(元)>]");
+            console.error("用法: gateway-keys add --name <客户名> [--quota <日调用上限>] [--balance <预存金额>] [--oauth]");
             process.exit(1);
         }
         const dailyCalls = argValue("--quota") ? Number(argValue("--quota")) : 0;
         const balance = argValue("--balance") ? Number(argValue("--balance")) : undefined;
-        const { key, record } = store.createKey({ name, dailyCalls: Number.isFinite(dailyCalls) ? dailyCalls : 0, balance: balance !== undefined && Number.isFinite(balance) ? balance : undefined });
+        const oauth = rest.includes("--oauth");
+        const { key, record, clientSecret } = store.createKey({
+            name,
+            dailyCalls: Number.isFinite(dailyCalls) ? dailyCalls : 0,
+            balance: balance !== undefined && Number.isFinite(balance) ? balance : undefined,
+            oauth,
+        });
         console.log("已颁发客户 Key（明文仅此一次，之后只存哈希，请妥善保存）：");
         console.log();
         console.log(`  ${key}`);
+        if (clientSecret) {
+            console.log();
+            console.log("P3 OAuth2 client credentials（client_id / client_secret，明文仅此一次）：");
+            console.log(`  client_id     : ${record.id}`);
+            console.log(`  client_secret : ${clientSecret}`);
+            console.log("  用法: POST /auth/token 换 access_token，再以 Bearer 调用 /mcp");
+        }
         console.log();
         console.log("Key 信息：");
         printRecord(record);
@@ -340,7 +376,7 @@ function cliMain(): void {
 
     if (hasFlag("--help") || !cmd) {
         console.log(`用法: gateway-keys <cmd>
-  add   --name <客户名> [--quota <日调用上限>] [--balance <预存金额>]   颁发客户 Key（打印一次明文）
+  add   --name <客户名> [--quota <日调用上限>] [--balance <预存金额>] [--oauth]   颁发客户 Key（--oauth 同时生成 client credentials）
   list                                         列出全部 Key
   revoke <id|name>                             停用
   enable <id|name>                             启用

@@ -116,3 +116,32 @@ test("[connector] P1 网关 Key：损坏文件自动备份并空库启动", () =
     assert.equal(store.list().length, 0);
     assert.ok(fs.existsSync(`${file}.corrupt`), "损坏文件应备份为 .corrupt");
 });
+
+test("[connector] P3 OAuth2 client credentials：颁发/校验/哈希/停用拒绝", () => {
+    const { store } = makeStore();
+    const { key, record, clientSecret } = store.createKey({ name: "OAuth客户", oauth: true });
+    assert.ok(key.startsWith("ak_"), "API key 前缀 ak_");
+    assert.ok(clientSecret!.startsWith("cs_"), "client_secret 前缀 cs_");
+    assert.ok(record.clientSecretHash, "client_secret 应只存哈希");
+    assert.notEqual(record.clientSecretHash, clientSecret, "磁盘不得存明文");
+
+    // 用 client_id(=key.id) + client_secret 校验通过
+    const ok = store.verifyClientSecret(record.id, clientSecret!);
+    assert.equal(ok.ok, true);
+    assert.equal(ok.key!.id, record.id);
+    // 错误 secret 拒绝
+    assert.equal(store.verifyClientSecret(record.id, "cs_wrong").reason, "bad_secret");
+    // 不存在的 client_id 拒绝
+    assert.equal(store.verifyClientSecret("k_nonexistent", clientSecret!).reason, "not_found");
+    // 停用后拒绝
+    store.revoke(record.id);
+    assert.equal(store.verifyClientSecret(record.id, clientSecret!).reason, "disabled");
+});
+
+test("[connector] P3 OAuth2 客户端：非 oauth Key 无 client_secret，校验拒绝", () => {
+    const { store } = makeStore();
+    store.createKey({ name: "普通客户" });
+    const rec = store.list()[0];
+    assert.equal(rec.clientSecretHash, undefined);
+    assert.equal(store.verifyClientSecret(rec.id, "cs_anything").reason, "not_found");
+});

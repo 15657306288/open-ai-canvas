@@ -217,7 +217,16 @@ function authenticate(req: IncomingMessage): GwAuth {
         return { type: "master" };
     }
 
-    // ② 客户 API Key
+    // ② P3 OAuth2 access_token（client credentials 换取，短期）
+    if (bearer.startsWith("at_")) {
+        const keyId = resolveAccessToken(bearer);
+        if (!keyId) return { type: "key", rejectStatus: 401, rejectReason: "invalid or expired access token" };
+        const k = keyStore.get(keyId);
+        if (!k || !k.enabled) return { type: "key", rejectStatus: 401, rejectReason: "invalid or disabled API key" };
+        return { type: "key", keyId, keyName: k.name };
+    }
+
+    // ③ 客户 API Key
     const candidate = bearer.startsWith("ak_") ? bearer : apiKeyHeader;
     if (candidate) {
         const v = keyStore.verify(candidate);
@@ -232,6 +241,71 @@ function authenticate(req: IncomingMessage): GwAuth {
 
     // ③ 未提供任何凭据
     return { type: "key", rejectStatus: 401, rejectReason: "Unauthorized: missing credentials" };
+}
+
+// ---------------- P3 OAuth2 client credentials ----------------
+const ACCESS_TOKEN_TTL_MS = Number(process.env.CANVAS_GATEWAY_TOKEN_TTL ?? 3600_000);
+const accessTokens = new Map<string, { keyId: string; exp: number }>();
+
+function issueAccessToken(keyId: string): { token: string; expiresIn: number } {
+    const token = `at_${crypto.randomBytes(24).toString("hex")}`;
+    accessTokens.set(token, { keyId, exp: Date.now() + ACCESS_TOKEN_TTL_MS });
+    return { token, expiresIn: Math.floor(ACCESS_TOKEN_TTL_MS / 1000) };
+}
+
+function resolveAccessToken(token: string): string | undefined {
+    const t = accessTokens.get(token);
+    if (!t) return undefined;
+    if (Date.now() > t.exp) { accessTokens.delete(token); return undefined; }
+    return t.keyId;
+}
+
+function handleTokenRequest(req: IncomingMessage, res: ServerResponse): void {
+    if (req.method !== "POST") {
+        res.statusCode = 405;
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ error: "method_not_allowed" }));
+        return;
+    }
+    readJsonBody(req).then((body) => {
+        const b = (body ?? {}) as Record<string, string>;
+        let clientId = b.client_id;
+        let clientSecret = b.client_secret;
+        const authHeader = typeof req.headers.authorization === "string" ? req.headers.authorization : "";
+        if (authHeader.startsWith("Basic ")) {
+            try {
+                const dec = Buffer.from(authHeader.slice(6).trim(), "base64").toString("utf8");
+                const i = dec.indexOf(":");
+                if (i > 0) { clientId = dec.slice(0, i); clientSecret = dec.slice(i + 1); }
+            } catch { /* ignore */ }
+        }
+        if (b.grant_type && b.grant_type !== "client_credentials") {
+            res.statusCode = 400;
+            res.setHeader("content-type", "application/json");
+            res.end(JSON.stringify({ error: "unsupported_grant_type", error_description: "仅支持 client_credentials" }));
+            return;
+        }
+        if (!clientId || !clientSecret) {
+            res.statusCode = 400;
+            res.setHeader("content-type", "application/json");
+            res.end(JSON.stringify({ error: "invalid_request", error_description: "缺少 client_id / client_secret" }));
+            return;
+        }
+        const v = keyStore.verifyClientSecret(clientId, clientSecret);
+        if (!v.ok || !v.key) {
+            res.statusCode = 401;
+            res.setHeader("content-type", "application/json");
+            res.end(JSON.stringify({ error: "invalid_client", error_description: v.reason === "disabled" ? "client is disabled" : "invalid client credentials" }));
+            return;
+        }
+        const { token, expiresIn } = issueAccessToken(v.key.id);
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ access_token: token, token_type: "Bearer", expires_in: expiresIn }));
+    }).catch(() => {
+        res.statusCode = 400;
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ error: "invalid_request", error_description: "parse error" }));
+    });
 }
 
 /** 为单个 MCP 会话创建低层 Server（inputSchema 原样透传 JSON Schema） */
@@ -330,6 +404,11 @@ async function main() {
     // MCP Streamable HTTP 会话管理（P1：master token 或客户 API Key 鉴权）
     const sessions = new Map<string, { transport: StreamableHTTPServerTransport; server: Server }>();
     const httpServer = http.createServer((req, res) => {
+        // P3 OAuth2 token 端点（不经过 MCP 鉴权）
+        if ((req.url ?? "").startsWith("/auth/token")) {
+            handleTokenRequest(req, res);
+            return;
+        }
         const auth = authenticate(req);
         if (auth.rejectStatus) {
             const code = auth.rejectStatus === 429 ? -32029 : -32001;
@@ -390,6 +469,7 @@ async function main() {
         console.log(`[canvas-gateway] auth=master(${GATEWAY_TOKEN ? "on" : "off"}) + api-key(store=${keyStore.filePath})`);
         console.log(`[canvas-gateway] usage-log=${USAGE_LOG}`);
         console.log(`[canvas-gateway] pricing=${PRICING_FILE} (default ${priceFor(currentPricing(), "default")}/${pricing.currency})`);
+        console.log(`[canvas-gateway] oauth=/auth/token (client_credentials, ttl=${Math.floor(ACCESS_TOKEN_TTL_MS / 1000)}s)`);
     });
 
     function shutdown() {
