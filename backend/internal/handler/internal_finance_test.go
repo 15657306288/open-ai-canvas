@@ -148,7 +148,6 @@ func TestInternalReserveValidationAndBalance(t *testing.T) {
 		name string
 		body any
 	}{
-		{"zero amount", reserveBody(0, "canvas_get_context", "k0")},
 		{"negative amount", reserveBody(-1, "canvas_get_context", "k0")},
 		{"float amount", map[string]any{"amountMicrocredits": 100.5, "tool": "t", "idempotencyKey": "k0"}},
 		{"missing tool", map[string]any{"amountMicrocredits": 100, "idempotencyKey": "k0"}},
@@ -179,6 +178,43 @@ func TestInternalReserveValidationAndBalance(t *testing.T) {
 	view := rawJSON(t, env)
 	if view["status"] != "reserved" || view["amountMicrocredits"].(float64) != 1000 {
 		t.Fatalf("bad reserve view: %+v", view)
+	}
+}
+
+// 连接器不参与定价：amountMicrocredits=0 时由后端按工具定价表计算并冻结。
+func TestInternalReserveBackendPricing(t *testing.T) {
+	router, db := newInternalHarness(t)
+	internalUser(t, db, "u1", model.UserStatusActive, 10_000_000)
+
+	// 未传金额字段（缺省 0）→ 后端定价（canvas_* 通配命中 20000）
+	status, env := internalDo(t, router, http.MethodPost, "/api/internal/accounts/u1/reservations",
+		map[string]any{"tool": "canvas_get_context", "idempotencyKey": "bp1"}, testInternalToken)
+	if status != 200 || env.Code != 0 {
+		t.Fatalf("backend-priced reserve status=%d env=%+v", status, env)
+	}
+	view := rawJSON(t, env)
+	if view["amountMicrocredits"].(float64) != 20000 {
+		t.Fatalf("canvas_* backend price want 20000 got %v", view["amountMicrocredits"])
+	}
+
+	// 显式传 0 → 等价于后端定价
+	status, env = internalDo(t, router, http.MethodPost, "/api/internal/accounts/u1/reservations",
+		reserveBody(0, "video_generation", "bp2"), testInternalToken)
+	if status != 200 || env.Code != 0 {
+		t.Fatalf("zero-amount reserve status=%d env=%+v", status, env)
+	}
+	if v := rawJSON(t, env)["amountMicrocredits"].(float64); v != 1500000 {
+		t.Fatalf("video_generation backend price want 1500000 got %v", v)
+	}
+
+	// 未知工具 → 默认单价
+	status, env = internalDo(t, router, http.MethodPost, "/api/internal/accounts/u1/reservations",
+		reserveBody(0, "some_unknown_tool", "bp3"), testInternalToken)
+	if status != 200 || env.Code != 0 {
+		t.Fatalf("default-priced reserve status=%d env=%+v", status, env)
+	}
+	if v := rawJSON(t, env)["amountMicrocredits"].(float64); v != 10000 {
+		t.Fatalf("default price want 10000 got %v", v)
 	}
 }
 

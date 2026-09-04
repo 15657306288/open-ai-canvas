@@ -567,6 +567,10 @@ func (s *Service) InternalCreditAccount(userID string) (*model.CreditAccount, er
 // ReserveInternalBilling creates one fixed-price MCP reservation in the
 // existing billing state machine. Model stores the MCP tool name because the
 // legacy BillingOrder schema has no separate tool column.
+//
+// Pricing source: when amountMicrocredits <= 0, the backend decides the price
+// from the MCP tool pricing table (mcp_tool_pricing) instead of trusting a
+// connector-supplied amount. The connector (网关) must NOT run its own pricing.
 func (s *Service) ReserveInternalBilling(userID string, amountMicrocredits int64, tool string, scene string, idempotencyKey string) (*model.BillingOrder, error) {
 	if err := s.RequireFeature(FeatureCredits); err != nil {
 		return nil, err
@@ -578,11 +582,19 @@ func (s *Service) ReserveInternalBilling(userID string, amountMicrocredits int64
 	if userID == "" || tool == "" || scene == "" || idempotencyKey == "" {
 		return nil, BadAuthRequest("内部计费参数不完整")
 	}
-	if amountMicrocredits <= 0 {
-		return nil, BadAuthRequest("amountMicrocredits 必须是正整数")
+	if amountMicrocredits < 0 {
+		return nil, BadAuthRequest("amountMicrocredits 不能为负数")
 	}
 	if len(tool) > internalMaxToolLength || len(scene) > internalMaxSceneLength || len(idempotencyKey) > internalMaxIdempotencyKey {
 		return nil, BadAuthRequest("内部计费参数过长")
+	}
+	// 连接器不参与定价：未传金额（0）时由后端按工具定价。
+	if amountMicrocredits == 0 {
+		backendPrice, err := s.ToolPriceMicrocredits(tool)
+		if err != nil {
+			return nil, err
+		}
+		amountMicrocredits = backendPrice
 	}
 	user, err := s.repo.User(userID)
 	if errors.Is(err, gorm.ErrRecordNotFound) {

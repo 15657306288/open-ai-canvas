@@ -34,7 +34,10 @@ export async function runBilledCall(
     deps: BilledCallDeps,
 ): Promise<BilledToolResult> {
     const started = Date.now();
-    const amountMicro = deps.priceOf(name);
+    // 定价来源：remote 模式下后端 reserve 按工具定价，连接器不参与定价（amount=0 表示后端定价）；
+    // local 内测模式仍由网关本地 pricing 表决定占位价。
+    const remotePriced = deps.account.kind === "remote";
+    const amountMicro = remotePriced ? 0 : deps.priceOf(name);
     const subjectId = auth.type === "key" && auth.keyId ? auth.keyId : undefined;
     const keyName = auth.type === "key" ? (auth.keyName ?? "") : "master";
     const logKey = subjectId ?? "master";
@@ -42,6 +45,7 @@ export async function runBilledCall(
 
     // ① 执行前 reserve（冻结/预扣），失败直接拒绝，不触碰工具
     let orderId: string | undefined;
+    let settledMicro: number | undefined;
     const idemKey = subjectId ? crypto.randomUUID() : "";
     if (subjectId) {
         const rv = await deps.account.reserve(subjectId, amountMicro, idemKey, name);
@@ -53,6 +57,8 @@ export async function runBilledCall(
             return { content: [{ type: "text", text: `[canvas-bridge] ${hint}` }], isError: true };
         }
         orderId = rv.orderId;
+        // remote 由后端返回实际冻结金额（后端定价）；local 用本地价。
+        settledMicro = rv.microcredits ?? amountMicro;
     }
 
     try {
@@ -62,7 +68,7 @@ export async function runBilledCall(
         if (subjectId && orderId) {
             const sv = await deps.account.settle(orderId, idemKey);
             if (!sv.ok) {
-                deps.log({ ...stamp(), keyId: logKey, keyName, tool: name, ok: true, microcredits: amountMicro, error: `settle_failed:${sv.message ?? ""}`, ms: Date.now() - started });
+                deps.log({ ...stamp(), keyId: logKey, keyName, tool: name, ok: true, microcredits: settledMicro, error: `settle_failed:${sv.message ?? ""}`, ms: Date.now() - started });
                 await deps.account.recordCall(subjectId, name);
                 const text = typeof result === "string" ? result : JSON.stringify(result);
                 return {
@@ -72,7 +78,7 @@ export async function runBilledCall(
             }
         }
         // 终态完成后才写成功用量（账单数据源）
-        deps.log({ ...stamp(), keyId: logKey, keyName, tool: name, ok: true, microcredits: subjectId ? amountMicro : undefined, ms: Date.now() - started });
+        deps.log({ ...stamp(), keyId: logKey, keyName, tool: name, ok: true, microcredits: subjectId ? settledMicro : undefined, ms: Date.now() - started });
         if (subjectId) await deps.account.recordCall(subjectId, name);
         const text = typeof result === "string" ? result : JSON.stringify(result);
         return { content: [{ type: "text", text }] };

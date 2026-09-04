@@ -42,6 +42,8 @@ export interface ReserveOutcome {
     ok: boolean;
     /** 计费订单号；settle/refund 时回传。local 以 lo_ 开头，remote 由网站后端生成。 */
     orderId?: string;
+    /** 实际冻结金额（正整数 microcredits）。remote 由后端定价返回；local 为传入金额。 */
+    microcredits?: number;
     code?: ReserveDenyCode;
     /** 可安全展示给调用方的简短原因，不含内部细节。 */
     message?: string;
@@ -245,15 +247,16 @@ export class RemoteAccountProvider implements AccountProvider {
 
     async reserve(subjectId: string, amount: number, idempotencyKey: string, tool: string): Promise<ReserveOutcome> {
         if (!subjectId || !idempotencyKey || !tool) return { ok: false, code: "rejected", message: "计费参数不完整" };
-        if (!validMicrocredits(amount)) return { ok: false, code: "rejected", message: "amountMicrocredits 必须是正整数" };
+        // 金额语义：remote 下 amount=0 表示由后端按工具定价（连接器不参与定价）；正数仍兼容显式金额。
+        if (!Number.isInteger(amount) || amount < 0) return { ok: false, code: "rejected", message: "amountMicrocredits 必须是非负整数" };
         try {
-            const r = await this.request<{ orderId?: string; status?: string }>(
+            const r = await this.request<{ orderId?: string; status?: string; amountMicrocredits?: number }>(
                 `/accounts/${encodeURIComponent(subjectId)}/reservations`,
-                { amountMicrocredits: amount, tool, scene: "mcp", idempotencyKey },
+                { ...(amount > 0 ? { amountMicrocredits: amount } : {}), tool, scene: "mcp", idempotencyKey },
             );
             if (r.status === 200 && r.env.code === 0 && r.env.data?.orderId) {
                 this.orderSubject.set(r.env.data.orderId, subjectId);
-                return { ok: true, orderId: r.env.data.orderId };
+                return { ok: true, orderId: r.env.data.orderId, microcredits: r.env.data.amountMicrocredits };
             }
             if (r.status === 402) return { ok: false, code: "insufficient_balance", message: r.env.msg || "积分不足", httpStatus: 402 };
             return { ok: false, code: "rejected", message: r.env.msg || "计费被拒绝", httpStatus: r.status };

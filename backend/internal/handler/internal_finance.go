@@ -18,14 +18,14 @@ import (
 
 // 服务令牌：Go 与 Node 共用同一个环境变量名。未配置或不匹配一律 fail-closed。
 const (
-	internalTokenHeader    = "X-Internal-Token"
-	internalTokenEnv       = "CANVAS_INTERNAL_SERVICE_TOKEN"
-	internalMaxBodyBytes   = 1 << 16 // 64 KiB，内部计费请求体很小
-	internalDefaultScene   = "mcp"
-	internalMaxToolLen     = 120
-	internalMaxSceneLen    = 80
-	internalMaxIdemLen     = 160
-	internalMaxErrorLen    = 500
+	internalTokenHeader  = "X-Internal-Token"
+	internalTokenEnv     = "CANVAS_INTERNAL_SERVICE_TOKEN"
+	internalMaxBodyBytes = 1 << 16 // 64 KiB，内部计费请求体很小
+	internalDefaultScene = "mcp"
+	internalMaxToolLen   = 120
+	internalMaxSceneLen  = 80
+	internalMaxIdemLen   = 160
+	internalMaxErrorLen  = 500
 )
 
 // InternalTokenAuth 保护 /api/internal：恒定时间比较；服务端未配置 token 时该组整体不可用。
@@ -82,8 +82,9 @@ func RegisterInternalRoutes(api *gin.RouterGroup, svc *service.Service) {
 		if req.Scene == "" {
 			req.Scene = internalDefaultScene
 		}
-		if req.AmountMicrocredits <= 0 {
-			fail(c, http.StatusBadRequest, errors.New("amountMicrocredits 必须是正整数"))
+		// amountMicrocredits 缺省为 0：0 表示由后端按工具定价（连接器不参与定价）。
+		if req.AmountMicrocredits < 0 {
+			fail(c, http.StatusBadRequest, errors.New("amountMicrocredits 不能为负数"))
 			return
 		}
 		if req.Tool == "" || len(req.Tool) > internalMaxToolLen {

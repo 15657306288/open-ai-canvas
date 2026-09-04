@@ -358,7 +358,11 @@ async function main() {
         console.log(`[canvas-gateway] broker=${BROKER_URL} defaultBridge=${BRIDGE_ID || "(auto: 第一个在线)"}`);
         console.log(`[canvas-gateway] auth=master(${GATEWAY_TOKEN ? "on" : "off"}) + account-provider=${account.kind}`);
         console.log(`[canvas-gateway] usage-log=${USAGE_LOG}`);
-        console.log(`[canvas-gateway] pricing=${PRICING_FILE} (default ${priceFor(currentPricing(), "default")} microcredits/call)`);
+        if (account.kind === "remote") {
+            console.log(`[canvas-gateway] pricing=后端定价（影策画布 mcp_tool_pricing，连接器不参与定价）`);
+        } else {
+            console.log(`[canvas-gateway] pricing=${PRICING_FILE} (default ${priceFor(currentPricing(), "default")} microcredits/call) — local 内测占位价，上线 remote 后由后端定价`);
+        }
         console.log(`[canvas-gateway] oauth=标准 MCP OAuth2.1（discovery/register/authorize/token）public=${PUBLIC_BASE_URL} store=${OAUTH_STORE_FILE}`);
     });
 

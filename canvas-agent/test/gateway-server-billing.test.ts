@@ -100,3 +100,24 @@ test("[lifecycle] master 内部调用不计费：无 reserve/settle，直接执�
     assert.equal(r.content[0].text, "INTERNAL");
     assert.equal(logs.at(-1)!.microcredits, undefined, "master 调用不记金额");
 });
+
+test("[lifecycle] remote 模式：连接器不本地定价，reserve 传 0，金额以后端返回为准", async () => {
+    class RemoteFake extends FakeAccount {
+        override kind = "remote" as const;
+        override reserveResult: ReserveOutcome = { ok: true, orderId: "ord_backend", microcredits: 20_000 };
+        reservedAmount: number | undefined;
+        override async reserve(s: string, amount: number, idem: string): Promise<ReserveOutcome> {
+            this.reservedAmount = amount;
+            return super.reserve(s, amount, idem);
+        }
+    }
+    const acct = new RemoteFake();
+    const { deps, logs } = depsFor(acct, async () => "BACKEND_PRICED");
+    deps.priceOf = () => 999_999; // 本地定价应被 remote 模式忽略
+    const r = await runBilledCall("canvas_get_context", {}, keyAuth, deps);
+
+    assert.equal(acct.reservedAmount, 0, "remote reserve 必须传 0（后端定价）");
+    assert.deepEqual(acct.seq, ["reserve", "call", "settle", "record"]);
+    assert.equal(r.content[0].text, "BACKEND_PRICED");
+    assert.equal(logs.at(-1)!.microcredits, 20_000, "日志金额应为后端返回的实际冻结金额");
+});

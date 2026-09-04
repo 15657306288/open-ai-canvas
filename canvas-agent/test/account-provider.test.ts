@@ -132,6 +132,24 @@ test("[account] Remote 走 /internal envelope：reserve→settle/refund 成功",
     srv.close();
 });
 
+test("[account] Remote reserve amount=0 走后端定价：请求不含金额、返回实际冻结金额", async () => {
+    let requestBody: any = null;
+    const srv = await startInternalServer((_req, body, res) => {
+        requestBody = JSON.parse(body);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ code: 0, data: { orderId: "ord_p", status: "reserved", amountMicrocredits: 20_000, idempotencyKey: requestBody.idempotencyKey }, msg: "ok" }));
+    });
+    const acct = new RemoteAccountProvider({ baseUrl: srv.base, serviceToken: "svc-token", keyStore: new KeyStore(tmpStore()) });
+
+    const r = await acct.reserve("user-1", 0, "idem-p", "canvas_get_context");
+    assert.equal(r.ok, true);
+    assert.equal(r.orderId, "ord_p");
+    assert.equal(r.microcredits, 20_000); // 后端定价的实际冻结金额回传
+    assert.equal("amountMicrocredits" in requestBody, false); // 连接器不传金额
+    assert.equal(requestBody.tool, "canvas_get_context");
+    srv.close();
+});
+
 test("[account] Remote 402/错误 envelope/网络不可达 全部 fail-closed", async () => {
     // 402 与非法 envelope
     const srv = await startInternalServer((req, _body, res) => {
