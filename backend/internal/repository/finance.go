@@ -108,6 +108,19 @@ func (r *Repository) ChannelModelByKey(channelID string, modelKey string) (*mode
 	return &item, nil
 }
 
+// ChannelModelByKeyAnyChannel 按 modelKey 跨渠道查询已启用模型（不计费/定价用）。
+// 画布工具参数里的 model 是画布侧统一模型名（modelKey），渠道未知，故按 modelKey 全局匹配。
+func (r *Repository) ChannelModelByKeyAnyChannel(modelKey string) (*model.ChannelModel, error) {
+	var item model.ChannelModel
+	if err := r.db.First(&item, "model_key = ? AND enabled = ?", modelKey, true).Error; err != nil {
+		return nil, err
+	}
+	if err := r.attachChannelModelPriceTiers([]*model.ChannelModel{&item}); err != nil {
+		return nil, err
+	}
+	return &item, nil
+}
+
 func (r *Repository) ChannelModelByKeyIncludingDisabled(channelID string, modelKey string) (*model.ChannelModel, error) {
 	var item model.ChannelModel
 	if err := r.db.First(&item, "channel_id = ? AND model_key = ?", channelID, modelKey).Error; err != nil {

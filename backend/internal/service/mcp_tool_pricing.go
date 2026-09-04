@@ -131,3 +131,32 @@ func (s *Service) ToolPriceMicrocredits(tool string) (int64, error) {
 	}
 	return pricing.DefaultMicrocredits, nil
 }
+
+// ModelPriceMicrocredits 按画布真实选择的模型（modelKey）返回单次调用价格。
+//
+// 定价真相是 channel_models（用户已按 a8api/实际成本配好的价格表）：
+//   - 按次计费模型（image/video/audio 等，unit_price_microcredits>0）：返回真实单价。
+//   - 文本 token 计价模型（unit_price=0 且 token 价>0）：固定金额结算无法按 token 精确扣费，
+//     返回 (0, true, false)，由调用方决定按工具价兜底（P1 再做实际用量结算）。
+//   - 查不到/未启用：返回 (0, false, false)。
+func (s *Service) ModelPriceMicrocredits(modelKey string) (int64, bool, error) {
+	modelKey = strings.TrimSpace(modelKey)
+	if modelKey == "" || len(modelKey) > internalMaxToolLength {
+		return 0, false, nil
+	}
+	cm, err := s.repo.ChannelModelByKeyAnyChannel(modelKey)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	if cm.UnitPriceMicrocredits > 0 {
+		return int64(cm.UnitPriceMicrocredits), true, nil
+	}
+	if cm.InputTokenPriceMicrocredits > 0 || cm.OutputTokenPriceMicrocredits > 0 || cm.CachedTokenPriceMicrocredits > 0 {
+		// 文本 token 计价模型：固定结算下无法按 token 精确扣费，标记为"token 计价"。
+		return 0, true, nil
+	}
+	return 0, false, nil
+}

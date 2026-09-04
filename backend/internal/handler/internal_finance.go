@@ -70,6 +70,7 @@ func RegisterInternalRoutes(api *gin.RouterGroup, svc *service.Service) {
 		var req struct {
 			AmountMicrocredits int64  `json:"amountMicrocredits"`
 			Tool               string `json:"tool"`
+			ModelKey           string `json:"modelKey"`
 			Scene              string `json:"scene"`
 			IdempotencyKey     string `json:"idempotencyKey"`
 		}
@@ -77,12 +78,13 @@ func RegisterInternalRoutes(api *gin.RouterGroup, svc *service.Service) {
 			return
 		}
 		req.Tool = strings.TrimSpace(req.Tool)
+		req.ModelKey = strings.TrimSpace(req.ModelKey)
 		req.Scene = strings.TrimSpace(req.Scene)
 		req.IdempotencyKey = strings.TrimSpace(req.IdempotencyKey)
 		if req.Scene == "" {
 			req.Scene = internalDefaultScene
 		}
-		// amountMicrocredits 缺省为 0：0 表示由后端按工具定价（连接器不参与定价）。
+		// amountMicrocredits 缺省为 0：0 表示由后端定价（按画布真实选择的模型 modelKey 优先，回退工具定价表）。
 		if req.AmountMicrocredits < 0 {
 			fail(c, http.StatusBadRequest, errors.New("amountMicrocredits 不能为负数"))
 			return
@@ -91,11 +93,15 @@ func RegisterInternalRoutes(api *gin.RouterGroup, svc *service.Service) {
 			fail(c, http.StatusBadRequest, errors.New("tool 非法或过长"))
 			return
 		}
+		if len(req.ModelKey) > internalMaxToolLen {
+			fail(c, http.StatusBadRequest, errors.New("modelKey 非法或过长"))
+			return
+		}
 		if len(req.Scene) > internalMaxSceneLen || req.IdempotencyKey == "" || len(req.IdempotencyKey) > internalMaxIdemLen {
 			fail(c, http.StatusBadRequest, errors.New("scene/idempotencyKey 非法或过长"))
 			return
 		}
-		order, err := svc.ReserveInternalBilling(userID, req.AmountMicrocredits, req.Tool, req.Scene, req.IdempotencyKey)
+		order, err := svc.ReserveInternalBilling(userID, req.AmountMicrocredits, req.Tool, req.ModelKey, req.Scene, req.IdempotencyKey)
 		if err != nil {
 			failService(c, err)
 			return

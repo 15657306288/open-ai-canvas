@@ -34,10 +34,12 @@ export async function runBilledCall(
     deps: BilledCallDeps,
 ): Promise<BilledToolResult> {
     const started = Date.now();
-    // 定价来源：remote 模式下后端 reserve 按工具定价，连接器不参与定价（amount=0 表示后端定价）；
+    // 定价来源：remote 模式下后端 reserve 按工具定价（连接器不参与定价，amount=0 表示后端定价）；
+    // 画布真实选择的模型从工具参数 model 中提取，随 reserve 传给后端按模型定价。
     // local 内测模式仍由网关本地 pricing 表决定占位价。
     const remotePriced = deps.account.kind === "remote";
     const amountMicro = remotePriced ? 0 : deps.priceOf(name);
+    const modelKey = typeof args?.model === "string" && args.model.trim() ? args.model.trim() : undefined;
     const subjectId = auth.type === "key" && auth.keyId ? auth.keyId : undefined;
     const keyName = auth.type === "key" ? (auth.keyName ?? "") : "master";
     const logKey = subjectId ?? "master";
@@ -48,9 +50,9 @@ export async function runBilledCall(
     let settledMicro: number | undefined;
     const idemKey = subjectId ? crypto.randomUUID() : "";
     if (subjectId) {
-        const rv = await deps.account.reserve(subjectId, amountMicro, idemKey, name);
+        const rv = await deps.account.reserve(subjectId, amountMicro, idemKey, name, modelKey);
         if (!rv.ok || !rv.orderId) {
-            deps.log({ ...stamp(), keyId: logKey, keyName, tool: name, ok: false, microcredits: amountMicro, error: `reserve_${rv.code ?? "failed"}`, ms: Date.now() - started });
+            deps.log({ ...stamp(), keyId: logKey, keyName, tool: name, model: modelKey, ok: false, microcredits: amountMicro, error: `reserve_${rv.code ?? "failed"}`, ms: Date.now() - started });
             const hint = rv.code === "insufficient_balance"
                 ? "402 Payment Required: 积分不足，请先在网站充值"
                 : `计费预检失败：${rv.message ?? "暂时不可用"}`;

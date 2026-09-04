@@ -37,7 +37,7 @@ func newInternalHarness(t *testing.T) (*gin.Engine, *gorm.DB) {
 	}
 	if err := db.AutoMigrate(
 		&model.User{}, &model.CreditAccount{}, &model.BillingOrder{},
-		&model.CreditLedgerEntry{}, &model.SystemSetting{},
+		&model.CreditLedgerEntry{}, &model.SystemSetting{}, &model.ChannelModel{},
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -215,6 +215,62 @@ func TestInternalReserveBackendPricing(t *testing.T) {
 	}
 	if v := rawJSON(t, env)["amountMicrocredits"].(float64); v != 10000 {
 		t.Fatalf("default price want 10000 got %v", v)
+	}
+}
+
+// 按画布真实选择的模型定价：modelKey 命中 channel_models 按次价 → 用真实模型价；
+// 文本 token 计价模型（无按次价）→ 回退工具定价表；未配置模型 → 回退工具定价表。
+func TestInternalReserveModelPricing(t *testing.T) {
+	router, db := newInternalHarness(t)
+	internalUser(t, db, "u1", model.UserStatusActive, 10_000_000)
+
+	seed := []model.ChannelModel{
+		{ID: "cm-video", ModelKey: "agnes-video-2.5-flash", DisplayName: "Agnes Video 2.5 Flash", Capability: "video", Enabled: true, UnitPriceMicrocredits: 10000, PriceConfigured: true},
+		{ID: "cm-image", ModelKey: "nano-banana-2", DisplayName: "Nano Banana 2", Capability: "image", Enabled: true, UnitPriceMicrocredits: 120000, PriceConfigured: true},
+		{ID: "cm-text", ModelKey: "claude-opus-5", DisplayName: "Claude Opus 5", Capability: "text", Enabled: true, UnitPriceMicrocredits: 0, InputTokenPriceMicrocredits: 2, OutputTokenPriceMicrocredits: 9, PriceConfigured: true},
+	}
+	if err := db.Create(&seed).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	// 视频模型真实价
+	status, env := internalDo(t, router, http.MethodPost, "/api/internal/accounts/u1/reservations",
+		map[string]any{"tool": "canvas_generate_video", "modelKey": "agnes-video-2.5-flash", "idempotencyKey": "mp1"}, testInternalToken)
+	if status != 200 || env.Code != 0 {
+		t.Fatalf("model-priced reserve status=%d env=%+v", status, env)
+	}
+	if v := rawJSON(t, env)["amountMicrocredits"].(float64); v != 10000 {
+		t.Fatalf("agnes-video-2.5-flash want 10000 got %v", v)
+	}
+
+	// 图片模型真实价（高于工具默认 10000，证明用的是模型价而非工具价）
+	status, env = internalDo(t, router, http.MethodPost, "/api/internal/accounts/u1/reservations",
+		map[string]any{"tool": "canvas_generate_image", "modelKey": "nano-banana-2", "idempotencyKey": "mp2"}, testInternalToken)
+	if status != 200 || env.Code != 0 {
+		t.Fatalf("image model-priced reserve status=%d env=%+v", status, env)
+	}
+	if v := rawJSON(t, env)["amountMicrocredits"].(float64); v != 120000 {
+		t.Fatalf("nano-banana-2 want 120000 got %v", v)
+	}
+
+	// 文本 token 计价模型 → 回退工具定价表（canvas_* 20000）
+	status, env = internalDo(t, router, http.MethodPost, "/api/internal/accounts/u1/reservations",
+		map[string]any{"tool": "canvas_generate_text", "modelKey": "claude-opus-5", "idempotencyKey": "mp3"}, testInternalToken)
+	if status != 200 || env.Code != 0 {
+		t.Fatalf("text model-priced reserve status=%d env=%+v", status, env)
+	}
+	if v := rawJSON(t, env)["amountMicrocredits"].(float64); v != 20000 {
+		t.Fatalf("text model fallback want 20000 got %v", v)
+	}
+
+	// 未配置模型 → 回退工具定价表
+	status, env = internalDo(t, router, http.MethodPost, "/api/internal/accounts/u1/reservations",
+		map[string]any{"tool": "canvas_generate_video", "modelKey": "not-configured-model", "idempotencyKey": "mp4"}, testInternalToken)
+	if status != 200 || env.Code != 0 {
+		t.Fatalf("unknown model reserve status=%d env=%+v", status, env)
+	}
+	if v := rawJSON(t, env)["amountMicrocredits"].(float64); v != 20000 {
+		t.Fatalf("unknown model fallback want 20000 got %v", v)
 	}
 }
 

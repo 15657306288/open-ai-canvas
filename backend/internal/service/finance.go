@@ -571,13 +571,17 @@ func (s *Service) InternalCreditAccount(userID string) (*model.CreditAccount, er
 //
 // Pricing source: when amountMicrocredits <= 0, the backend decides the price
 // from the MCP tool pricing table (mcp_tool_pricing) instead of trusting a
-// connector-supplied amount. The connector (网关) must NOT run its own pricing.
-func (s *Service) ReserveInternalBilling(userID string, amountMicrocredits int64, tool string, scene string, idempotencyKey string) (*model.BillingOrder, error) {
+// connector-supplied amount. When modelKey is present, the price comes from the
+// real selected model (channel_models unit price); token-priced text models fall
+// back to the tool price under fixed-amount settlement (per-token settlement is P1).
+// The connector (网关) must NOT run its own pricing.
+func (s *Service) ReserveInternalBilling(userID string, amountMicrocredits int64, tool string, modelKey string, scene string, idempotencyKey string) (*model.BillingOrder, error) {
 	if err := s.RequireFeature(FeatureCredits); err != nil {
 		return nil, err
 	}
 	userID = strings.TrimSpace(userID)
 	tool = strings.TrimSpace(tool)
+	modelKey = strings.TrimSpace(modelKey)
 	scene = strings.TrimSpace(scene)
 	idempotencyKey = strings.TrimSpace(idempotencyKey)
 	if userID == "" || tool == "" || scene == "" || idempotencyKey == "" {
@@ -586,16 +590,27 @@ func (s *Service) ReserveInternalBilling(userID string, amountMicrocredits int64
 	if amountMicrocredits < 0 {
 		return nil, BadAuthRequest("amountMicrocredits 不能为负数")
 	}
-	if len(tool) > internalMaxToolLength || len(scene) > internalMaxSceneLength || len(idempotencyKey) > internalMaxIdempotencyKey {
+	if len(tool) > internalMaxToolLength || len(modelKey) > internalMaxToolLength || len(scene) > internalMaxSceneLength || len(idempotencyKey) > internalMaxIdempotencyKey {
 		return nil, BadAuthRequest("内部计费参数过长")
 	}
-	// 连接器不参与定价：未传金额（0）时由后端按工具定价。
+	// 连接器不参与定价：未传金额（0）时由后端定价。
+	// 优先级：画布真实选择的模型（modelKey）→ 工具定价表 → 默认单价。
 	if amountMicrocredits == 0 {
-		backendPrice, err := s.ToolPriceMicrocredits(tool)
+		backendPrice, modelFound, err := s.ModelPriceMicrocredits(modelKey)
 		if err != nil {
 			return nil, err
 		}
-		amountMicrocredits = backendPrice
+		if modelFound && backendPrice > 0 {
+			amountMicrocredits = backendPrice
+		} else {
+			if amountMicrocredits == 0 {
+				toolPrice, err := s.ToolPriceMicrocredits(tool)
+				if err != nil {
+					return nil, err
+				}
+				amountMicrocredits = toolPrice
+			}
+		}
 	}
 	user, err := s.repo.User(userID)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -613,7 +628,8 @@ func (s *Service) ReserveInternalBilling(userID string, amountMicrocredits int64
 		Model: tool, Capability: internalBillingCapability, Scene: scene, BillingMode: internalBillingMode,
 		UnitPriceMicrocredits: float64(amountMicrocredits), MultiplierBasisPoints: 10_000, Quantity: 1,
 		AmountMicrocredits: amountMicrocredits, ReservedAmountMicrocredits: amountMicrocredits,
-		Status: model.BillingStatusReserved,
+		PriceSelectorJSON: modelKey, // 审计：记录画布真实选择的模型（modelKey）
+		Status:            model.BillingStatusReserved,
 	}
 	reserved, err := s.repo.ReserveBillingOrderIdempotent(order)
 	if errors.Is(err, repository.ErrInsufficientCredits) {
