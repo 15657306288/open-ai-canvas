@@ -49,7 +49,8 @@ export type LocalRuntimeModule = {
 };
 
 export type CreateLocalRuntimeAppOptions = {
-    authority: string;
+    /** [connector] L2 局域网/公网：权威 Host 集合（精确匹配），支持多个对外地址 */
+    authority: string | readonly string[];
     endpoint: string;
     version: string;
     sessionManager: LocalRuntimeSessionManager;

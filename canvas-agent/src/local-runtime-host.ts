@@ -91,7 +91,15 @@ export function startLocalRuntime(options: StartLocalRuntimeOptions = {}): Local
     const endpoint = requestedPort === 0
         ? config.url
         : `http://127.0.0.1:${requestedPort}`;
-    const authority = requestedPort === 0 ? "127.0.0.1:0" : `127.0.0.1:${requestedPort}`;
+    // [connector] L2 局域网/公网：监听地址与对外权威 Host 均可配置。
+    //   CANVAS_HOST       监听地址（默认 127.0.0.1；设 0.0.0.0 对外可达）
+    //   CANVAS_AUTHORITY  允许的 Host 集合（逗号分隔；默认 127.0.0.1:<port>）
+    //                      例：CANVAS_AUTHORITY="127.0.0.1:17371,192.168.1.10:17371"
+    const listenHost = process.env.CANVAS_HOST?.trim() || "127.0.0.1";
+    const defaultAuthority = requestedPort === 0 ? "127.0.0.1:0" : `127.0.0.1:${requestedPort}`;
+    const authorities = process.env.CANVAS_AUTHORITY
+        ? process.env.CANVAS_AUTHORITY.split(",").map((s) => s.trim()).filter(Boolean)
+        : [defaultAuthority];
     const modules = [...(options.modules ?? createDefaultLocalRuntimeModules(config))];
     const scopes = [...new Set([
         ...LOCAL_RUNTIME_DEFAULT_SCOPES,
@@ -108,7 +116,7 @@ export function startLocalRuntime(options: StartLocalRuntimeOptions = {}): Local
         },
     });
     const app = createLocalRuntimeApp({
-        authority,
+        authority: authorities,
         endpoint,
         version: VERSION,
         sessionManager: sessions,
@@ -191,10 +199,11 @@ export function startLocalRuntime(options: StartLocalRuntimeOptions = {}): Local
     const ready = (async () => {
         try {
             for (const module of modules) await module.start?.();
-            server.listen(requestedPort, "127.0.0.1");
+            server.listen(requestedPort, listenHost);
             await listening(server);
             log("Framefield Local Runtime");
-            log("Runtime is listening on 127.0.0.1");
+            log(`Runtime is listening on ${listenHost}:${requestedPort}`);
+            log(`Runtime authorities: ${authorities.join(", ")}`);
             log("Codex MCP: codex mcp add yingce -- npx -y @ddcat666/open-ai-canvas-agent mcp");
             await startBridge();
         } catch (startupError) {

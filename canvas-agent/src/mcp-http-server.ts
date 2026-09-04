@@ -30,10 +30,24 @@ export type McpHttpOptions = {
 export function createMcpHttpHandler(config: CanvasAgentConfig, options: McpHttpOptions = {}): RequestHandler {
     const maxSessions = options.maxSessions ?? 64;
     const sessions = new Map<string, { transport: StreamableHTTPServerTransport; server: McpServer }>();
+    // [connector] L2 局域网/公网：/mcp 增加 Bearer token 校验。
+    // 配置了 token（canvas-agent.json）即强制校验；支持 Authorization: Bearer 与 x-canvas-agent-token 两种携带方式。
+    const expectedToken = config.token || "";
 
     return (req: Request, res: Response) => {
+        if (expectedToken && !authorized(req, expectedToken)) {
+            res.status(401).json({ jsonrpc: "2.0", error: { code: -32001, message: "Unauthorized: missing or invalid canvas-agent token" }, id: null });
+            return;
+        }
         void handleRequest(req, res);
     };
+
+    function authorized(req: Request, token: string): boolean {
+        const authHeader = typeof req.headers["authorization"] === "string" ? req.headers["authorization"] : "";
+        const bearer = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length).trim() : "";
+        const alt = typeof req.headers["x-canvas-agent-token"] === "string" ? req.headers["x-canvas-agent-token"] : "";
+        return bearer === token || alt === token;
+    }
 
     async function handleRequest(req: Request, res: Response) {
         const headerSessionId = typeof req.headers["mcp-session-id"] === "string"

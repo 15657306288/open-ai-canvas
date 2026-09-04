@@ -51,7 +51,9 @@ async function start() {
 test("[connector] P0-B-1 MCP client connects to /mcp, initializes, and lists canvas tools", async () => {
     const { server, url } = await start();
     const client = new Client({ name: "connector-test-client", version: "0.1.0" });
-    const transport = new StreamableHTTPClientTransport(new URL(`${url}/mcp`));
+    const transport = new StreamableHTTPClientTransport(new URL(`${url}/mcp`), {
+        requestInit: { headers: { Authorization: "Bearer mcp-test-token" } },
+    });
     try {
         await client.connect(transport);
         const result = await client.listTools();
@@ -70,7 +72,9 @@ test("[connector] P0-B-1 MCP client connects to /mcp, initializes, and lists can
 test("[connector] P0-B-1 MCP HTTP call tool surfaces runtime errors without a connected canvas", async () => {
     const { server, url } = await start();
     const client = new Client({ name: "connector-test-client", version: "0.1.0" });
-    const transport = new StreamableHTTPClientTransport(new URL(`${url}/mcp`));
+    const transport = new StreamableHTTPClientTransport(new URL(`${url}/mcp`), {
+        requestInit: { headers: { Authorization: "Bearer mcp-test-token" } },
+    });
     try {
         await client.connect(transport);
         const result = await client.callTool({ name: "canvas_get_context", arguments: {} });
@@ -81,6 +85,22 @@ test("[connector] P0-B-1 MCP HTTP call tool surfaces runtime errors without a co
         assert.match(text, /没有已连接画布/, "无画布时应返回明确错误而非静默");
     } finally {
         await client.close();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+});
+
+test("[connector] L2 /mcp requires bearer token when configured", async () => {
+    const { server, url } = await start();
+    try {
+        const res = await fetch(`${url}/mcp`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "unauth", version: "0.0.1" } } }),
+        });
+        assert.equal(res.status, 401, "未携带 token 的 /mcp 请求应返回 401");
+        const body = (await res.json()) as { error?: { code?: number; message?: string } };
+        assert.match(body.error?.message ?? "", /Unauthorized/i, "应返回明确的鉴权错误");
+    } finally {
         await new Promise<void>((resolve) => server.close(() => resolve()));
     }
 });

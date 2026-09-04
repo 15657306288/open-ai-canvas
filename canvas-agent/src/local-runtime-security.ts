@@ -24,11 +24,17 @@ export type RuntimeCorsPolicy = {
     legacyHeaders?: readonly string[];
 };
 
-export function exactAuthorityGuard(authority: string): RequestHandler {
-    const expected = authority.trim().toLowerCase();
+export function exactAuthorityGuard(authority: string | readonly string[]): RequestHandler {
+    // [connector] L2 局域网/公网：支持多个权威 Host（逗号分隔配置），
+    // 满足"监听 0.0.0.0 但只放行已声明的对外地址"的安全语义。
+    const expected = new Set(
+        (Array.isArray(authority) ? authority : [authority])
+            .map((a) => a.trim().toLowerCase())
+            .filter((a) => a.length > 0),
+    );
     return (req, res, next) => {
         const host = singleHeader(req, "host");
-        if (!host || host.toLowerCase() !== expected) {
+        if (!host || !expected.has(host.toLowerCase())) {
             res.status(421).json({ ok: false, code: "authority_invalid", message: "本机运行时地址无效" });
             return;
         }
