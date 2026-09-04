@@ -6,18 +6,74 @@ import { buildCanvasContext, findCanvasNodes, getCanvasConnection, getCanvasGene
 import { type ToolName } from "./schemas.js";
 import { compactCanvasState, compactNode, isToolName, nextCanvasX, parseToolInput } from "./tools.js";
 import { identifyCreatedStoryboardNodes, reconcileStoryboardShots, type StoryboardShotInput } from "./storyboard-projection.js";
-import type { CanvasNode, CanvasNodeType, CanvasSnapshot } from "./types.js";
+import type { CanvasNode, CanvasNodeType, CanvasSnapshot, ToolEffect } from "./types.js";
+import { emptyToolEffect } from "./types.js";
+import { GraceTracker, type GraceTrackerTimers } from "./grace-tracker.js";
+import { CanvasMediaAccess, type MediaReadInput, type MediaReadResult } from "./media-access.js";
+import type { MetricsRegistry } from "./metrics.js";
 
 type PendingRequest = { clientId: string; recoverable: boolean; resolve: (value: unknown) => void; reject: (error: Error) => void };
 type CanvasClient = { response: ServerResponse; timer: NodeJS.Timeout; runtimeSessionId?: string };
+// [connector] P0-A-2：画布状态归属从"仅 clientId"升级为"clientId + runtimeSessionId"，
+// 防止旧标签/旧会话晚到的 close 误清新标签上报的状态。
+type StateOwner = { clientId: string; runtimeSessionId?: string };
+
+export type CanvasSessionOptions = {
+    // [connector] P0-A-2 断线宽限时长（毫秒），默认 8000
+    graceMs?: number;
+    now?: () => number;
+    timers?: GraceTrackerTimers;
+    // [connector] P1-Q5 媒体读取器（未传时内部懒建）
+    mediaAccess?: CanvasMediaAccess;
+    // [connector] P2 §9.4 可观测 registry（工具调用计数/时延/错误）
+    metrics?: MetricsRegistry;
+};
 
 export class CanvasSession {
     private clients = new Map<string, CanvasClient>();
     private pending = new Map<string, PendingRequest>();
     private canvasState: CanvasSnapshot | null = null;
+    private stateOwner: StateOwner | null = null;
+    private readonly graceTracker: GraceTracker;
+    private readonly mediaAccess: CanvasMediaAccess;
+    private readonly metrics?: MetricsRegistry;
+
+    constructor(options: CanvasSessionOptions = {}) {
+        this.graceTracker = new GraceTracker({
+            graceMs: options.graceMs,
+            now: options.now,
+            timers: options.timers,
+            onExpired: (clientId) => this.handleGraceExpired(clientId),
+        });
+        this.mediaAccess = options.mediaAccess ?? new CanvasMediaAccess();
+        this.metrics = options.metrics;
+    }
+
+    /** [connector] P1-Q5 读取画布节点媒体（block base64 / url 短 TTL 签名链接） */
+    async getMedia(input: MediaReadInput & { nodeId: string }): Promise<MediaReadResult> {
+        const state = this.canvasState;
+        if (!state) throw new Error("当前没有已连接画布");
+        const node = (state.nodes ?? []).find((candidate) => candidate.id === input.nodeId);
+        if (!node) throw new Error(`节点不存在：${input.nodeId}`);
+        return this.mediaAccess.getNodeMedia(node, { mode: input.mode, maxBytes: input.maxBytes });
+    }
+
+    /** [connector] P1-Q5 供签名 URL 消费端点使用（校验 token 返回 nodeId） */
+    consumeMediaToken(token: string): { nodeId: string } | undefined {
+        return this.mediaAccess.consumeToken(token);
+    }
+
+    /** [connector] P1-Q5 加载指定节点媒体字节（签名 URL 消费路由用） */
+    async loadNodeMedia(nodeId: string): Promise<{ bytes: Buffer; mimeType: string }> {
+        const state = this.canvasState;
+        if (!state) throw new Error("当前没有已连接画布");
+        const node = (state.nodes ?? []).find((candidate) => candidate.id === nodeId);
+        if (!node) throw new Error(`节点不存在：${nodeId}`);
+        return this.mediaAccess.loadNodeMedia(node);
+    }
 
     health() {
-        return { ok: true, hasCanvas: Boolean(this.canvasState), clients: this.clients.size };
+        return { ok: true, hasCanvas: Boolean(this.canvasState), clients: this.clients.size, reconnecting: this.graceTracker.activeCount() };
     }
 
     openEvents(url: URL, res: ServerResponse, runtimeSessionId?: string) {
@@ -31,12 +87,15 @@ export class CanvasSession {
             clearInterval(previous.timer);
             previous.response.end();
         }
+        // [connector] P0-A-2：同 clientId 重连成功 → 撤销断线宽限，画布状态与 pending 得以保留
+        this.graceTracker.cancel(clientId);
         res.on("close", () => {
             clearInterval(timer);
             if (this.clients.get(clientId)?.response !== res) return;
             this.clients.delete(clientId);
-            if (this.canvasState?.clientId === clientId) this.canvasState = null;
-            this.rejectPendingClient(clientId, new Error("画布连接已断开"), true);
+            // [connector] P0-A-2：不再立即清空画布，进入断线宽限等待同 clientId 重连；
+            // 超时未重连才由 handleGraceExpired 清理 state/pending（保留可恢复请求）。
+            this.graceTracker.enter(clientId);
         });
     }
 
@@ -46,7 +105,10 @@ export class CanvasSession {
             if (client.runtimeSessionId !== runtimeSessionId) continue;
             this.clients.delete(clientId);
             clearInterval(client.timer);
-            if (this.canvasState?.clientId === clientId) this.canvasState = null;
+            if (this.stateOwner?.clientId === clientId) {
+                this.canvasState = null;
+                this.stateOwner = null;
+            }
             this.rejectPendingClient(clientId, error);
             client.response.end();
         }
@@ -66,6 +128,11 @@ export class CanvasSession {
         }
         const revision = incomingRevision ?? (this.canvasState ? currentRevision + 1 : 0);
         this.canvasState = { ...candidate, revision };
+        // [connector] P0-A-2：记录画布状态归属（clientId + runtimeSessionId），供宽限超时/会话撤销精准清理
+        this.stateOwner = {
+            clientId: clientId ?? "",
+            runtimeSessionId: clientId ? this.clients.get(clientId)?.runtimeSessionId : undefined,
+        };
         return { accepted: true, idempotent: Boolean(previousState && incomingRevision === currentRevision && actualHash === hashState(previousState)), revision, stateHash: actualHash };
     }
 
@@ -87,12 +154,42 @@ export class CanvasSession {
         });
         this.clients.clear();
         this.canvasState = null;
+        this.stateOwner = null;
         const error = new Error("Canvas session disposed");
         this.pending.forEach((request) => request.reject(error));
         this.pending.clear();
     }
 
+    // [connector] P0-A-2：断线宽限超时且该 clientId 未重连——仅当画布状态仍归属它时才清理，
+    // 防止旧标签/旧会话晚到的 close 误清其他连接上报的画布状态。
+    private handleGraceExpired(clientId: string) {
+        if (this.clients.has(clientId)) return;
+        if (this.stateOwner?.clientId === clientId) {
+            this.canvasState = null;
+            this.stateOwner = null;
+        }
+        this.rejectPendingClient(clientId, new Error("画布连接已断开"), true);
+    }
+
     async callTool(name: unknown, rawInput: unknown) {
+        // [connector] P2 §9.4 工具调用可观测：计数 + 时延 + 错误
+        const started = Date.now();
+        const metrics = this.metrics;
+        if (metrics) metrics.incCounter(`tools.called.${String(name)}`);
+        try {
+            const result = await this.callToolInner(name, rawInput);
+            if (metrics) metrics.observeLatency("tools", Date.now() - started);
+            return result;
+        } catch (error) {
+            if (metrics) {
+                metrics.observeLatency("tools", Date.now() - started);
+                metrics.incCounter("tools.errors");
+            }
+            throw error;
+        }
+    }
+
+    private async callToolInner(name: unknown, rawInput: unknown) {
         if (!isToolName(name)) throw new Error(`未知工具：${String(name)}`);
         let tool: ToolName = name;
         let input = parseToolInput(tool, rawInput) as Record<string, unknown>;
@@ -112,6 +209,11 @@ export class CanvasSession {
         if (tool === "canvas_get_connection") return getCanvasConnection(this.canvasState, input as Parameters<typeof getCanvasConnection>[1]);
         if (tool === "canvas_get_generation_tasks") return getCanvasGenerationTasks(this.canvasState, input as Parameters<typeof getCanvasGenerationTasks>[1]);
         if (tool === "canvas_get_resources") return getCanvasResources(this.canvasState, input as Parameters<typeof getCanvasResources>[1]);
+        // [connector] P1-Q5 读取画布媒体（block base64 / url 短 TTL 签名链接）
+        if (tool === "canvas_get_media") {
+            const mediaInput = input as { nodeId: string; mode?: "block" | "url"; maxBytes?: number };
+            return this.getMedia(mediaInput);
+        }
         if (tool === "canvas_validate_ops") return validateCanvasOps(this.canvasState, (input as { ops: unknown[] }).ops);
         if (tool === "canvas_get_selection") {
             const ids = new Set(this.canvasState?.selectedNodeIds || []);
@@ -226,6 +328,104 @@ export class CanvasSession {
             input = { ops: [runGenerationOp(data.nodeId, generationMode(data.mode), data.prompt, data.retry)] };
             tool = "canvas_apply_ops";
         }
+        if (tool === "canvas_create_storyboard_shots") {
+            if (!this.clients.size || !this.canvasState) throw new Error("当前没有已连接画布");
+            const data = input as { shots: Array<{ shotId: string; title: string; description?: string; position?: number }>; x?: number; direction?: "row" | "column" };
+            const existingNodes = this.canvasState.nodes || [];
+            const shotNodeMap = new Map<string, CanvasNode>();
+            for (const node of existingNodes) {
+                const sid = String(node.metadata?.shotId || (typeof node.metadata?.projectionKey === "string" && node.metadata.projectionKey.startsWith("shot:") ? node.metadata.projectionKey.slice(5) : ""));
+                if (sid) shotNodeMap.set(sid, node);
+            }
+
+            const seenShotIds = new Set<string>();
+            const duplicateShotMappings: Record<string, string> = {};
+            const existingNodeIds: string[] = [];
+            const updatedNodeIds: string[] = [];
+            const createdNodeIds: string[] = [];
+
+            const ops: unknown[] = [];
+            const startX = typeof data.x === "number" ? data.x : nextCanvasX(this.canvasState);
+            const startY = 560;
+            const isColumn = data.direction === "column";
+            let newShotIndex = 0;
+
+            for (const shot of data.shots) {
+                if (seenShotIds.has(shot.shotId)) {
+                    duplicateShotMappings[shot.shotId] = shotNodeMap.get(shot.shotId)?.id || "";
+                    continue;
+                }
+                seenShotIds.add(shot.shotId);
+
+                const existingNode = shotNodeMap.get(shot.shotId);
+                if (existingNode) {
+                    existingNodeIds.push(existingNode.id);
+                    updatedNodeIds.push(existingNode.id);
+                    ops.push({
+                        type: "update_node",
+                        id: existingNode.id,
+                        patch: { title: shot.title },
+                        metadata: {
+                            workflowTitle: shot.title,
+                            workflowDescription: shot.description || existingNode.metadata?.workflowDescription || "",
+                            shotId: shot.shotId,
+                            projectionKey: `shot:${shot.shotId}`,
+                            projectionVersion: (Number(existingNode.metadata?.projectionVersion) || 1) + 1,
+                            domainProjectId: this.canvasState.domainProjectId,
+                        },
+                    });
+                } else {
+                    const nodeId = `shot-node-${shot.shotId}`;
+                    createdNodeIds.push(nodeId);
+                    const nodeX = isColumn ? startX : startX + newShotIndex * 360;
+                    const nodeY = isColumn ? startY + newShotIndex * 260 : startY;
+                    newShotIndex++;
+
+                    ops.push({
+                        type: "add_node",
+                        id: nodeId,
+                        nodeType: "video",
+                        title: shot.title,
+                        position: { x: nodeX, y: nodeY },
+                        width: 320,
+                        height: 240,
+                        metadata: {
+                            workflowKind: "shot",
+                            workflowTitle: shot.title,
+                            workflowDescription: shot.description || "",
+                            shotId: shot.shotId,
+                            projectionKey: `shot:${shot.shotId}`,
+                            projectionVersion: 1,
+                            domainProjectId: this.canvasState.domainProjectId,
+                            status: "idle",
+                            generationMode: "video",
+                        },
+                    });
+                }
+            }
+
+            if (ops.length > 0) {
+                await this.requestCanvasTool("canvas_apply_ops", { ops });
+            }
+
+            const effect: ToolEffect = {
+                mutated: createdNodeIds.length > 0 || updatedNodeIds.length > 0,
+                createdIds: createdNodeIds,
+                updatedIds: updatedNodeIds,
+                deletedIds: [],
+                createdTaskIds: [],
+                projectionChanged: createdNodeIds.length > 0 || updatedNodeIds.length > 0,
+                needsRefresh: createdNodeIds.length > 0 || updatedNodeIds.length > 0,
+            };
+            return {
+                ok: true,
+                createdNodeIds,
+                updatedNodeIds,
+                existingNodeIds,
+                duplicateShotMappings,
+                effect,
+            };
+        }
         if (tool !== "canvas_apply_ops") throw new Error(`未知工具：${tool}`);
         if (!this.clients.size) throw new Error("当前没有已连接画布");
         const currentContext = buildCanvasContext(this.canvasState);
@@ -282,7 +482,81 @@ function sendEvent(res: ServerResponse, type: string, payload: unknown) {
     res.write(`event: ${type}\ndata: ${JSON.stringify(payload)}\n\n`);
 }
 
+
+export const WORKFLOW_RECIPES: Record<string, { title: string; description: string; nodes: Array<Record<string, unknown>>; edges: Array<{ from: string; to: string }> }> = {
+    drama_pilot: {
+        title: "短剧先导片工作流",
+        description: "剧本立项 -> 角色设定卡 -> 核心场景概念 -> 先导分镜视频",
+        nodes: [
+            { ref: "script", kind: "script", title: "短剧剧本/设定", content: "短剧主线与人物小传" },
+            { ref: "char_a", kind: "character_cards", title: "主角立绘与情绪卡", prompt: "主角标准半身像立绘与三视图" },
+            { ref: "scene_main", kind: "image", title: "核心主场景概念图", prompt: "电影级室内/室外主场景概念" },
+            { ref: "storyboard", kind: "storyboard_video", title: "先导分镜视频", prompt: "3秒高潮对峙镜头", referenceRefs: ["char_a", "scene_main"] },
+        ],
+        edges: [
+            { from: "script", to: "char_a" },
+            { from: "script", to: "scene_main" },
+            { from: "char_a", to: "storyboard" },
+            { from: "scene_main", to: "storyboard" },
+        ],
+    },
+    character_turnaround: {
+        title: "角色三视图与立绘配方",
+        description: "角色小传 -> 三视图设计 -> 细节与服饰特写",
+        nodes: [
+            { ref: "bio", kind: "text", title: "角色人设档案", content: "人物外貌、体态与服饰设定" },
+            { ref: "turnaround", kind: "character_three_view", title: "角色正侧背三视图", prompt: "单人全身角色设定三视图，纯白背景" },
+            { ref: "close_up", kind: "image", title: "面部表情与发型特写", prompt: "角色面部微表情高精度特写", referenceRefs: ["turnaround"] },
+        ],
+        edges: [
+            { from: "bio", to: "turnaround" },
+            { from: "turnaround", to: "close_up" },
+        ],
+    },
+    scene_concept: {
+        title: "影视场景概念设计配方",
+        description: "场景文学说明 -> 全景概念原画 -> 关键道具与光影细化",
+        nodes: [
+            { ref: "scene_doc", kind: "text", title: "场景文学说明", content: "环境空间尺度、时代背景与光影基调" },
+            { ref: "scene_art", kind: "image", title: "场景大远景概念原画", prompt: "电影级大远景概念图，虚幻引擎风格" },
+            { ref: "scene_prop", kind: "image", title: "核心道具与光照氛围", prompt: "场景关键道具近景材质与特写", referenceRefs: ["scene_art"] },
+        ],
+        edges: [
+            { from: "scene_doc", to: "scene_art" },
+            { from: "scene_art", to: "scene_prop" },
+        ],
+    },
+    storyboard_sequence: {
+        title: "多镜头分镜时序配方",
+        description: "剧情节拍 -> 建立镜头 -> 交流中景 -> 情绪特写 -> 最终合成",
+        nodes: [
+            { ref: "beats", kind: "script", title: "动作节拍与对话", content: "4拍情绪递进戏剧节拍" },
+            { ref: "shot_1", kind: "image", title: "镜头1 · 建立全景", prompt: "全景，空间环境与角色位置建立" },
+            { ref: "shot_2", kind: "image", title: "镜头2 · 交流中景", prompt: "双人过肩中景交流", referenceRefs: ["shot_1"] },
+            { ref: "shot_3", kind: "image", title: "镜头3 · 情绪特写", prompt: "主角面部特写，戏剧性顶光", referenceRefs: ["shot_2"] },
+            { ref: "shot_video", kind: "video", title: "镜头合成分镜视频", prompt: "连续运镜视频呈现", referenceRefs: ["shot_1", "shot_2", "shot_3"] },
+        ],
+        edges: [
+            { from: "beats", to: "shot_1" },
+            { from: "shot_1", to: "shot_2" },
+            { from: "shot_2", to: "shot_3" },
+            { from: "shot_3", to: "shot_video" },
+        ],
+    },
+};
+
 function workflowOps(input: Record<string, unknown>, state: CanvasSnapshot | null) {
+    if (typeof input.recipe === "string" && WORKFLOW_RECIPES[input.recipe]) {
+        const recipeDef = WORKFLOW_RECIPES[input.recipe];
+        if (!input.title) input.title = recipeDef.title;
+        if (!input.description) input.description = recipeDef.description;
+        if (!Array.isArray(input.nodes) || !input.nodes.length) {
+            input.nodes = recipeDef.nodes;
+        }
+        if (!Array.isArray(input.edges) || !input.edges.length) {
+            input.edges = recipeDef.edges;
+        }
+    }
     const nodes = Array.isArray(input.nodes) ? input.nodes as Array<Record<string, unknown>> : [];
     if (!nodes.length) throw new Error("工作流至少需要一个节点");
     const refs = new Set<string>();

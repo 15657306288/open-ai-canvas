@@ -54,7 +54,17 @@ export type CanvasAgentChange = {
     undoCount: number;
 };
 
-type CanvasAgentUndoBatch = { snapshot: CanvasAgentSnapshot; afterNodes: CanvasNodeData[]; afterConnections: CanvasConnection[]; change: Omit<CanvasAgentChange, "undoCount"> };
+type CanvasAgentUndoBatch = {
+    id: string;
+    summary: string;
+    nodeIds: string[];
+    ops: CanvasAgentOp[];
+    snapshot: CanvasAgentSnapshot;
+    afterSnapshot: CanvasAgentSnapshot;
+    afterNodes: CanvasNodeData[];
+    afterConnections: CanvasConnection[];
+    change: Omit<CanvasAgentChange, "undoCount">;
+};
 
 type RunCanvasAgentGenerationOpsInput = {
     generationOps: Array<Extract<CanvasAgentOp, { type: "run_generation" }>>;
@@ -258,7 +268,9 @@ export function useCanvasAgentOperations({
     focusSelection,
 }: UseCanvasAgentOperationsOptions) {
     const undoStackRef = useRef<CanvasAgentUndoBatch[]>([]);
+    const redoStackRef = useRef<CanvasAgentUndoBatch[]>([]);
     const [undoOpsCount, setUndoOpsCount] = useState(0);
+    const [redoOpsCount, setRedoOpsCount] = useState(0);
     const [lastAgentChange, setLastAgentChange] = useState<CanvasAgentChange | null>(null);
     const snapshot = useMemo<CanvasAgentSnapshot>(
         () => ({ projectId, domainProjectId, title: projectTitle, nodes, connections, selectedNodeIds: Array.from(selectedNodeIds), viewport }),
@@ -267,16 +279,20 @@ export function useCanvasAgentOperations({
 
     useEffect(() => {
         undoStackRef.current = [];
+        redoStackRef.current = [];
         setUndoOpsCount(0);
+        setRedoOpsCount(0);
         setLastAgentChange(null);
     }, [projectId]);
 
     useEffect(() => {
         const latest = undoStackRef.current.at(-1);
         if (!latest || (latest.afterNodes === nodes && latest.afterConnections === connections)) return;
-        // Agent 撤销使用整批快照；用户继续编辑后必须失效，避免覆盖后续手工改动。
+        // Agent 撤销与重做使用单一事务快照；用户外部继续编辑后失效，避免覆盖后续手工改动。
         undoStackRef.current = [];
+        redoStackRef.current = [];
         setUndoOpsCount(0);
+        setRedoOpsCount(0);
         setLastAgentChange(null);
     }, [connections, nodes]);
 
@@ -307,9 +323,22 @@ export function useCanvasAgentOperations({
             setContextMenu(null);
             if (safeOps.length) {
                 const change = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, summary: summarizeCanvasAgentOps(safeOps) || "画布操作已完成", nodeIds: affectedNodeIds };
-                undoStackRef.current = [...undoStackRef.current, { snapshot: before, afterNodes: next.nodes, afterConnections: next.connections, change }].slice(-10);
+                const batchItem: CanvasAgentUndoBatch = {
+                    id: change.id,
+                    summary: change.summary,
+                    nodeIds: affectedNodeIds,
+                    ops: safeOps,
+                    snapshot: before,
+                    afterSnapshot: next,
+                    afterNodes: next.nodes,
+                    afterConnections: next.connections,
+                    change,
+                };
+                undoStackRef.current = [...undoStackRef.current, batchItem].slice(-20);
+                redoStackRef.current = [];
                 const nextUndoCount = undoStackRef.current.length;
                 setUndoOpsCount(nextUndoCount);
+                setRedoOpsCount(0);
                 setLastAgentChange({ ...change, undoCount: nextUndoCount });
             }
             if (focusNodeIds.length) queueMicrotask(() => focusSelection());
@@ -358,15 +387,9 @@ export function useCanvasAgentOperations({
     );
 
     const undoOps = useCallback(() => {
-        const batch = undoStackRef.current.at(-1);
+        const batch = undoStackRef.current.pop();
         if (!batch) return null;
-        if (batch.afterNodes !== nodesRef.current || batch.afterConnections !== connectionsRef.current) {
-            undoStackRef.current = [];
-            setUndoOpsCount(0);
-            setLastAgentChange(null);
-            return null;
-        }
-        undoStackRef.current.pop();
+        redoStackRef.current.push(batch);
         const restored = batch.snapshot;
         nodesRef.current = restored.nodes;
         connectionsRef.current = restored.connections;
@@ -379,6 +402,28 @@ export function useCanvasAgentOperations({
         setViewport(restored.viewport);
         setContextMenu(null);
         setUndoOpsCount(undoStackRef.current.length);
+        setRedoOpsCount(redoStackRef.current.length);
+        setLastAgentChange(null);
+        return { ...restored, projectId, domainProjectId, title: projectTitle };
+    }, [connectionsRef, domainProjectId, nodesRef, projectId, projectTitle, selectedNodeIdsRef, setConnections, setContextMenu, setNodes, setSelectedConnectionId, setSelectedNodeIds, setViewport, viewportRef]);
+
+    const redoOps = useCallback(() => {
+        const batch = redoStackRef.current.pop();
+        if (!batch) return null;
+        undoStackRef.current.push(batch);
+        const restored = batch.afterSnapshot;
+        nodesRef.current = restored.nodes;
+        connectionsRef.current = restored.connections;
+        selectedNodeIdsRef.current = new Set(restored.selectedNodeIds);
+        viewportRef.current = restored.viewport;
+        setNodes(restored.nodes);
+        setConnections(restored.connections);
+        setSelectedNodeIds(new Set(restored.selectedNodeIds));
+        setSelectedConnectionId(null);
+        setViewport(restored.viewport);
+        setContextMenu(null);
+        setUndoOpsCount(undoStackRef.current.length);
+        setRedoOpsCount(redoStackRef.current.length);
         setLastAgentChange(null);
         return { ...restored, projectId, domainProjectId, title: projectTitle };
     }, [connectionsRef, domainProjectId, nodesRef, projectId, projectTitle, selectedNodeIdsRef, setConnections, setContextMenu, setNodes, setSelectedConnectionId, setSelectedNodeIds, setViewport, viewportRef]);
@@ -394,7 +439,7 @@ export function useCanvasAgentOperations({
         queueMicrotask(() => focusSelection());
     }, [focusSelection, lastAgentChange, nodesRef, selectedNodeIdsRef, setSelectedConnectionId, setSelectedNodeIds]);
 
-    return { agentSnapshot: snapshot, agentUndoCount: undoOpsCount, applyAgentOps: applyOps, canUndoAgentOps: undoOpsCount > 0, dismissLastAgentChange: () => setLastAgentChange(null), lastAgentChange, undoAgentOps: undoOps, viewLastAgentChange };
+    return { agentSnapshot: snapshot, agentUndoCount: undoOpsCount, agentRedoCount: redoOpsCount, applyAgentOps: applyOps, canUndoAgentOps: undoOpsCount > 0, canRedoAgentOps: redoOpsCount > 0, dismissLastAgentChange: () => setLastAgentChange(null), lastAgentChange, undoAgentOps: undoOps, redoAgentOps: redoOps, viewLastAgentChange };
 }
 
 function agentAffectedNodeIds(ops: CanvasAgentOp[], nodes: CanvasNodeData[]) {

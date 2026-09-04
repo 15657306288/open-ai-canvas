@@ -1,5 +1,7 @@
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 
+import { channelToolDefs, channelToolNames } from "../channel-tools.js";
+import { getChannelToolContext } from "../mcp-server.js";
 import {
     archiveCodexThread,
     listCodexThreads,
@@ -13,22 +15,35 @@ import {
     withAgentPrompt,
 } from "../agents.js";
 import { CanvasSession } from "../canvas-session.js";
+import { CanvasMediaAccess } from "../media-access.js";
+import { getMetricsRegistry } from "../metrics.js";
 import {
     ensureCanvasWorkspace,
     updateCanvasWorkspace,
     type LocalRuntimeConfig,
 } from "../config.js";
 import type { LocalRuntimeModule, LocalRuntimeProtectedRoute } from "../local-runtime.js";
+import type { LocalRuntimeScope } from "../local-runtime-contract.js";
 import type { AgentAttachment } from "../types.js";
 
 export type CanvasAgentSession = Pick<
     CanvasSession,
-    "health" | "openEvents" | "updateState" | "resolveResult" | "emitAll" | "callTool" | "closeRuntimeSession" | "dispose"
+    "health" | "openEvents" | "updateState" | "resolveResult" | "emitAll" | "callTool" | "getMedia" | "consumeMediaToken" | "loadNodeMedia" | "closeRuntimeSession" | "dispose"
 >;
 
 export function createCanvasAgentHttpModule(
     config: LocalRuntimeConfig,
-    session: CanvasAgentSession = new CanvasSession(),
+    // [connector] P2 §9.4 默认注入 metrics 单例（工具计数/时延/错误 + 媒体读取审计计数）
+    session: CanvasAgentSession = new CanvasSession({
+        metrics: getMetricsRegistry(),
+        mediaAccess: new CanvasMediaAccess({
+            onAudit: (entry) => {
+                const metrics = getMetricsRegistry();
+                metrics.incCounter(`media.read.${entry.mode}`);
+                metrics.observeLatency("media", Date.now() - entry.atMs);
+            },
+        }),
+    }),
 ): LocalRuntimeModule {
     const emit = (type: string, payload: unknown) => session.emitAll(type, payload);
     const routes: LocalRuntimeProtectedRoute[] = [
@@ -57,8 +72,52 @@ export function createCanvasAgentHttpModule(
         }, { queryKeys: ["clientId"] }),
         canvasRoute("POST", "/api/tools", async (req, res) => {
             const body = jsonRecord(req);
-            res.json({ ok: true, result: await session.callTool(body.name, body.input || {}) });
+            try {
+                // [connector] P0-B-4 渠道工具走本地 ctx（目录/生成），画布工具走 session.callTool
+                if (channelToolNames.includes(String(body.name ?? ""))) {
+                    const tool = channelToolDefs.find((t) => t.name === body.name)!;
+                    const result = await tool.handler(getChannelToolContext(), tool.inputSchema.parse(body.input || {}));
+                    res.json({ ok: true, result });
+                    return;
+                }
+                res.json({ ok: true, result: await session.callTool(body.name, body.input || {}) });
+            } catch (error) {
+                // [connector] P0-B-1 错误透传：MCP/OpenAPI 等外部 agent 需看到真实失败原因（如"当前没有已连接画布"）
+                res.json({ ok: false, error: error instanceof Error ? error.message : "Canvas tool failed" });
+            }
         }),
+        // [connector] P1-Q5 媒体读取：严格 scope（需显式授予 canvas:media:read，否则 403）
+        canvasRoute("POST", "/api/media/get", async (req, res) => {
+            const body = jsonRecord(req);
+            try {
+                res.json({ ok: true, result: await session.getMedia({
+                    nodeId: String(body.nodeId ?? ""),
+                    mode: body.mode === "url" ? "url" : "block",
+                    maxBytes: typeof body.maxBytes === "number" ? body.maxBytes : undefined,
+                }) });
+            } catch (error) {
+                res.json({ ok: false, error: error instanceof Error ? error.message : "Media fetch failed" });
+            }
+        }, { scope: "canvas:media:read" }),
+        // [connector] P1-Q5 签名媒体 URL 消费端点：令牌即鉴权（短 TTL 单次），公开路由跳过 scope guard
+        canvasRoute("GET", "/api/media/:token", async (req, res) => {
+            const token = String(req.params.token ?? "");
+            const claimed = session.consumeMediaToken(token);
+            if (!claimed) {
+                res.status(404).json({ ok: false, error: "媒体链接无效或已过期" });
+                return;
+            }
+            try {
+                const { bytes, mimeType } = await session.loadNodeMedia(claimed.nodeId);
+                res.setHeader("content-type", mimeType);
+                res.setHeader("content-length", String(bytes.length));
+                res.setHeader("cache-control", "private, no-store");
+                res.setHeader("x-canvas-media-node", claimed.nodeId);
+                res.end(bytes);
+            } catch (error) {
+                res.status(404).json({ ok: false, error: error instanceof Error ? error.message : "媒体加载失败" });
+            }
+        }, { public: true }),
         canvasRoute("GET", "/agent/codex/workspace", (req, res) => {
             const workspace = ensureCanvasWorkspace(config, queryValue(req, "canvasId"));
             res.json({ ok: true, workspace });
@@ -175,7 +234,8 @@ export function createCanvasAgentHttpModule(
             id: "canvas-agent",
             displayName: "Canvas Agent",
             apiVersion: 1,
-            scopes: ["canvas:connect"],
+            // [connector] P1-Q5 媒体读取 scope：严格 HTTP 路径 /api/media/get 需显式授予
+            scopes: ["canvas:connect", "canvas:media:read"],
         },
         routes,
         onRuntimeSessionRevoked: (sessionId) => session.closeRuntimeSession(sessionId),
@@ -196,12 +256,12 @@ function canvasRoute(
     method: "GET" | "POST",
     path: string,
     handler: (req: Request, res: Response) => void | Promise<void>,
-    options: { queryKeys?: readonly string[]; lastEventId?: boolean } = {},
+    options: { queryKeys?: readonly string[]; lastEventId?: boolean; scope?: LocalRuntimeScope; public?: boolean } = {},
 ): LocalRuntimeProtectedRoute {
     return {
         method,
         path,
-        scope: "canvas:connect",
+        scope: options.scope ?? "canvas:connect",
         handler: route(handler),
         legacy: true,
         ...options,

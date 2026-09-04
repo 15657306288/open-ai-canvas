@@ -537,6 +537,181 @@ func (s *Service) ReserveProxyBilling(userID string, channelID string, modelKey 
 	return s.ReserveProxyBillingWithBody(userID, channelID, modelKey, capability, scene, idempotencyKey, quantity, nil)
 }
 
+const (
+	internalBillingCapability = "mcp"
+	internalBillingMode       = "fixed_request"
+	internalMaxToolLength     = 120
+	internalMaxSceneLength    = 80
+	internalMaxIdempotencyKey = 160
+)
+
+// InternalCreditAccount is the small service-token-facing account read used by
+// the MCP gateway. It deliberately reuses the existing wallet row.
+func (s *Service) InternalCreditAccount(userID string) (*model.CreditAccount, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, BadAuthRequest("用户 ID 无效")
+	}
+	user, err := s.repo.User(userID)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, NotFound("账户不存在")
+	}
+	if err != nil {
+		return nil, err
+	}
+	if user.Status != model.UserStatusActive {
+		return nil, NotFound("账户不存在")
+	}
+	return s.repo.CreditAccount(userID)
+}
+
+// ReserveInternalBilling creates one fixed-price MCP reservation in the
+// existing billing state machine. Model stores the MCP tool name because the
+// legacy BillingOrder schema has no separate tool column.
+//
+// Pricing source: when amountMicrocredits <= 0, the backend decides the price
+// from the MCP tool pricing table (mcp_tool_pricing) instead of trusting a
+// connector-supplied amount. The connector (网关) must NOT run its own pricing.
+func (s *Service) ReserveInternalBilling(userID string, amountMicrocredits int64, tool string, scene string, idempotencyKey string) (*model.BillingOrder, error) {
+	if err := s.RequireFeature(FeatureCredits); err != nil {
+		return nil, err
+	}
+	userID = strings.TrimSpace(userID)
+	tool = strings.TrimSpace(tool)
+	scene = strings.TrimSpace(scene)
+	idempotencyKey = strings.TrimSpace(idempotencyKey)
+	if userID == "" || tool == "" || scene == "" || idempotencyKey == "" {
+		return nil, BadAuthRequest("内部计费参数不完整")
+	}
+	if amountMicrocredits < 0 {
+		return nil, BadAuthRequest("amountMicrocredits 不能为负数")
+	}
+	if len(tool) > internalMaxToolLength || len(scene) > internalMaxSceneLength || len(idempotencyKey) > internalMaxIdempotencyKey {
+		return nil, BadAuthRequest("内部计费参数过长")
+	}
+	// 连接器不参与定价：未传金额（0）时由后端按工具定价。
+	if amountMicrocredits == 0 {
+		backendPrice, err := s.ToolPriceMicrocredits(tool)
+		if err != nil {
+			return nil, err
+		}
+		amountMicrocredits = backendPrice
+	}
+	user, err := s.repo.User(userID)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, NotFound("账户不存在")
+	}
+	if err != nil {
+		return nil, err
+	}
+	if user.Status != model.UserStatusActive {
+		return nil, NotFound("账户不存在")
+	}
+
+	order := &model.BillingOrder{
+		ID: newID(), UserID: userID, IdempotencyKey: idempotencyKey,
+		Model: tool, Capability: internalBillingCapability, Scene: scene, BillingMode: internalBillingMode,
+		UnitPriceMicrocredits: amountMicrocredits, MultiplierBasisPoints: 10_000, Quantity: 1,
+		AmountMicrocredits: amountMicrocredits, ReservedAmountMicrocredits: amountMicrocredits,
+		Status: model.BillingStatusReserved,
+	}
+	reserved, err := s.repo.ReserveBillingOrderIdempotent(order)
+	if errors.Is(err, repository.ErrInsufficientCredits) {
+		return nil, NewAppError(402, "积分不足")
+	}
+	if errors.Is(err, repository.ErrBillingIdempotencyConflict) {
+		return nil, NewAppError(409, "幂等键已用于其他计费请求")
+	}
+	if err != nil {
+		return nil, err
+	}
+	return reserved, nil
+}
+
+// SettleInternalBilling finalizes a fixed MCP reservation and is idempotent
+// for the same order/idempotency key.
+func (s *Service) SettleInternalBilling(userID string, orderID string, idempotencyKey string) (*model.BillingOrder, error) {
+	order, err := s.internalBillingOrder(userID, orderID, idempotencyKey)
+	if err != nil {
+		return nil, err
+	}
+	switch order.Status {
+	case model.BillingStatusSettled:
+		return order, nil
+	case model.BillingStatusReserved, model.BillingStatusRunning:
+		if err := s.SettleBilling(order.ID, idempotencyKey); err != nil {
+			return s.internalBillingAfterTransitionError(order.ID, idempotencyKey, err, model.BillingStatusSettled)
+		}
+	case model.BillingStatusRefunded, model.BillingStatusUncertain:
+		return nil, NewAppError(409, "计费订单状态不允许结算")
+	default:
+		return nil, NewAppError(409, "计费订单状态无效")
+	}
+	return s.repo.BillingOrder(order.ID)
+}
+
+// RefundInternalBilling releases a fixed MCP reservation and is idempotent
+// for the same order/idempotency key.
+func (s *Service) RefundInternalBilling(userID string, orderID string, idempotencyKey string, errorText string) (*model.BillingOrder, error) {
+	order, err := s.internalBillingOrder(userID, orderID, idempotencyKey)
+	if err != nil {
+		return nil, err
+	}
+	switch order.Status {
+	case model.BillingStatusRefunded:
+		return order, nil
+	case model.BillingStatusReserved, model.BillingStatusRunning:
+		if err := s.RefundBilling(order.ID, firstNonEmpty(strings.TrimSpace(errorText), "MCP 工具执行失败")); err != nil {
+			return s.internalBillingAfterTransitionError(order.ID, idempotencyKey, err, model.BillingStatusRefunded)
+		}
+	case model.BillingStatusSettled, model.BillingStatusUncertain:
+		return nil, NewAppError(409, "计费订单状态不允许退款")
+	default:
+		return nil, NewAppError(409, "计费订单状态无效")
+	}
+	return s.repo.BillingOrder(order.ID)
+}
+
+func (s *Service) internalBillingOrder(userID string, orderID string, idempotencyKey string) (*model.BillingOrder, error) {
+	userID = strings.TrimSpace(userID)
+	orderID = strings.TrimSpace(orderID)
+	idempotencyKey = strings.TrimSpace(idempotencyKey)
+	if userID == "" || orderID == "" || idempotencyKey == "" {
+		return nil, BadAuthRequest("内部计费参数不完整")
+	}
+	if len(idempotencyKey) > internalMaxIdempotencyKey {
+		return nil, BadAuthRequest("内部计费参数过长")
+	}
+	order, err := s.repo.BillingOrder(orderID)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, NotFound("计费订单不存在")
+	}
+	if err != nil {
+		return nil, err
+	}
+	if order.UserID != userID {
+		return nil, NotFound("计费订单不存在")
+	}
+	if order.IdempotencyKey != idempotencyKey {
+		return nil, NewAppError(409, "幂等键与计费订单不匹配")
+	}
+	if order.Capability != internalBillingCapability || order.BillingMode != internalBillingMode {
+		return nil, NewAppError(409, "计费订单类型不支持内部结算")
+	}
+	return order, nil
+}
+
+func (s *Service) internalBillingAfterTransitionError(orderID string, idempotencyKey string, transitionErr error, terminal model.BillingStatus) (*model.BillingOrder, error) {
+	current, err := s.repo.BillingOrder(orderID)
+	if err == nil && current.IdempotencyKey == idempotencyKey && current.Status == terminal {
+		return current, nil
+	}
+	if errors.Is(transitionErr, repository.ErrBillingStateConflict) {
+		return nil, NewAppError(409, "计费订单状态不允许本次操作")
+	}
+	return nil, transitionErr
+}
+
 func (s *Service) ReserveProxyBillingWithBody(userID string, channelID string, modelKey string, capability string, scene string, idempotencyKey string, quantity int64, requestBody []byte) (*model.BillingOrder, error) {
 	enabled, err := s.FeatureEnabled(FeatureCredits)
 	if err != nil {

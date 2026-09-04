@@ -56,10 +56,19 @@ test("Canvas module declares only Canvas scopes and constructs without CLI side 
         id: "canvas-agent",
         displayName: "Canvas Agent",
         apiVersion: 1,
-        scopes: ["canvas:connect"],
+        scopes: ["canvas:connect", "canvas:media:read"],
     });
     assert.ok(module.routes.some((route) => route.path === "/events" && route.lastEventId));
-    assert.ok(module.routes.every((route) => route.scope === "canvas:connect" && route.legacy));
+    // 画布核心路由均为 canvas:connect；媒体读取路由为 canvas:media:read；签名消费为 public
+    for (const route of module.routes) {
+        if (route.path === "/api/media/get") {
+            assert.equal(route.scope, "canvas:media:read");
+        } else if (route.path === "/api/media/:token") {
+            assert.equal(route.public, true, "签名 URL 消费应公开（令牌即鉴权）");
+        } else {
+            assert.equal(route.scope, "canvas:connect");
+        }
+    }
     assert.deepEqual(calls, []);
 });
 
@@ -127,11 +136,12 @@ test("CanvasSession dispose closes streams and a replaced stream cannot clear th
     session.updateState({ nodes: [] }, "fixture");
     session.openEvents(new URL("http://127.0.0.1/events?clientId=fixture"), second.response as never);
     first.response.emit("close");
-    assert.deepEqual(session.health(), { ok: true, hasCanvas: true, clients: 1 });
+    // [connector] P0-A-2 health 新增 reconnecting（断线宽限中连接数）
+    assert.deepEqual(session.health(), { ok: true, hasCanvas: true, clients: 1, reconnecting: 0 });
 
     session.dispose();
     assert.equal(second.ended(), 1);
-    assert.deepEqual(session.health(), { ok: true, hasCanvas: false, clients: 0 });
+    assert.deepEqual(session.health(), { ok: true, hasCanvas: false, clients: 0, reconnecting: 0 });
     second.response.emit("close");
 });
 
@@ -179,7 +189,8 @@ test("CanvasSession closes only streams owned by a revoked Runtime session", asy
     assert.equal(first.ended(), 1);
     assert.equal(second.ended(), 0);
     assert.equal(legacy.ended(), 0);
-    assert.deepEqual(session.health(), { ok: true, hasCanvas: false, clients: 2 });
+    // [connector] P0-A-2 health 新增 reconnecting（断线宽限中连接数）
+    assert.deepEqual(session.health(), { ok: true, hasCanvas: false, clients: 2, reconnecting: 0 });
     await assert.rejects(pending, /会话已撤销/);
     session.dispose();
 });
@@ -530,6 +541,174 @@ test("canvas_apply_ops enforces expected revision and state hash before dispatch
             /画布状态已变化.*重新读取 canvas_get_context/
         );
         assert.equal(events.writes().length, writeCount);
+    } finally {
+        session.dispose();
+    }
+});
+
+test("[connector] P0-A-2 a closed stream keeps canvas state during grace and a reconnect restores it", () => {
+    const scheduled: Array<{ delay: number; callback: () => void }> = [];
+    const session = new CanvasSession({
+        graceMs: 8_000,
+        now: () => 1_000_000,
+        timers: {
+            setTimeout(callback: () => void, delay: number) {
+                scheduled.push({ delay, callback });
+                return scheduled.length;
+            },
+            clearTimeout() { /* noop */ },
+        },
+    });
+    const first = eventResponse();
+    session.openEvents(new URL("http://127.0.0.1/events?clientId=grace-client"), first.response as never);
+    session.updateState({ nodes: [] }, "grace-client");
+    // 断线：进入宽限期，画布状态与连接注册得以保留
+    first.response.emit("close");
+    assert.equal(session.health().clients, 0);
+    assert.equal(session.health().hasCanvas, true, "画布状态应在宽限期内保留");
+    assert.equal(session.health().reconnecting, 1);
+    // 宽限期内同 clientId 重连 → 撤销宽限，状态恢复可用
+    const second = eventResponse();
+    session.openEvents(new URL("http://127.0.0.1/events?clientId=grace-client"), second.response as never);
+    assert.equal(session.health().reconnecting, 0);
+    assert.equal(session.health().hasCanvas, true);
+    session.dispose();
+});
+
+test("[connector] P0-A-2 a stream that never reconnects clears canvas state after grace expires", () => {
+    const scheduled: Array<{ delay: number; callback: () => void }> = [];
+    const session = new CanvasSession({
+        graceMs: 8_000,
+        now: () => 1_000_000,
+        timers: {
+            setTimeout(callback: () => void, delay: number) {
+                scheduled.push({ delay, callback });
+                return scheduled.length;
+            },
+            clearTimeout() { /* noop */ },
+        },
+    });
+    const first = eventResponse();
+    session.openEvents(new URL("http://127.0.0.1/events?clientId=expire-client"), first.response as never);
+    session.updateState({ nodes: [] }, "expire-client");
+    first.response.emit("close");
+    assert.equal(session.health().hasCanvas, true, "断线后画布状态先保留");
+    const graceEntry = scheduled.find((item) => item.delay === 8_000);
+    assert.ok(graceEntry, "宽限到期定时器应被调度");
+    graceEntry!.callback();
+    assert.equal(session.health().hasCanvas, false, "宽限超时未重连应清理画布状态");
+    assert.equal(session.health().reconnecting, 0);
+    session.dispose();
+});
+
+test("canvas_create_storyboard_shots idempotently projects shots, updates existing and retains positions", async () => {
+    const session = new CanvasSession();
+    const events = eventResponse();
+    session.openEvents(new URL("http://127.0.0.1/events?clientId=storyboard-client"), events.response as never);
+    session.updateState({
+        projectId: "canvas-proj-1",
+        domainProjectId: "drama-proj-1",
+        nodes: [
+            {
+                id: "custom-positioned-shot-1",
+                type: "video",
+                title: "镜头 1 · 原版",
+                position: { x: 1200, y: 800 },
+                width: 320,
+                height: 240,
+                metadata: {
+                    workflowKind: "shot",
+                    shotId: "shot-001",
+                    projectionKey: "shot:shot-001",
+                    projectionVersion: 1,
+                    workflowTitle: "镜头 1 · 原版",
+                    workflowDescription: "初始描述",
+                },
+            },
+        ],
+        connections: [],
+    }, "storyboard-client");
+
+    try {
+        const promise = session.callTool("canvas_create_storyboard_shots", {
+            shots: [
+                { shotId: "shot-001", title: "镜头 1 · 更新版", description: "更新后的画面" },
+                { shotId: "shot-002", title: "镜头 2 · 新镜头", description: "全新镜头画面" },
+                { shotId: "shot-001", title: "重复传入", description: "重复内容" },
+            ],
+        });
+
+        const call = latestToolCall(events.writes());
+        assert.equal(call.name, "canvas_apply_ops");
+        const ops = (call.input as { ops: Array<Record<string, unknown>> }).ops;
+
+        // shot-001 必须生成 update_node 操作
+        const updateOp = ops.find((op) => op.type === "update_node" && op.id === "custom-positioned-shot-1");
+        assert.ok(updateOp, "已有镜头必须触发 update_node");
+        assert.equal((updateOp.patch as Record<string, unknown>)?.title, "镜头 1 · 更新版");
+        assert.equal((updateOp.metadata as Record<string, unknown>)?.workflowDescription, "更新后的画面");
+        assert.equal((updateOp.metadata as Record<string, unknown>)?.projectionVersion, 2);
+
+        // shot-002 必须生成 add_node 操作
+        const addOp = ops.find((op) => op.type === "add_node" && (op.metadata as Record<string, unknown>)?.shotId === "shot-002");
+        assert.ok(addOp, "新镜头必须触发 add_node");
+        assert.equal(addOp.title, "镜头 2 · 新镜头");
+
+        session.resolveResult({ requestId: call.requestId, result: { accepted: true } });
+        const result = await promise as any;
+        assert.equal(result.ok, true);
+        assert.deepEqual(result.existingNodeIds, ["custom-positioned-shot-1"]);
+        assert.deepEqual(result.updatedNodeIds, ["custom-positioned-shot-1"]);
+        assert.equal(result.createdNodeIds.length, 1);
+        assert.ok(result.duplicateShotMappings["shot-001"]);
+    } finally {
+        session.dispose();
+    }
+});
+
+test("canvas_create_workflow expands drama_pilot recipe with connected nodes and ToolEffect", async () => {
+    const session = new CanvasSession();
+    const events = eventResponse();
+    session.openEvents(new URL("http://127.0.0.1/events?clientId=recipe-client"), events.response as never);
+    session.updateState({ nodes: [], connections: [] }, "recipe-client");
+
+    try {
+        const promise = session.callTool("canvas_create_workflow", {
+            recipe: "drama_pilot",
+        });
+
+        const call = latestToolCall(events.writes());
+        assert.equal(call.name, "canvas_apply_ops");
+        const ops = (call.input as { ops: Array<Record<string, unknown>> }).ops;
+
+        // drama_pilot 配方包含 4 个节点 (script, char_a, scene_main, storyboard)
+        const addOps = ops.filter((op) => op.type === "add_node");
+        assert.equal(addOps.length, 4);
+
+        const connectOps = ops.filter((op) => op.type === "connect_nodes");
+        assert.equal(connectOps.length, 4);
+
+        session.resolveResult({
+            requestId: call.requestId,
+            result: {
+                accepted: true,
+                effect: {
+                    mutated: true,
+                    createdIds: addOps.map((op) => String(op.id)),
+                    updatedIds: [],
+                    deletedIds: [],
+                    createdTaskIds: [],
+                    projectionChanged: true,
+                    needsRefresh: true,
+                },
+            },
+        });
+
+        const result = await promise as any;
+        assert.equal(result.accepted, true);
+        assert.ok(result.effect);
+        assert.equal(result.effect.mutated, true);
+        assert.equal(result.effect.createdIds.length, 4);
     } finally {
         session.dispose();
     }

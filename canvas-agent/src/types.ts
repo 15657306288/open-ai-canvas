@@ -6,3 +6,25 @@ export type CanvasConnection = { id: string; fromNodeId: string; toNodeId: strin
 export type CanvasSnapshot = { projectId?: string; domainProjectId?: string; title?: string; nodes?: CanvasNode[]; connections?: CanvasConnection[]; selectedNodeIds?: string[]; viewport?: Viewport; clientId?: string; revision?: number };
 export type AgentEmit = (type: string, payload: unknown) => void;
 export type AgentAttachment = { name?: string; type?: string; dataUrl?: string };
+
+export type ToolEffect = {
+    mutated: boolean;
+    createdIds: string[];
+    updatedIds: string[];
+    deletedIds: string[];
+    createdTaskIds: string[];
+    projectionChanged: boolean;
+    needsRefresh: boolean;
+};
+
+export function emptyToolEffect(): ToolEffect {
+    return {
+        mutated: false,
+        createdIds: [],
+        updatedIds: [],
+        deletedIds: [],
+        createdTaskIds: [],
+        projectionChanged: false,
+        needsRefresh: false,
+    };
+}

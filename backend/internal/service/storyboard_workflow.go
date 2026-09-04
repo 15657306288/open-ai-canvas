@@ -24,6 +24,18 @@ func (s *Service) processAgentStoryboardTask(ctx context.Context, task model.Tas
 	if err != nil {
 		return nil, nil, err
 	}
+	if len(semanticShots) > 0 {
+		metadata := model.AgentRunMetadata{
+			RuntimeProfile:    "storyboard_director_v1",
+			EffectiveSkillIDs: []string{"storyboard-director"},
+			TurnID:            task.SessionID,
+			ToolTraceSummary:  fmt.Sprintf("persist_shots: %d semantic shots persisted", len(semanticShots)),
+			SemanticEntityIDs: semanticShotIDs(semanticShots),
+		}
+		if encoded, err := json.Marshal(metadata); err == nil {
+			_ = s.log(task.UserID, task.ID, "info", "分镜语义实体已持久化", string(encoded))
+		}
+	}
 	return s.buildAgentStoryboardResult(task, plan, assets, input.ProjectStyle, semanticShots)
 }
 
@@ -221,6 +233,7 @@ func (s *Service) persistAgentStoryboardShots(task model.Task, input agentStoryb
 		return nil, err
 	}
 
+	plan.Shots = criticAndRepairStoryboardShots(plan.Shots)
 	now := time.Now()
 	shots := make([]model.Shot, 0, len(plan.Shots))
 	revisions := make([]model.ShotRevision, 0, len(plan.Shots))
@@ -236,19 +249,29 @@ func (s *Service) persistAgentStoryboardShots(task model.Task, input agentStoryb
 		}
 		shotID := newID()
 		durationMs := int64(shot.Duration) * 1000
-		actionBeats, err := json.Marshal([]map[string]any{{
-			"timeBeats": shot.TimeBeats, "mustHave": shot.MustHave, "optionalDetails": shot.Optional,
-		}})
+		revisionInput := ShotRevisionInput{
+			PlotDescription: shot.Description,
+			Action:          shot.Performance,
+			Dialogue:        shot.Dialogue,
+			ShotSize:        shot.ShotSize,
+			CameraAngle:     shot.Camera,
+			CameraMovement:  shot.Motion,
+			DurationMs:      durationMs,
+			ImagePrompt:     imagePrompt,
+			VideoPrompt:     videoPrompt,
+			NegativePrompt:  shot.Negative,
+			ContinuityNotes: shot.ContinuityOut,
+			ActionBeats: []map[string]any{{
+				"timeBeats":       shot.TimeBeats,
+				"mustHave":        shot.MustHave,
+				"optionalDetails": shot.Optional,
+			}},
+		}
+		revision, err := newShotRevision(task.UserID, shotID, revisionInput, shot.Description, durationMs, now)
 		if err != nil {
-			return nil, fmt.Errorf("序列化镜头动作节拍失败：%w", err)
+			return nil, err
 		}
-		revision := model.ShotRevision{
-			ID: newID(), ShotID: shotID, Version: 1, PlotDescription: strings.TrimSpace(shot.Description),
-			Action: strings.TrimSpace(shot.Performance), Dialogue: strings.TrimSpace(shot.Dialogue), ShotSize: strings.TrimSpace(shot.ShotSize),
-			CameraAngle: strings.TrimSpace(shot.Camera), CameraMovement: strings.TrimSpace(shot.Motion), DurationMs: durationMs,
-			ImagePrompt: imagePrompt, VideoPrompt: videoPrompt, NegativePrompt: strings.TrimSpace(shot.Negative),
-			ContinuityNotes: strings.TrimSpace(shot.ContinuityOut), ActionBeatsJSON: string(actionBeats), CreatedBy: task.UserID, CreatedAt: now,
-		}
+		revision.Version = 1
 		shots = append(shots, model.Shot{
 			ID: shotID, ProjectID: domainProjectID, UnitID: unitID, CurrentRevisionID: revision.ID,
 			Title: strings.TrimSpace(shot.Title), Description: revision.PlotDescription, Position: index, DurationMs: durationMs,
@@ -367,4 +390,72 @@ func (s *Service) compileStoryboardImagePrompt(userID string, projectStyle strin
 func (s *Service) compileStoryboardVideoPrompt(userID string, projectStyle string, styleGuide string, shot agentStoryboardShot) (string, error) {
 	compiled, err := s.compilePrompt(userID, promptOperationStoryboardVideo, storyboardVideoPromptValues(projectStyle, styleGuide, shot))
 	return compiled.Content, err
+}
+
+func criticAndRepairStoryboardShots(shots []agentStoryboardShot) []agentStoryboardShot {
+	if len(shots) == 0 {
+		return shots
+	}
+	repaired := make([]agentStoryboardShot, len(shots))
+	copy(repaired, shots)
+
+	for i := range repaired {
+		shot := &repaired[i]
+		if shot.Duration <= 0 || shot.Duration > 60 {
+			shot.Duration = 4
+		}
+		if strings.TrimSpace(shot.Title) == "" {
+			shot.Title = fmt.Sprintf("镜头 %d", i+1)
+		}
+		if strings.TrimSpace(shot.Description) == "" {
+			if strings.TrimSpace(shot.Performance) != "" {
+				shot.Description = shot.Performance
+			} else {
+				shot.Description = shot.Title
+			}
+		}
+		if strings.TrimSpace(shot.ShotSize) == "" {
+			if i == 0 {
+				shot.ShotSize = "远景"
+			} else if i == len(repaired)-1 {
+				shot.ShotSize = "特写"
+			} else {
+				shot.ShotSize = "中景"
+			}
+		}
+		if strings.TrimSpace(shot.Motion) == "" {
+			if shot.ShotSize == "特写" || shot.ShotSize == "近景" {
+				shot.Motion = "缓慢推近"
+			} else {
+				shot.Motion = "固定机位"
+			}
+		}
+		if strings.TrimSpace(shot.Camera) == "" {
+			shot.Camera = "平视"
+		}
+	}
+
+	if len(repaired) >= 3 {
+		allSameSize := true
+		firstSize := repaired[0].ShotSize
+		for i := 1; i < len(repaired); i++ {
+			if repaired[i].ShotSize != firstSize {
+				allSameSize = false
+				break
+			}
+		}
+		if allSameSize {
+			repaired[0].ShotSize = "全景"
+			if repaired[0].Motion == "固定机位" {
+				repaired[0].Motion = "缓慢推近"
+			}
+			lastIdx := len(repaired) - 1
+			repaired[lastIdx].ShotSize = "特写"
+			if repaired[lastIdx].Motion == "固定机位" {
+				repaired[lastIdx].Motion = "微推镜头"
+			}
+		}
+	}
+
+	return repaired
 }

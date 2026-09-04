@@ -8,6 +8,7 @@ import {
     type LocalRuntimeModuleId,
     type LocalRuntimeScope,
 } from "./local-runtime-contract.js";
+import { getMetricsRegistry } from "./metrics.js";
 import {
     assertExactKeys,
     exactAuthorityGuard,
@@ -34,6 +35,8 @@ export type LocalRuntimeProtectedRoute = {
     lastEventId?: boolean;
     queryKeys?: readonly string[];
     legacy?: boolean;
+    /** [connector] P1-Q5 公开路由（跳过 scope 鉴权，仅 method/path）。仅用于"令牌即鉴权"的场景（如短 TTL 签名媒体 URL 消费）。 */
+    public?: boolean;
 };
 
 export type LocalRuntimeModule = {
@@ -46,13 +49,18 @@ export type LocalRuntimeModule = {
 };
 
 export type CreateLocalRuntimeAppOptions = {
-    authority: string;
+    /** [connector] L2 局域网/公网：权威 Host 集合（精确匹配），支持多个对外地址 */
+    authority: string | readonly string[];
     endpoint: string;
     version: string;
     sessionManager: LocalRuntimeSessionManager;
     modules: readonly LocalRuntimeModule[];
     legacyMasterToken?: string;
     legacyOrigins?: readonly string[];
+    /** [connector] P0-B-1 MCP Streamable HTTP 门面处理器（/mcp），由宿主层创建注入 */
+    mcpHandler?: RequestHandler;
+    /** [connector] P0-B-2 OpenAPI 兜底门面处理器（/openapi.json + /tools/:name），由宿主层创建注入 */
+    openApiHandler?: RequestHandler;
 };
 
 export function createLocalRuntimeApp(options: CreateLocalRuntimeAppOptions): Express {
@@ -83,13 +91,45 @@ export function createLocalRuntimeApp(options: CreateLocalRuntimeAppOptions): Ex
             if (module.publicHealth) Object.assign(result, module.publicHealth());
             return result;
         }, {});
-        res.json({ ok: true, ...health });
+        // [connector] P0-A-5 四态健康字段（供外部 agent/前端探测连接状态）：
+        //   healthy   —— 有活跃画布连接且无断线宽限
+        //   reconnecting —— 存在断线宽限中的连接（SSE 瞬断，正在等重连）
+        //   degraded  —— 有画布状态但无活跃连接（宽限已过，画布待重新连接）
+        //   offline   —— 从未连接过画布（Runtime 已起但画布未就绪）
+        const clients = Number(health.clients ?? 0);
+        const reconnecting = Number(health.reconnecting ?? 0);
+        const hasCanvas = Boolean(health.hasCanvas);
+        const status = reconnecting > 0 ? "reconnecting" : clients > 0 ? "healthy" : hasCanvas ? "degraded" : "offline";
+        res.json({ ok: true, status, ...health });
+    });
+    // [connector] P2 §9.4 可观测：/metrics 输出连接器指标（计数/时延/错误率/在线画布/活跃连接器）。
+    //   带 ?format=prometheus 返回 Prometheus 文本格式，否则返回 JSON 快照。
+    app.get("/metrics", (_req, res) => {
+        const metrics = getMetricsRegistry();
+        const format = String(new URL(_req.url ?? "/", options.endpoint).searchParams.get("format") ?? "json");
+        if (format === "prometheus") {
+            res.setHeader("content-type", "text/plain; version=0.0.4");
+            res.send(metrics.toPrometheus());
+            return;
+        }
+        res.json({ ok: true, format: "json", ...metrics.snapshot() });
     });
     app.get("/config", (_req, res) => res.json({
         ok: true,
         url: options.endpoint,
         hasToken: Boolean(options.legacyMasterToken),
     }));
+
+    // [connector] P0-B-1 MCP Streamable HTTP 门面（Q1 默认开）：GET/POST/DELETE 统一交给
+    // mcpHandler 按 MCP 协议处理（会话由 Mcp-Session-Id 头维护，与 Runtime 签名体系正交）。
+    if (options.mcpHandler) {
+        app.all("/mcp", options.mcpHandler);
+    }
+    // [connector] P0-B-2 OpenAPI 兜底：/openapi.json（spec）+ /tools/:name（单工具执行）
+    // [connector] P2 §9.4 Agent Card（A2A 预留 + 平台发现）随 OpenAPI 门面一并挂载
+    if (options.openApiHandler) {
+        app.all(["/openapi.json", "/tools/:name", "/.well-known/agent.json"], options.openApiHandler);
+    }
 
     app.post(
         "/runtime/session/challenge",
@@ -158,6 +198,13 @@ export function createLocalRuntimeApp(options: CreateLocalRuntimeAppOptions): Ex
 
     for (const module of modules) {
         for (const item of module.routes) {
+            if (item.public) {
+                // [connector] P1-Q5 公开路由：令牌即鉴权（如短 TTL 签名媒体 URL 消费），跳过 scope guard
+                const handlers = [item.handler];
+                if (item.method === "GET") app.get(item.path, ...handlers);
+                else app.post(item.path, ...handlers);
+                continue;
+            }
             const guard = item.legacy
                 ? legacyOrSignedRuntimeGuard(options.sessionManager, item.scope, {
                     queryKeys: item.queryKeys,
@@ -217,6 +264,11 @@ function corsPolicies(modules: readonly LocalRuntimeModule[], legacyOrigins: rea
         ["/runtime/status", { methods: ["GET"], headers: protectedCorsHeaders("GET"), trustedOrigin: true }],
         ["/runtime/session/revoke", { methods: ["POST"], headers: protectedCorsHeaders("POST"), trustedOrigin: true }],
         ["/runtime/session/registration/revoke", { methods: ["POST"], headers: protectedCorsHeaders("POST"), trustedOrigin: true }],
+        // [connector] P0-B-1 MCP 门面：允许浏览器端 MCP 客户端（trusted origin）跨域调用
+        ["/mcp", { methods: ["GET", "POST", "DELETE"], headers: ["content-type", "mcp-session-id"], trustedOrigin: true }],
+        // [connector] P0-B-2 OpenAPI 门面
+        ["/openapi.json", { methods: ["GET"], headers: [], publicInfo: true }],
+        ["/tools/*", { methods: ["POST"], headers: ["content-type"], trustedOrigin: true }],
     ]);
     for (const module of modules) {
         for (const item of module.routes) {

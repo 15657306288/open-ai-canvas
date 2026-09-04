@@ -9,9 +9,12 @@ import {
 } from "./local-runtime-contract.js";
 
 const REGISTERED_CHALLENGE_TTL_MS = 60_000;
-const SESSION_TTL_MS = 10 * 60_000;
-const REQUEST_CLOCK_SKEW_MS = 30_000;
-const MAX_SESSION_NONCES = 2_048;
+// [connector] P0-A 稳定性：默认值放宽并全部可配置。对外 expiresAt 不再硬性 10min，
+// 内部过期时刻随活跃请求滑动续期（签名载荷仍使用对外 expiresAt，协议零破坏）。
+const DEFAULT_SESSION_TTL_MS = 30 * 60_000;
+const DEFAULT_SESSION_ABSOLUTE_TTL_MS = 12 * 60 * 60_000;
+const DEFAULT_REQUEST_CLOCK_SKEW_MS = 60_000;
+const DEFAULT_MAX_SESSION_NONCES = 2_048;
 const MAX_PENDING_CHALLENGES = 64;
 
 export const LOCAL_RUNTIME_DEFAULT_SCOPES: readonly LocalRuntimeScope[] = [
@@ -75,8 +78,11 @@ type PendingChallenge = {
 
 type RuntimeSessionRecord = RuntimePublicSession & {
     origin: string;
+    // [connector] P0-A 稳定性：createdAtMs 用于绝对上限（12h 强制重握手）；
+    // usedNonces 由 Set 改 Map（nonce -> ts），Map 保持插入顺序，超限时 LRU 清理最旧项。
+    createdAtMs: number;
     expiresAtMs: number;
-    usedNonces: Set<string>;
+    usedNonces: Map<string, number>;
 };
 
 export type LocalRuntimeSessionManagerOptions = {
@@ -88,6 +94,11 @@ export type LocalRuntimeSessionManagerOptions = {
     now?: () => number;
     scopes?: readonly LocalRuntimeScope[];
     onSessionRevoked?: (sessionId: string) => void;
+    // [connector] P0-A 稳定性：会话时长/绝对上限/时钟窗/nonce 上限全部可配置
+    sessionTtlMs?: number;
+    sessionAbsoluteTtlMs?: number;
+    requestClockSkewMs?: number;
+    maxSessionNonces?: number;
     timers?: {
         setTimeout(callback: () => void, delayMs: number): unknown;
         clearTimeout(handle: unknown): void;
@@ -111,6 +122,11 @@ export class LocalRuntimeSessionManager {
     private readonly scopes: readonly LocalRuntimeScope[];
     private readonly onSessionRevoked?: (sessionId: string) => void;
     private readonly timers: NonNullable<LocalRuntimeSessionManagerOptions["timers"]>;
+    // [connector] P0-A 稳定性：可配置会话时长/绝对上限/时钟窗/nonce 上限
+    private readonly sessionTtlMs: number;
+    private readonly sessionAbsoluteTtlMs: number;
+    private readonly requestClockSkewMs: number;
+    private readonly maxSessionNonces: number;
     private readonly challenges = new Map<string, PendingChallenge>();
     private readonly sessions = new Map<string, RuntimeSessionRecord>();
     private readonly sessionExpiryTimers = new Map<string, unknown>();
@@ -134,6 +150,10 @@ export class LocalRuntimeSessionManager {
                 clearTimeout(handle as NodeJS.Timeout);
             },
         };
+        this.sessionTtlMs = options.sessionTtlMs ?? DEFAULT_SESSION_TTL_MS;
+        this.sessionAbsoluteTtlMs = options.sessionAbsoluteTtlMs ?? DEFAULT_SESSION_ABSOLUTE_TTL_MS;
+        this.requestClockSkewMs = options.requestClockSkewMs ?? DEFAULT_REQUEST_CLOCK_SKEW_MS;
+        this.maxSessionNonces = options.maxSessionNonces ?? DEFAULT_MAX_SESSION_NONCES;
     }
 
     isTrustedOrigin(origin: string) {
@@ -214,7 +234,7 @@ export class LocalRuntimeSessionManager {
             throw new LocalRuntimeSessionError("session_invalid", "本机会话来源不匹配", 401);
         }
         if (!Number.isSafeInteger(input.timestamp)
-            || Math.abs(this.now() - input.timestamp) > REQUEST_CLOCK_SKEW_MS) {
+            || Math.abs(this.now() - input.timestamp) > this.requestClockSkewMs) {
             throw new LocalRuntimeSessionError("request_stale", "请求时间已失效", 401);
         }
         if (!session.scopes.includes(input.scope)) {
@@ -225,9 +245,6 @@ export class LocalRuntimeSessionManager {
         }
         if (session.usedNonces.has(input.requestNonce)) {
             throw new LocalRuntimeSessionError("request_replayed", "请求已使用", 409);
-        }
-        if (session.usedNonces.size >= MAX_SESSION_NONCES) {
-            throw new LocalRuntimeSessionError("rate_limited", "本机会话请求过多", 429);
         }
         const registration = this.findRegistration(origin, session.keyId);
         if (!registration) {
@@ -256,7 +273,12 @@ export class LocalRuntimeSessionManager {
         if (session.usedNonces.has(input.requestNonce)) {
             throw new LocalRuntimeSessionError("request_replayed", "请求已使用", 409);
         }
-        session.usedNonces.add(input.requestNonce);
+        // [connector] P0-A 稳定性：nonce 采用 LRU 滑动记录（超上限清理最旧项，不再 429 硬顶）
+        this.recordNonce(session, input.requestNonce);
+        // [connector] P0-A 稳定性：签名验证通过且剩余不足一半 TTL 时滑动续期。
+        // 仅更新内部过期时刻 expiresAtMs 与定时器，对外 expiresAt 保持不变，
+        // 因此签名载荷始终一致，对既有客户端协议零破坏。
+        this.maybeRenewSession(session);
         return publicSession(session);
     }
 
@@ -339,22 +361,55 @@ export class LocalRuntimeSessionManager {
     }
 
     private createSession(origin: string, keyId: string): RuntimePublicSession {
-        const expiresAtMs = this.now() + SESSION_TTL_MS;
+        // [connector] P0-A 稳定性：TTL 可配置；记录 createdAtMs 供绝对上限判断
+        const now = this.now();
+        const expiresAtMs = now + this.sessionTtlMs;
         const session: RuntimeSessionRecord = {
             sessionId: randomBase64Url(24),
             keyId,
             origin,
             scopes: [...this.scopes],
+            createdAtMs: now,
             expiresAt: new Date(expiresAtMs).toISOString(),
             expiresAtMs,
-            usedNonces: new Set(),
+            usedNonces: new Map(),
         };
         this.sessions.set(session.sessionId, session);
-        this.sessionExpiryTimers.set(
-            session.sessionId,
-            this.timers.setTimeout(() => this.removeSession(session.sessionId), SESSION_TTL_MS),
-        );
+        this.armExpiryTimer(session.sessionId);
         return publicSession(session);
+    }
+
+    // [connector] P0-A 稳定性：滑动续期——活跃会话剩余不足一半 TTL 时，将内部过期时刻
+    // 延长到 now + TTL（受绝对上限约束，防止"永不过期"会话）。对外 expiresAt 不变。
+    private maybeRenewSession(session: RuntimeSessionRecord) {
+        const now = this.now();
+        const absoluteExpiresAtMs = session.createdAtMs + this.sessionAbsoluteTtlMs;
+        if (now >= absoluteExpiresAtMs) return;
+        if (session.expiresAtMs - now >= this.sessionTtlMs / 2) return;
+        session.expiresAtMs = Math.min(now + this.sessionTtlMs, absoluteExpiresAtMs);
+        this.armExpiryTimer(session.sessionId);
+    }
+
+    // [connector] P0-A 稳定性：按内部过期时刻重建到期定时器（续期后重新计时）
+    private armExpiryTimer(sessionId: string) {
+        const session = this.sessions.get(sessionId);
+        if (!session) return;
+        const existing = this.sessionExpiryTimers.get(sessionId);
+        if (existing !== undefined) this.timers.clearTimeout(existing);
+        const remaining = Math.max(1, session.expiresAtMs - this.now());
+        this.sessionExpiryTimers.set(
+            sessionId,
+            this.timers.setTimeout(() => this.removeSession(sessionId), remaining),
+        );
+    }
+
+    // [connector] P0-A 稳定性：nonce 采用 LRU 滑动记录，超上限时清理最旧项
+    private recordNonce(session: RuntimeSessionRecord, nonce: string) {
+        session.usedNonces.set(nonce, this.now());
+        if (session.usedNonces.size > this.maxSessionNonces) {
+            const oldest = session.usedNonces.keys().next().value as string | undefined;
+            if (oldest !== undefined) session.usedNonces.delete(oldest);
+        }
     }
 
     private requireTrustedOrigin(value: string) {

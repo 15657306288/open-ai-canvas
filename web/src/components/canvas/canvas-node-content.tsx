@@ -525,7 +525,7 @@ function InactiveVideoPreview({ node, theme, sourceUrl, sourceLoading }: Pick<Ca
                 aria-label={`${node.title || "视频"} 首帧预览`}
                 muted
                 playsInline
-                preload="auto"
+                preload="none"
                 draggable={false}
                 className="pointer-events-none size-full select-none object-contain"
                 onLoadedMetadata={(event) => primePassiveVideoFrame(event.currentTarget)}

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"testing"
 
 	"infinite-canvas/backend/internal/model"
@@ -94,3 +95,55 @@ func TestPersistAgentStoryboardShotsRequiresUnambiguousCanvasUnit(t *testing.T) 
 	}
 }
 
+func TestAgentStoryboardMetadataStructure(t *testing.T) {
+	meta := model.AgentRunMetadata{
+		RuntimeProfile:         "storyboard_director_v1",
+		EffectiveSkillIDs:      []string{"storyboard-director"},
+		EffectiveSkillVersions: []string{"v1.0"},
+		TurnID:                 "turn-123",
+		ToolTraceSummary:       "persist_shots: 2 semantic shots persisted",
+		SemanticEntityIDs:      []string{"shot-1", "shot-2"},
+	}
+	encoded, err := json.Marshal(meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded model.AgentRunMetadata
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.RuntimeProfile != "storyboard_director_v1" || len(decoded.SemanticEntityIDs) != 2 || decoded.TurnID != "turn-123" {
+		t.Fatalf("decoded metadata mismatch: %#v", decoded)
+	}
+}
+
+func TestCriticAndRepairStoryboardShots(t *testing.T) {
+	rawShots := []agentStoryboardShot{
+		{Title: "", Description: "", Duration: 0, ShotSize: "中景", Motion: "固定机位"},
+		{Title: "追逐", Description: "在雨中奔跑", Duration: -5, ShotSize: "中景", Motion: "固定机位"},
+		{Title: "拔刀", Description: "拔出长剑", Duration: 99, ShotSize: "中景", Motion: "固定机位"},
+	}
+
+	repaired := criticAndRepairStoryboardShots(rawShots)
+	if len(repaired) != 3 {
+		t.Fatalf("expected 3 shots, got %d", len(repaired))
+	}
+
+	// 镜头 1 应该被自动赋予标题、描述和正常时长，且首镜头景别优化为全景
+	if repaired[0].Title != "镜头 1" || repaired[0].Description != "镜头 1" || repaired[0].Duration != 4 {
+		t.Fatalf("shot 1 repair failed: %#v", repaired[0])
+	}
+	if repaired[0].ShotSize != "全景" || repaired[0].Motion != "缓慢推近" {
+		t.Fatalf("shot 1 variety optimization failed: %#v", repaired[0])
+	}
+
+	// 镜头 2 应该修复负数时长为 4 秒，保持中景
+	if repaired[1].Duration != 4 || repaired[1].ShotSize != "中景" {
+		t.Fatalf("shot 2 repair failed: %#v", repaired[1])
+	}
+
+	// 镜头 3 应该修复 99 秒为 4 秒，尾镜头景别优化为特写
+	if repaired[2].Duration != 4 || repaired[2].ShotSize != "特写" {
+		t.Fatalf("shot 3 variety optimization failed: %#v", repaired[2])
+	}
+}

@@ -5,6 +5,7 @@ import { CheckCircle2, Copy, ExternalLink, FolderOpen, History, Images, LoaderCi
 import { motion } from "motion/react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
+import { CANVAS_RUNTIME_HEALTH_META, useCanvasRuntimeHealth } from "@/lib/canvas/canvas-runtime-health";
 import { consumeLocalRuntimeEventStream, postCanvasRuntimeState, prepareCanvasRuntimeConnection, waitForCanvasRuntimeReconnect, type LocalRuntimeEvent } from "@/lib/canvas/local-runtime-connection";
 import { createClientId } from "@/lib/client-id";
 import { getLocalRuntimeSessionClient, useLocalRuntimeStore } from "@/stores/use-local-runtime-store";
@@ -128,6 +129,8 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     const [retryTurn, setRetryTurn] = useState<AgentTurnPayload | null>(null);
     const [retryMessageId, setRetryMessageId] = useState<string | null>(null);
     const listRef = useRef<HTMLDivElement>(null);
+    // [connector] P0-A-5 前端四态健康：轮询后端 /health（healthy/reconnecting/degraded/offline）
+    const runtimeHealth = useCanvasRuntimeHealth(true);
     // 供 Agent 输入框「@」插入的画布节点引用候选（active 标记为可用，供「@」菜单列出），与「/」弹出的已加入技能候选
     const composerReferences = useMemo(() => buildCanvasResourceReferences(snapshot.nodes, snapshot.connections).map((item) => ({ ...item, active: true })), [snapshot]);
     const [composerSkills, setComposerSkills] = useState<Skill[]>([]);
@@ -553,7 +556,8 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
                           return {
                               ok: verification.ok,
                               message: canvasAgentPostconditionMessage(verification),
-                              data: { verification, snapshot: next },
+                              effect: verification.effect,
+                              data: { verification, snapshot: next, effect: verification.effect },
                               snapshot: next,
                           };
                       })()
@@ -830,8 +834,22 @@ export const CanvasLocalAgentPanel = memo(function CanvasLocalAgentPanel({
     const content = (
         <>
             <div className="flex min-h-8 shrink-0 items-center justify-end gap-1 px-3 pb-1">
-                <div className="mr-auto min-w-0 truncate px-1 text-[var(--fs-tiny)]" style={{ color: connected ? "#16a34a" : theme.node.muted }}>
-                    {connected ? "本机 Agent 已连接" : canvasAgentConnectionStatusText({ enabled, connected, activity, connectError })}
+                <div className="mr-auto flex min-w-0 items-center gap-2 px-1">
+                    <span className="truncate text-[var(--fs-tiny)]" style={{ color: connected ? "#16a34a" : theme.node.muted }}>
+                        {connected ? "本机 Agent 已连接" : canvasAgentConnectionStatusText({ enabled, connected, activity, connectError })}
+                    </span>
+                    {/* [connector] P0-A-5 前端四态健康徽章：后端 /health 实时状态（healthy/reconnecting/degraded/offline） */}
+                    {runtimeHealth ? (
+                        <Tooltip title={`${CANVAS_RUNTIME_HEALTH_META[runtimeHealth].label}：${CANVAS_RUNTIME_HEALTH_META[runtimeHealth].detail}`}>
+                            <span
+                                className="inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[var(--fs-tiny)] tabular-nums"
+                                style={{ borderColor: `${CANVAS_RUNTIME_HEALTH_META[runtimeHealth].color}55`, color: CANVAS_RUNTIME_HEALTH_META[runtimeHealth].color, background: `${CANVAS_RUNTIME_HEALTH_META[runtimeHealth].color}11` }}
+                            >
+                                <span className="size-1.5 shrink-0 rounded-full" style={{ background: CANVAS_RUNTIME_HEALTH_META[runtimeHealth].color }} />
+                                {CANVAS_RUNTIME_HEALTH_META[runtimeHealth].label}
+                            </span>
+                        </Tooltip>
+                    ) : null}
                 </div>
                 {!connected ? (
                     <Button size="small" type={enabled ? "default" : "primary"} className="!h-7 !px-2.5" icon={<PlugZap className="size-3.5" />} onClick={toggleAgentConnection}>
@@ -1366,6 +1384,7 @@ function isConnectionErrorMessage(item: AgentChatItem) {
 
 function toolName(name: string) {
     if (name === "canvas_apply_ops") return "画布操作";
+    if (name === "canvas_create_storyboard_shots") return "投影分镜镜头";
     if (name === "canvas_get_state") return "读取画布";
     if (name === "canvas_get_context") return "读取上下文";
     if (name === "canvas_find_nodes") return "检索节点";
