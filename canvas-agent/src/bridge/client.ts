@@ -77,8 +77,7 @@ export function createCanvasBridgeClient(options: CanvasBridgeClientOptions): Ca
         try {
             await bridgeRequest("/api/canvas-bridge/heartbeat", { method: "POST" }, {
                 bridgeId: options.bridgeId,
-                capabilities: options.capabilities,
-            });
+                capabilities: options.capabilities,            });
         } catch {
         // 心跳失败不致命，下轮重试；poll 本身也会刷新 lastSeenAt
         }
@@ -124,12 +123,27 @@ export function createCanvasBridgeClient(options: CanvasBridgeClientOptions): Ca
         }
     }
 
+    async function registerBridge() {
+        await bridgeRequest("/api/canvas-bridge/register", { method: "POST" }, {
+            bridgeId: options.bridgeId,
+            token: options.token,
+            endpoint: options.endpoint,
+            capabilities: options.capabilities,
+        });
+    }
+
     async function pollLoop() {
         while (!stopped) {
             try {
                 await pollOnce();
             } catch {
-            // poll 网络异常：休眠后重试（桥连重试机制）
+                // poll 网络异常：Broker 可能重启（旧注册丢失），先重新注册再重试，
+                // 使 Runtime 在服务器重启后无需手动干预即可恢复接入。
+                try {
+                    await registerBridge();
+                } catch {
+                    // 尽力而为：Broker 仍不可达则下轮再试
+                }
             }
             if (!stopped) {
                 await new Promise((resolve) => {
@@ -148,12 +162,7 @@ export function createCanvasBridgeClient(options: CanvasBridgeClientOptions): Ca
             started = true;
             stopped = false;
             // 注册（携带 endpoint + capabilities）
-            await bridgeRequest("/api/canvas-bridge/register", { method: "POST" }, {
-                bridgeId: options.bridgeId,
-                token: options.token,
-                endpoint: options.endpoint,
-                capabilities: options.capabilities,
-            });
+            await registerBridge();
             await sendHeartbeat();
             heartbeatTimer = setInterval(() => void sendHeartbeat(), heartbeatSeconds * 1000);
             void pollLoop();

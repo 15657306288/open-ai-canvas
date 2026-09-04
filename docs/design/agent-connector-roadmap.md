@@ -328,3 +328,13 @@ OpenAPI 导入 Postman/GPT Actions 可调；bridge 本地不开端口、云端 A
 ### 安全与运维备注
 - Broker `request`/`bridges` 端点当前无鉴权（仅 429 限流）——对外暴露需在网关/Broker 前置鉴权代理，或收紧 broker 绑定网卡。
 - `启动影策L3服务器.command` 内 `BRIDGE_TOKEN`/`GATEWAY_TOKEN` 为本地开发默认值，公网部署务必更换。
+
+### 配置固化（launchd 托管 · 2026-09-04）
+- **集中配置** `~/.infinite-canvas/l3.env`（端口/token/bridgeId/目录），模板 `deploy/l3.env.example`；改 token 后 `l3-manage.sh restart` 生效。
+- **开机自启 + 崩溃自动重启**：3 个 LaunchAgent（`~/Library/LaunchAgents/com.yingce.canvas-{broker,runtime,gateway}.plist`，RunAtLoad + KeepAlive）。
+- **wrapper 脚本** `~/.infinite-canvas/l3-run-{broker,runtime,gateway}.sh`：绝对路径 node（`~/.local/bin/node`）、不依赖 launchd PATH、动态局域网 IP。
+- **管理命令** `~/.infinite-canvas/l3-manage.sh {start|stop|restart|status|logs}`；`启动影策L3服务器.command` 双击查看状态 / 传参管理。
+- **稳定性修复**（本次固化新增）：
+  - `gateway-server.ts`：拉 Schema 加重试（10 次/2s），launchd 同时拉起时等待 Runtime 就绪，避免启动即崩。
+  - `bridge/client.ts`：poll 失败自动**重新 register**，Broker 重启后 bridge 无需手动干预自动恢复接入。
+- **验证**：launchd 三件套上线；杀 broker 后 12s 自动拉起（KeepAlive）+ bridge 自动重注册；外部 MCP 客户端全链路 `channel_list` 3 渠道 121 模型。

@@ -69,6 +69,21 @@ async function loadTools(): Promise<ToolMeta[]> {
     }
 }
 
+/** 带重试的 schema 拉取：launchd 同时拉起三件套时等待 Runtime 就绪（启动解耦） */
+async function loadToolsWithRetry(): Promise<ToolMeta[]> {
+    let lastError: unknown;
+    for (let i = 0; i < 10; i += 1) {
+        try {
+            return await loadTools();
+        } catch (error) {
+            lastError = error;
+            console.log(`[canvas-gateway] Schema Runtime 未就绪（${i + 1}/10），2s 后重试…`);
+            await sleep(2000);
+        }
+    }
+    throw lastError instanceof Error ? lastError : new Error("Schema Runtime 不可达");
+}
+
 /** 获取在线 bridge 列表 */
 async function listBridges(): Promise<Array<{ bridgeId: string; online: boolean }>> {
     const res = await fetch(`${BROKER_URL}/api/canvas-bridge/bridges`);
@@ -143,8 +158,8 @@ function createSessionServer(tools: ToolMeta[]): Server {
 }
 
 async function main() {
-    // 拉取工具 schema（工具集与 Runtime 一致，供每个会话下发）
-    const tools = await loadTools();
+    // 拉取工具 schema（带重试，等待 Runtime 就绪）
+    const tools = await loadToolsWithRetry();
     console.log(`[canvas-gateway] 已从 ${SCHEMA_URL} 拉取 ${tools.length} 个工具定义`);
 
     // MCP Streamable HTTP 会话管理（含网关自身 Bearer 鉴权）
