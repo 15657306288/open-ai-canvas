@@ -611,7 +611,7 @@ func (s *Service) ReserveInternalBilling(userID string, amountMicrocredits int64
 	order := &model.BillingOrder{
 		ID: newID(), UserID: userID, IdempotencyKey: idempotencyKey,
 		Model: tool, Capability: internalBillingCapability, Scene: scene, BillingMode: internalBillingMode,
-		UnitPriceMicrocredits: amountMicrocredits, MultiplierBasisPoints: 10_000, Quantity: 1,
+		UnitPriceMicrocredits: float64(amountMicrocredits), MultiplierBasisPoints: 10_000, Quantity: 1,
 		AmountMicrocredits: amountMicrocredits, ReservedAmountMicrocredits: amountMicrocredits,
 		Status: model.BillingStatusReserved,
 	}
