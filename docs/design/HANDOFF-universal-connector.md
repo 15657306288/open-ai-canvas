@@ -92,12 +92,11 @@ P0-B 已提交：
 ## 4. 跨设备 / 待办清单
 
 - [x] ~~开代理后推 fork~~ **已完成**（SSH + 代理均已配置，三个分支已推上 fork）。
-- [ ] **Windows 5 个渠道插件回补**（二选一）：
-  - 推荐：在 Windows 那份 `D:\yingce\open-ai-canvas-main` 初始化为 git、加 fork 远端、把 `plugin-packages/src-{a6api-chat,artbox-video,hongniao-video,hongniao-image,hongniao-image-res}` 与 5 个 `.yingce-plugin` 提交推到 fork 某分支，Mac 再 `git fetch fork && git checkout fork/<branch> -- plugin-packages/`；
-  - 或在 Mac 按 v1.2.5 插件协议重建（三渠道 key 见历史会话；红鸟 27 模型明细可用仓库根 `hongniao-models.json`/价格清单，Windows 完整明细在其 `.local/hn_models.json`）。
+- [x] ~~Windows 5 个渠道插件回补~~ **已完成**（在 Mac 按上游声明式 Provider 协议 `yingce.plugin/v2` 重建：`plugin-packages/src-{a6api-chat,artbox-video,hongniao-video,hongniao-image,hongniao-image-res}/` 源码目录 + `{id}.yingce-plugin` zip 产物，从上游 newapi-chat / newapi-video-generations-v1 / openai-images 模板派生，baseUrl 分别指向 a6api.com / artbox.top / open.hongniaoai.com，提交 `c3bd8fa`）。红鸟视频/图片端点仍未平台确认，插件 create path 暂按 /v1/video|images/generations 与渠道目录一致，待平台确认后统一回填。
 - [ ] 旧分支 `feat/decimal-price-and-model-picker-improvements` 确认是否保留/合并/删除。
 - [ ] 仓库根 7 个未跟踪运维文件（channel-config-backup/、hongniao-models.json、update-yingce.sh、更新影策.command、本机部署说明.md、红鸟模型价格清单.csv/.md）决定是纳入文档、加入 .gitignore 还是维持现状（当前保持原样）。
-- [x] ~~P0-A 24h soak 脚本~~ **已完成**（`canvas-agent/scripts/health-soak.ts`：周期性 GET /health 统计四态分布 + 状态跳变 + offline 检测，退出码判定达标；用法 `npx tsx scripts/health-soak.ts [endpoint] [durationSec] [intervalSec]`）。前端 React 四态面板未做（web/ 目录有 codex 后台在途改动，为避免冲突暂缓，属 UX 增强非连接器必需）。
+- [x] ~~P0-A 24h soak 脚本~~ **已完成**（`canvas-agent/scripts/health-soak.ts`：周期性 GET /health 统计四态分布 + 状态跳变 + offline 检测，退出码判定达标；用法 `npx tsx scripts/health-soak.ts [endpoint] [durationSec] [intervalSec]`）。
+- [x] ~~前端四态面板~~ **已完成**（`web/src/lib/canvas/canvas-runtime-health.ts`：/health 轮询 hook + 四态元数据；`canvas-local-agent-panel.tsx` 顶部加四态徽章 healthy/reconnecting/degraded/offline + tooltip 说明；web tsc 新增文件零错误）。
 - [x] ~~P1：媒体读取（Q5）~~ **已完成**（`canvas_get_media` + scope `canvas:media:read` + 短 TTL 单次签名 URL，block base64 上限 8MB；MCP/OpenAPI 自动获得，测试 7 个全过）。
 - [~] **P1：渠道直连联调（部分完成）**：
   - ✅ **a6api 文本直连端到端通过**（`channel_generate` text → 真实返回内容；同时修复 baseUrl 约定：目录 baseUrl 为 OpenAI 兼容根不含 /v1，text/image 拼接 /v1/chat|images/generations，video 走 videoUrl；one-api 风格业务码 HTTP 200+code≠200 检测，防误判 running；task_id 嵌套提取增强）。
@@ -110,7 +109,7 @@ P0-B 已提交：
   - ✅ **bridge 429 限流**：broker 按 bridge 限流（默认 60 次/60s，超限 `code 42901`）。
   - ✅ **OpenAPI 深度联调**：端到端冒烟通过（`/openapi.json` 50 paths 含渠道+画布+health；`channel_list` 3 渠道 121 模型密钥隔离；`model_list_logical` 4 逻辑模型；红鸟 26 模型；`/metrics`；`agent.json`）。
   - 测试：metrics 3 + openapi-deep 3 + bridge 429 1 = **+7，全量 372 tests / 0 fail / 7 cancelled（既有）**。
-- [ ] Windows 五个渠道插件源码回补 Mac（`plugin-packages/` 经 fork 同步或按 v1.2.5 协议重建）。
+- [x] ~~Windows 五个渠道插件源码回补 Mac~~ **已完成**（见上方"Windows 5 个渠道插件回补"条目，Mac 按协议重建，源码 + zip 均已入 git）。
 
 ---
 
