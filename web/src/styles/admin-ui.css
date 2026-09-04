@@ -8889,6 +8889,47 @@
 }
 
 /* 系统渠道模型编辑器：恢复已确认的信息层级、协议参数与价格档布局。 */
+.admin-model-import-modal .channel-model-import-picker .ant-checkbox-wrapper {
+    display: flex;
+    min-width: 0;
+    min-height: 38px;
+    align-items: center;
+    margin-inline-end: 0;
+    border: 1px solid var(--admin-divider);
+    border-radius: 7px;
+    background: var(--admin-layer-2);
+    padding: 7px 10px;
+    color: var(--admin-text-primary);
+    transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.admin-model-import-modal .channel-model-import-picker .ant-checkbox-wrapper:hover {
+    border-color: color-mix(in srgb, var(--foreground) 22%, var(--admin-card-border));
+    background: color-mix(in srgb, var(--foreground) 5%, var(--admin-layer-1));
+}
+
+.admin-model-import-modal .channel-model-import-picker .ant-checkbox-wrapper.ant-checkbox-wrapper-checked {
+    border-color: color-mix(in srgb, var(--foreground) 26%, var(--admin-card-border));
+    background: color-mix(in srgb, var(--foreground) 7%, var(--admin-layer-1));
+}
+
+.admin-model-import-modal .channel-model-import-picker .ant-checkbox {
+    align-self: center;
+    width: 18px;
+    height: 18px;
+    flex: none;
+    border-radius: 5px;
+}
+
+.admin-model-import-modal .channel-model-import-picker .ant-checkbox-checked {
+    background: var(--control-check-bg) !important;
+    border-color: var(--control-check-bg) !important;
+}
+
+.admin-model-import-modal .channel-model-import-picker .ant-checkbox-checked::after {
+    border-color: var(--control-check-fg) !important;
+}
+
 .admin-model-editor-drawer .ant-drawer-header {
     min-height: 52px;
     padding-inline: 24px;
