@@ -212,3 +212,58 @@ test("[account] 工厂：默认 local；remote 缺配置 fail-fast", () => {
     if (oldBase === undefined) delete process.env.CANVAS_ACCOUNT_BASE_URL; else process.env.CANVAS_ACCOUNT_BASE_URL = oldBase;
     if (oldTok === undefined) delete process.env.CANVAS_INTERNAL_SERVICE_TOKEN; else process.env.CANVAS_INTERNAL_SERVICE_TOKEN = oldTok;
 });
+
+test("[account] Remote authenticateByKey 走后端 verify 拿真实 userId", async () => {
+    let sawVerify = 0;
+    const srv = await startInternalServer((req, body, res) => {
+        res.writeHead(200, { "content-type": "application/json" });
+        if (req.url?.endsWith("/api-keys/verify")) {
+            sawVerify += 1;
+            const parsed = JSON.parse(body);
+            if (parsed.key === "ak_good") {
+                return res.end(JSON.stringify({ code: 0, data: { keyId: "k_1", userId: "user-9", displayName: "客户九", enabled: true, balanceMicrocredits: 5_000_000 }, msg: "ok" }));
+            }
+            return res.end(JSON.stringify({ code: 401, data: null, msg: "API Key 无效" }));
+        }
+        return res.end(JSON.stringify({ code: 0, data: { orderId: "ord_x", status: "reserved", amountMicrocredits: 10_000 }, msg: "ok" }));
+    });
+    const acct = new RemoteAccountProvider({ baseUrl: srv.base, serviceToken: "svc-token", keyStore: new KeyStore(tmpStore()) });
+
+    const good = await acct.authenticateByKey("ak_good");
+    assert.equal(good.ok, true);
+    if (good.ok) {
+        assert.equal(good.principal.subjectId, "user-9"); // 网站真实 userId
+        assert.equal(good.principal.displayName, "客户九");
+        assert.equal(good.principal.balance, 5_000_000);
+    }
+    const bad = await acct.authenticateByKey("ak_bad");
+    assert.equal(bad.ok, false);
+    if (!bad.ok) assert.equal(bad.status, 401);
+    assert.equal(sawVerify, 2);
+    srv.close();
+});
+
+test("[account] Remote 后端不可达：仅本地绑定 userId 的存量 key 可回退", async () => {
+    // 后端不可达（端口 1）
+    const dead = new RemoteAccountProvider({ baseUrl: "http://127.0.0.1:1/api", serviceToken: "t", keyStore: new KeyStore(tmpStore()), timeoutMs: 300 });
+
+    // 未绑定 userId 的本地 key → 拒绝
+    const file = tmpStore();
+    const ks = new KeyStore(file);
+    const unbound = ks.createKey({ name: "未迁移", balance: 1_000_000 });
+    const dead2 = new RemoteAccountProvider({ baseUrl: "http://127.0.0.1:1/api", serviceToken: "t", keyStore: ks, timeoutMs: 300 });
+    const r1 = await dead2.authenticateByKey(unbound.key);
+    assert.equal(r1.ok, false);
+
+    // 手工给本地 key 绑定 userId（存量迁移字段）→ 回退成功并返回绑定 userId
+    const raw = JSON.parse(fs.readFileSync(file, "utf8"));
+    const rec = raw.keys.find((k: any) => k.id === unbound.record.id);
+    rec.userId = "user-migrated";
+    fs.writeFileSync(file, JSON.stringify(raw));
+    const ks2 = new KeyStore(file);
+    const dead3 = new RemoteAccountProvider({ baseUrl: "http://127.0.0.1:1/api", serviceToken: "t", keyStore: ks2, timeoutMs: 300 });
+    const r2 = await dead3.authenticateByKey(unbound.key);
+    assert.equal(r2.ok, true);
+    if (r2.ok) assert.equal(r2.principal.subjectId, "user-migrated");
+    fs.rmSync(file, { force: true });
+});

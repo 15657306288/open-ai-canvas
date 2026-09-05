@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 11
+const CurrentSchemaVersion int64 = 12
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -22,6 +22,8 @@ const paymentTopupChecksum = "sha256:payment-topup-v8-20260902"
 const assetLibraryFoldersChecksum = "sha256:asset-library-folders-v9-20260902"
 const skillVersionContentHashChecksum = "sha256:skill-version-content-hash-v10-20260903"
 const agentConfirmationChecksum = "sha256:agent-confirmation-v11-20260905"
+
+const apiKeyManagementChecksum = "sha256:api-key-management-v12-20260905"
 
 const postgresSchemaMigrationLockID int64 = 73123910420260830
 
@@ -58,6 +60,7 @@ var schemaMigrations = []migration{
 	{version: 9, name: "asset_library_folders", checksum: assetLibraryFoldersChecksum, apply: migrateSchemaV9},
 	{version: 10, name: "skill_version_content_hash_identity", checksum: skillVersionContentHashChecksum, apply: migrateSchemaV10},
 	{version: 11, name: "agent_confirmation", checksum: agentConfirmationChecksum, apply: migrateSchemaV11},
+	{version: 12, name: "api_key_management", checksum: apiKeyManagementChecksum, apply: migrateSchemaV12},
 }
 
 func migrateSchemaV2(tx *gorm.DB) error {
@@ -211,6 +214,14 @@ func migrateSchemaV10(tx *gorm.DB) error {
 func migrateSchemaV11(tx *gorm.DB) error {
 	if err := tx.AutoMigrate(&model.AgentConfirmation{}); err != nil {
 		return fmt.Errorf("创建外部生成确认表：%w", err)
+	}
+	return nil
+}
+
+// migrateSchemaV12 网站自助签发的外部 API Key 表：网关 remote 校验后拿到真实 userId。
+func migrateSchemaV12(tx *gorm.DB) error {
+	if err := tx.AutoMigrate(&model.ApiKey{}); err != nil {
+		return fmt.Errorf("创建网站 API Key 表：%w", err)
 	}
 	return nil
 }
