@@ -225,6 +225,15 @@ interface InternalEnvelope<T> {
     msg: string;
 }
 
+/** Go 端 /api/internal/api-keys/verify 的返回：网站签发的 API Key 校验通过后的调用主体。 */
+interface VerifyApiKeyResult {
+    keyId?: string;
+    userId?: string;
+    displayName?: string;
+    enabled?: boolean;
+    balanceMicrocredits?: number;
+}
+
 /**
  * Go 端内部计费契约（backend/internal/handler/internal_finance.go，统一 {code,data,msg}）：
  *   GET  /internal/accounts/:userId
@@ -236,6 +245,7 @@ interface InternalEnvelope<T> {
 export class RemoteAccountProvider implements AccountProvider {
     readonly kind = "remote" as const;
     private readonly local: LocalAccountProvider;
+    private readonly keyStore: KeyStore;
     private readonly base: string;
     private readonly serviceToken: string;
     private readonly timeoutMs: number;
@@ -244,18 +254,83 @@ export class RemoteAccountProvider implements AccountProvider {
 
     constructor(opts: RemoteAccountOptions) {
         this.local = new LocalAccountProvider(opts.keyStore);
+        this.keyStore = opts.keyStore;
         // 兼容传入 .../api 或 .../api/internal：统一收敛到 /api，再拼 /internal。
         this.base = opts.baseUrl.replace(/\/+$/, "").replace(/\/internal$/, "");
         this.serviceToken = opts.serviceToken;
         this.timeoutMs = opts.timeoutMs ?? 5000;
     }
 
-    // 认证在 P0 仍由本地 KeyStore 承担（网站账号 OAuth 是 P1）。
-    authenticateByKey(plainKey: string): Promise<AuthOutcome> { return this.local.authenticateByKey(plainKey); }
+    /**
+     * remote 认证走网站后端权威校验（方案 A：网站签发 ak_ 并绑定 userId）。
+     * 主路径：POST /api/internal/api-keys/verify {key} → {userId,...}，拿真实 userId 作为计费主体。
+     * 回退：后端服务不可达（网络/超时）时，允许本地 KeyStore 校验通过且该 key 显式绑定了
+     *       userId（迁移兼容层，存量本地 key 平滑对接）——否则 fail-closed 拒绝。
+     */
+    async authenticateByKey(plainKey: string): Promise<AuthOutcome> {
+        if (typeof plainKey === "string" && plainKey.startsWith("ak_")) {
+            try {
+                const r = await this.request<VerifyApiKeyResult>("/api-keys/verify", { key: plainKey });
+                if (r.status === 200 && r.env.code === 0 && r.env.data?.userId) {
+                    const d = r.env.data;
+                    const userId = d.userId as string;
+                    const displayName = (d.displayName && d.displayName.trim() ? d.displayName : userId) as string;
+                    return {
+                        ok: true,
+                        principal: {
+                            subjectId: userId,
+                            displayName,
+                            enabled: d.enabled !== false,
+                            ...(typeof d.balanceMicrocredits === "number" ? { balance: d.balanceMicrocredits } : {}),
+                        },
+                    };
+                }
+                if (r.status === 429) return { ok: false, reason: "quota", status: 429 };
+                // 后端明确拒绝（401/400/5xx envelope）→ 一律视为无效 key，fail-closed。
+                return { ok: false, reason: "not_found", status: 401 };
+            } catch (e) {
+                // 后端不可达：仅允许"本地 KeyStore 命中且绑定 userId"的存量 key 回退。
+                const v = await this.local.authenticateByKey(plainKey);
+                if (v.ok) {
+                    const bound = this.boundUserId(v.principal.subjectId);
+                    if (bound) {
+                        return { ok: true, principal: { subjectId: bound, displayName: v.principal.displayName, enabled: v.principal.enabled, ...(typeof v.principal.balance === "number" ? { balance: v.principal.balance } : {}) } };
+                    }
+                }
+                return { ok: false, reason: "not_found", status: 401 };
+            }
+        }
+        // 非 ak_ 前缀（旧格式/内部）一律拒绝。
+        return { ok: false, reason: "not_found", status: 401 };
+    }
+
+    /** 本地 KeyStore 中该 key 若显式绑定 userId（存量 key 迁移字段），返回之。 */
+    private boundUserId(keyId: string): string | undefined {
+        const k = this.keyStore.get(keyId);
+        const u = (k as unknown as { userId?: string } | undefined)?.userId;
+        return typeof u === "string" && u.trim() ? u.trim() : undefined;
+    }
+
     authenticateClient(clientId: string, clientSecret: string): Promise<AuthOutcome> {
         return this.local.authenticateClient(clientId, clientSecret);
     }
-    resolveSubject(subjectId: string): Promise<Principal | undefined> { return this.local.resolveSubject(subjectId); }
+
+    /** remote 下 subjectId 即网站 userId；本地 KeyStore 命中则按绑定解析。 */
+    async resolveSubject(subjectId: string): Promise<Principal | undefined> {
+        const local = await this.local.resolveSubject(subjectId);
+        if (local) {
+            const bound = this.boundUserId(subjectId);
+            return bound ? { ...local, subjectId: bound } : local;
+        }
+        // OAuth access_token 指向的 key 可能是后端签发的（keyId 无本地记录）→ 尝试后端账户存在性。
+        try {
+            const r = await this.request<{ userId?: string; availableMicrocredits?: number }>(`/accounts/${encodeURIComponent(subjectId)}`, undefined, "GET");
+            if (r.status === 200 && r.env.code === 0 && r.env.data?.userId) {
+                return { subjectId, displayName: subjectId, enabled: true, ...(typeof r.env.data.availableMicrocredits === "number" ? { balance: r.env.data.availableMicrocredits } : {}) };
+            }
+        } catch { /* 服务不可达按不存在处理 */ }
+        return undefined;
+    }
 
     /** 发起一次内部请求并解析 envelope；任何网络/超时/协议异常都抛出，由调用方 fail-closed。 */
     private async request<T>(path: string, body: unknown, method = "POST"): Promise<{ status: number; env: InternalEnvelope<T> }> {
