@@ -1,12 +1,13 @@
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Tag } from "antd";
 import { Bell } from "lucide-react";
-import { useState, type CSSProperties } from "react";
+import { lazy, Suspense, useState, type CSSProperties } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { AnnouncementTimelineModal } from "@/components/ui/aceternity/announcement-timeline-modal";
 import { aceternityMotion } from "@/lib/aceternity-motion";
 import { getAnnouncementFeed, markAnnouncementsRead } from "@/services/api/announcements";
+
+const AnnouncementTimelineModal = lazy(() => import("@/components/ui/aceternity/announcement-timeline-modal").then((module) => ({ default: module.AnnouncementTimelineModal })));
 
 const ANNOUNCEMENT_REFRESH_INTERVAL_MS = 5 * 60_000;
 const ANNOUNCEMENT_CACHE_TTL_MS = 60_000;
@@ -90,7 +91,11 @@ export function SystemAnnouncementCenter({ userId, className, style, showLabel =
                     </span>
                 ) : null}
             </motion.button>
-            <AnnouncementTimelineModal open={open} announcements={announcements} loading={feedQuery.isFetching} error={announcements.length ? "" : error} onClose={() => setOpen(false)} onRetry={() => void feedQuery.refetch()} />
+            {open ? (
+                <Suspense fallback={null}>
+                    <AnnouncementTimelineModal open announcements={announcements} loading={feedQuery.isFetching} error={announcements.length ? "" : error} onClose={() => setOpen(false)} onRetry={() => void feedQuery.refetch()} />
+                </Suspense>
+            ) : null}
         </>
     );
 }
