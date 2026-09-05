@@ -52,9 +52,14 @@ export interface CanvasBridgeBrokerOptions {
     /** [connector] P2 §9.5 每 bridge 的远程提交限流（默认 60 次/60s，超限返回 429） */
     rateLimit?: { maxRequests: number; windowMs: number };
     /** [connector] 远程 Agent 侧（request/bridges/result）鉴权 token。
-     *  为空则不启用（向后兼容本地）；公网暴露必须设置。
-     *  网关通过 Authorization: Bearer <gatewayToken> 调用。 */
+     *  为空则不启用（向后兼容本地）；公网暴露必须设置。 */
     gatewayToken?: string;
+    /** 注册新 bridge 或替换已有 bridge 凭据所需的独立凭据。 */
+    registrationToken?: string;
+    /** `gatewayToken` 的语义化别名，优先用于新部署。 */
+    agentToken?: string;
+    /** JSON 请求体最大字节数，默认 2 MiB。 */
+    maxBodyBytes?: number;
 }
 
 export interface CanvasBridgeBroker {
@@ -68,12 +73,25 @@ export interface CanvasBridgeBroker {
     enqueueForTest: (bridgeId: string, request: Omit<CanvasBridgeRequest, "requestId">) => string | undefined;
 }
 
+class BrokerRequestError extends Error {
+    constructor(
+        readonly status: number,
+        readonly code: number,
+        message: string,
+    ) {
+        super(message);
+        this.name = "BrokerRequestError";
+    }
+}
+
 export function createCanvasBridgeBroker(options: CanvasBridgeBrokerOptions = {}): CanvasBridgeBroker {
     const maxPending = options.maxPendingPerBridge ?? 200;
     const maxWaitMs = (options.maxWaitSeconds ?? 25) * 1000;
     const offlineAfterMs = (options.offlineAfterSeconds ?? 90) * 1000;
     const rateLimit = options.rateLimit ?? { maxRequests: 60, windowMs: 60_000 };
-    const gatewayToken = options.gatewayToken ?? "";
+    const gatewayToken = options.agentToken ?? options.gatewayToken ?? "";
+    const registrationToken = options.registrationToken ?? "";
+    const maxBodyBytes = options.maxBodyBytes ?? 2 * 1024 * 1024;
 
     const bridges = new Map<string, CanvasBridgeRecord>();
     /** bridgeId -> 正在长轮询等待的 resolver 列表 */
@@ -120,9 +138,11 @@ export function createCanvasBridgeBroker(options: CanvasBridgeBrokerOptions = {}
     function enqueue(bridgeId: string, request: Omit<CanvasBridgeRequest, "requestId">): string | undefined {
         const record = bridges.get(bridgeId);
         if (!record) return undefined;
-        if (record.queue.length >= maxPending) {
-            // 队满：丢弃最旧的一条，保证新请求可入队
-            record.queue.shift();
+        // 只清理已经完成的历史结果；pending/running 请求不能被新请求挤掉。
+        while (record.queue.length >= maxPending) {
+            const doneIndex = record.queue.findIndex((item) => item.status === "done");
+            if (doneIndex < 0) return undefined;
+            record.queue.splice(doneIndex, 1);
         }
         const pending: CanvasBridgePendingRequest = {
             requestId: `${bridgeId}-${now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
@@ -157,15 +177,44 @@ export function createCanvasBridgeBroker(options: CanvasBridgeBrokerOptions = {}
         return diff === 0;
     }
 
+    function authorizeBearer(req: IncomingMessage, token: string | undefined): boolean {
+        if (!token) return false;
+        const auth = typeof req.headers.authorization === "string" ? req.headers.authorization : "";
+        const expected = `Bearer ${token}`;
+        if (auth.length !== expected.length) return false;
+        let diff = 0;
+        for (let i = 0; i < auth.length; i++) diff |= auth.charCodeAt(i) ^ expected.charCodeAt(i);
+        return diff === 0;
+    }
+
+    /** 注册鉴权：首次注册需要 registrationToken；重注册可使用当前 bridge token。 */
+    function authorizeRegistration(req: IncomingMessage, record: CanvasBridgeRecord | undefined): boolean {
+        if (registrationToken && authorizeBearer(req, registrationToken)) return true;
+        if (record) return authorize(req, record);
+        return !registrationToken;
+    }
+
     async function readBody(req: IncomingMessage): Promise<unknown> {
         const chunks: Buffer[] = [];
-        for await (const chunk of req) chunks.push(chunk as Buffer);
+        let size = 0;
+        for await (const chunk of req) {
+            const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string);
+            size += buffer.length;
+            if (size <= maxBodyBytes) chunks.push(buffer);
+        }
+        if (size > maxBodyBytes) {
+            throw new BrokerRequestError(413, 41300, "请求体过大");
+        }
         const raw = Buffer.concat(chunks).toString("utf8");
         if (!raw.trim()) return {};
         try {
-            return JSON.parse(raw);
+            const parsed = JSON.parse(raw) as unknown;
+            if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+                throw new BrokerRequestError(400, 40000, "请求体必须是 JSON 对象");
+            }
+            return parsed;
         } catch {
-            return { _parseError: raw.slice(0, 200) };
+            throw new BrokerRequestError(400, 40000, "请求体 JSON 无效");
         }
     }
 
@@ -178,7 +227,7 @@ export function createCanvasBridgeBroker(options: CanvasBridgeBrokerOptions = {}
     const ok = (res: ServerResponse, data: unknown) => send(res, 200, { code: 0, data });
     const fail = (res: ServerResponse, status: number, code: number, msg: string) => send(res, status, { code, msg });
 
-    const handle = async (req: IncomingMessage, res: ServerResponse) => {
+    const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const url = new URL(req.url ?? "/", "http://localhost");
         const path = url.pathname;
 
@@ -187,6 +236,15 @@ export function createCanvasBridgeBroker(options: CanvasBridgeBrokerOptions = {}
             const body = (await readBody(req)) as { bridgeId?: string; token?: string; endpoint?: string; capabilities?: Record<string, unknown> };
             if (!body.bridgeId || !body.token || !body.endpoint) {
                 fail(res, 400, 40001, "register 需要 bridgeId/token/endpoint");
+                return;
+            }
+            const existing = bridges.get(body.bridgeId);
+            if (!authorizeRegistration(req, existing)) {
+                fail(res, 401, 40102, "注册鉴权失败");
+                return;
+            }
+            if (existing && body.token !== existing.token && !authorizeBearer(req, registrationToken)) {
+                fail(res, 401, 40102, "替换 bridge 凭据需要注册鉴权");
                 return;
             }
             getOrCreateBridge(body.bridgeId, body.token, body.endpoint);
@@ -292,6 +350,10 @@ export function createCanvasBridgeBroker(options: CanvasBridgeBrokerOptions = {}
                 fail(res, 400, 40004, "result 需要 bridgeId/requestId");
                 return;
             }
+            if (body.status !== "succeeded" && body.status !== "failed") {
+                fail(res, 400, 40006, "result status 必须是 succeeded 或 failed");
+                return;
+            }
             const record = bridges.get(body.bridgeId);
             if (!record) {
                 fail(res, 404, 40401, `bridge 未注册：${body.bridgeId}`);
@@ -306,7 +368,7 @@ export function createCanvasBridgeBroker(options: CanvasBridgeBrokerOptions = {}
                 fail(res, 404, 40402, `请求不存在或已消费：${body.requestId}`);
                 return;
             }
-            item.status = body.status === "failed" ? "done" : "done";
+            item.status = "done";
             if (body.status === "failed") {
                 item.error = body.error ?? "执行失败";
             } else {
@@ -390,6 +452,18 @@ export function createCanvasBridgeBroker(options: CanvasBridgeBrokerOptions = {}
         }
 
         fail(res, 404, 40400, `Not found: ${req.method} ${path}`);
+    };
+
+    const handle = async (req: IncomingMessage, res: ServerResponse) => {
+        try {
+            await handleRequest(req, res);
+        } catch (error) {
+            if (error instanceof BrokerRequestError) {
+                fail(res, error.status, error.code, error.message);
+                return;
+            }
+            fail(res, 500, 50000, "Broker 内部错误");
+        }
     };
 
     // 定期清理超过心跳超时的"幽灵"bridge 及其队列

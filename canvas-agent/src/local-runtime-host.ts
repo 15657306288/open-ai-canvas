@@ -37,6 +37,7 @@ export type StartLocalRuntimeOptions = {
     bridge?: {
         server: string;
         token: string;
+        registrationToken?: string;
         bridgeId?: string;
         endpoint?: string;
         pollSeconds?: number;
@@ -148,6 +149,7 @@ export function startLocalRuntime(options: StartLocalRuntimeOptions = {}): Local
             server: bridgeServer,
             bridgeId,
             token: bridgeToken,
+            registrationToken: options.bridge?.registrationToken ?? process.env.CANVAS_BRIDGE_REGISTRATION_TOKEN,
             endpoint: options.bridge?.endpoint ?? endpoint,
             runtimeToken: config.token,
             pollSeconds: options.bridge?.pollSeconds,

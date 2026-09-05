@@ -17,6 +17,8 @@ export interface CanvasBridgeClientOptions {
     bridgeId: string;
     /** 连接 Broker 的凭据（Bearer token），由 Broker 侧分配 */
     token: string;
+    /** 首次注册或更换 bridge token 时使用的 Broker 注册凭据 */
+    registrationToken?: string;
     /** 远程 Agent 可见的本地 Runtime 地址（用于能力上报，不对外开放入站） */
     endpoint: string;
     /** 本地 Runtime 的 masterToken（调用 /api/tools 用） */
@@ -77,9 +79,10 @@ export function createCanvasBridgeClient(options: CanvasBridgeClientOptions): Ca
         try {
             await bridgeRequest("/api/canvas-bridge/heartbeat", { method: "POST" }, {
                 bridgeId: options.bridgeId,
-                capabilities: options.capabilities,            });
+                capabilities: options.capabilities,
+            });
         } catch {
-        // 心跳失败不致命，下轮重试；poll 本身也会刷新 lastSeenAt
+            // 心跳失败不致命，下轮重试；poll 本身也会刷新 lastSeenAt
         }
     }
 
@@ -118,13 +121,16 @@ export function createCanvasBridgeClient(options: CanvasBridgeClientOptions): Ca
                     error: error instanceof Error ? error.message : "bridge execute failed",
                 });
             } catch {
-            // 结果回传失败时尽力而为；Broker 队列会保留该请求以便人工排查
+                // 结果回传失败时尽力而为；Broker 队列会保留该请求以便人工排查
             }
         }
     }
 
     async function registerBridge() {
-        await bridgeRequest("/api/canvas-bridge/register", { method: "POST" }, {
+        await bridgeRequest("/api/canvas-bridge/register", {
+            method: "POST",
+            ...(options.registrationToken ? { headers: { authorization: `Bearer ${options.registrationToken}` } } : {}),
+        }, {
             bridgeId: options.bridgeId,
             token: options.token,
             endpoint: options.endpoint,

@@ -200,3 +200,154 @@ test("[connector] P2 §9.5 bridge 限流：超频 request 返回 429", async () 
         await new Promise<void>((resolve) => brokerServer.close(() => resolve()));
     }
 });
+
+test("[connector] L3 注册鉴权：首次注册必须使用 registration token", async () => {
+    const broker = createCanvasBridgeBroker({ registrationToken: "registration-secret" });
+    const server = http.createServer((req, res) => broker.handle(req, res));
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+    const port = (server.address() as { port: number }).port;
+    const base = `http://127.0.0.1:${port}`;
+    const body = JSON.stringify({ bridgeId: "registration-bridge", token: "bridge-secret", endpoint: "http://local" });
+    const post = async (authorization?: string) => fetch(`${base}/api/canvas-bridge/register`, {
+        method: "POST",
+        headers: {
+            "content-type": "application/json",
+            ...(authorization ? { authorization } : {}),
+        },
+        body,
+    });
+    try {
+        assert.equal((await post()).status, 401);
+        assert.equal((await post("Bearer wrong-registration-secret")).status, 401);
+        assert.equal((await post("Bearer registration-secret")).status, 200);
+    } finally {
+        broker.close();
+        server.closeAllConnections?.();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+});
+
+test("[connector] L3 bridge token 轮换：只有注册凭据可以替换 token", async () => {
+    const broker = createCanvasBridgeBroker({ registrationToken: "registration-secret" });
+    const server = http.createServer((req, res) => broker.handle(req, res));
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+    const port = (server.address() as { port: number }).port;
+    const base = `http://127.0.0.1:${port}`;
+    const register = (token: string, authorization?: string) => fetch(`${base}/api/canvas-bridge/register`, {
+        method: "POST",
+        headers: {
+            "content-type": "application/json",
+            ...(authorization ? { authorization } : {}),
+        },
+        body: JSON.stringify({ bridgeId: "rotation-bridge", token, endpoint: "http://local" }),
+    });
+    const heartbeat = (token: string) => fetch(`${base}/api/canvas-bridge/heartbeat`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({ bridgeId: "rotation-bridge" }),
+    });
+    try {
+        assert.equal((await register("old-token", "Bearer registration-secret")).status, 200);
+        assert.equal((await register("new-token", "Bearer old-token")).status, 401);
+        assert.equal((await register("new-token", "Bearer registration-secret")).status, 200);
+        assert.equal((await heartbeat("old-token")).status, 401);
+        assert.equal((await heartbeat("new-token")).status, 200);
+    } finally {
+        broker.close();
+        server.closeAllConnections?.();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+});
+
+test("[connector] L3 Agent API 鉴权：request/query/bridges 使用独立 agent token", async () => {
+    const broker = createCanvasBridgeBroker({
+        agentToken: "agent-secret",
+        registrationToken: "registration-secret",
+    });
+    const server = http.createServer((req, res) => broker.handle(req, res));
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+    const port = (server.address() as { port: number }).port;
+    const base = `http://127.0.0.1:${port}`;
+    const agentHeaders = { authorization: "Bearer agent-secret" };
+    const register = await fetch(`${base}/api/canvas-bridge/register`, {
+        method: "POST",
+        headers: { authorization: "Bearer registration-secret", "content-type": "application/json" },
+        body: JSON.stringify({ bridgeId: "agent-api-bridge", token: "bridge-secret", endpoint: "http://local" }),
+    });
+    assert.equal(register.status, 200);
+    try {
+        const requestBody = JSON.stringify({ bridgeId: "agent-api-bridge", name: "canvas_get_state", input: {} });
+        const unauthenticatedRequest = await fetch(`${base}/api/canvas-bridge/request`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: requestBody,
+        });
+        assert.equal(unauthenticatedRequest.status, 401);
+        assert.equal((await fetch(`${base}/api/canvas-bridge/bridges`)).status, 401);
+        const submit = await fetch(`${base}/api/canvas-bridge/request`, {
+            method: "POST",
+            headers: { "content-type": "application/json", ...agentHeaders },
+            body: requestBody,
+        });
+        assert.equal(submit.status, 200);
+        const submitBody = (await submit.json()) as { data: { requestId: string } };
+        const query = await fetch(`${base}/api/canvas-bridge/request/${encodeURIComponent(submitBody.data.requestId)}`, { headers: agentHeaders });
+        assert.equal(query.status, 200);
+        assert.equal((await fetch(`${base}/api/canvas-bridge/bridges`, { headers: agentHeaders })).status, 200);
+    } finally {
+        broker.close();
+        server.closeAllConnections?.();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+});
+
+test("[connector] L3 队列满时保留 pending/running，只清理 done", async () => {
+    const broker = createCanvasBridgeBroker({ maxPendingPerBridge: 2 });
+    const server = http.createServer((req, res) => broker.handle(req, res));
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+    const port = (server.address() as { port: number }).port;
+    const base = `http://127.0.0.1:${port}`;
+    const bridgeId = "queue-bridge";
+    const bridgeToken = "queue-token";
+    const register = await fetch(`${base}/api/canvas-bridge/register`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ bridgeId, token: bridgeToken, endpoint: "http://local" }),
+    });
+    assert.equal(register.status, 200);
+    try {
+        const first = broker.enqueueForTest(bridgeId, { name: "first", input: {} });
+        const second = broker.enqueueForTest(bridgeId, { name: "second", input: {} });
+        assert.ok(first);
+        assert.ok(second);
+        const poll = await fetch(`${base}/api/canvas-bridge/poll?bridgeId=${bridgeId}&wait=0`, {
+            headers: { authorization: `Bearer ${bridgeToken}` },
+        });
+        assert.equal(poll.status, 200);
+        const running = (await poll.json()) as { data: { request: { requestId: string } } };
+        assert.equal(running.data.request.requestId, first);
+
+        assert.equal(broker.enqueueForTest(bridgeId, { name: "third", input: {} }), undefined);
+        assert.deepEqual(
+            broker.listBridges()[0]?.queue.map((item) => [item.requestId, item.status]),
+            [[first, "running"], [second, "pending"]],
+        );
+
+        const result = await fetch(`${base}/api/canvas-bridge/result`, {
+            method: "POST",
+            headers: { authorization: `Bearer ${bridgeToken}`, "content-type": "application/json" },
+            body: JSON.stringify({ bridgeId, requestId: first, status: "succeeded", result: { ok: true } }),
+        });
+        assert.equal(result.status, 200);
+        const third = broker.enqueueForTest(bridgeId, { name: "third", input: {} });
+        assert.ok(third);
+        assert.deepEqual(
+            broker.listBridges()[0]?.queue.map((item) => [item.requestId, item.status]),
+            [[second, "pending"], [third, "pending"]],
+        );
+    } finally {
+        broker.close();
+        server.closeAllConnections?.();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+});
