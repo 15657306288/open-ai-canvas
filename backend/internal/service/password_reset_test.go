@@ -255,7 +255,7 @@ func newPasswordResetTestService(t *testing.T) (*Service, *gorm.DB) {
 	if err := db.AutoMigrate(&model.User{}, &model.AuthSession{}, &model.EmailVerificationCode{}, &model.SystemSetting{}); err != nil {
 		t.Fatal(err)
 	}
-	settingJSON, err := json.Marshal(emailSettingValue{Enabled: true, Host: "smtp.example.com", Port: 587, Encryption: "starttls", FromEmail: "noreply@example.com", FromName: "影策"})
+	settingJSON, err := json.Marshal(emailSettingValue{Enabled: true, Host: "smtp.example.com", Port: 587, Encryption: "starttls", FromEmail: "noreply@example.com", FromName: "影策", RegistrationAllowedDomains: []string{"example.com"}})
 	if err != nil {
 		t.Fatal(err)
 	}

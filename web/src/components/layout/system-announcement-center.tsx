@@ -1,7 +1,7 @@
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Tag } from "antd";
 import { Bell } from "lucide-react";
-import { useState, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { AnnouncementTimelineModal } from "@/components/ui/aceternity/announcement-timeline-modal";
@@ -10,6 +10,7 @@ import { getAnnouncementFeed, markAnnouncementsRead } from "@/services/api/annou
 
 const ANNOUNCEMENT_REFRESH_INTERVAL_MS = 5 * 60_000;
 const ANNOUNCEMENT_CACHE_TTL_MS = 60_000;
+const ANNOUNCEMENT_DISMISS_TODAY_PREFIX = "yingce.announcements.dismiss-today";
 
 type AnnouncementFeed = Awaited<ReturnType<typeof getAnnouncementFeed>>;
 
@@ -20,12 +21,15 @@ type SystemAnnouncementCenterProps = {
     showLabel?: boolean;
     labelClassName?: string;
     staticMotion?: boolean;
+    autoOpen?: boolean;
 };
 
-export function SystemAnnouncementCenter({ userId, className, style, showLabel = false, labelClassName, staticMotion = false }: SystemAnnouncementCenterProps) {
+export function SystemAnnouncementCenter({ userId, className, style, showLabel = false, labelClassName, staticMotion = false, autoOpen = false }: SystemAnnouncementCenterProps) {
     const reducedMotion = useReducedMotion();
     const queryClient = useQueryClient();
     const [open, setOpen] = useState(false);
+    const [automaticPrompt, setAutomaticPrompt] = useState(false);
+    const [dismissedFingerprint, setDismissedFingerprint] = useState("");
     const queryKey = ["system-announcements", userId] as const;
     const feedQuery = useQuery({
         queryKey,
@@ -40,7 +44,16 @@ export function SystemAnnouncementCenter({ userId, className, style, showLabel =
     const unreadCount = Math.max(0, feedQuery.data?.unreadCount || 0);
     const error = feedQuery.error instanceof Error ? feedQuery.error.message : feedQuery.error ? "读取公告失败" : "";
 
+    useEffect(() => {
+        if (!autoOpen || open || !feedQuery.isSuccess || unreadCount <= 0 || announcements.length === 0) return;
+        const fingerprint = announcementFeedFingerprint(announcements);
+        if (!fingerprint || fingerprint === dismissedFingerprint || announcementAutoPromptSuppressed(userId)) return;
+        setAutomaticPrompt(true);
+        setOpen(true);
+    }, [announcements, autoOpen, dismissedFingerprint, feedQuery.isSuccess, open, unreadCount, userId]);
+
     const openAnnouncements = async () => {
+        setAutomaticPrompt(false);
         setOpen(true);
         const feed = (await feedQuery.refetch()).data;
         if (!feed?.unreadCount) return;
@@ -52,6 +65,14 @@ export function SystemAnnouncementCenter({ userId, className, style, showLabel =
         } catch {
             // 已读状态是辅助读路径，失败时保留角标，下一次打开或轮询会继续尝试同步。
         }
+    };
+
+    const dismissAutomaticPrompt = (duration: "once" | "today") => {
+        const fingerprint = announcementFeedFingerprint(announcements);
+        if (fingerprint) setDismissedFingerprint(fingerprint);
+        if (duration === "today") rememberAnnouncementDismissalToday(userId);
+        setAutomaticPrompt(false);
+        setOpen(false);
     };
 
     return (
@@ -90,7 +111,45 @@ export function SystemAnnouncementCenter({ userId, className, style, showLabel =
                     </span>
                 ) : null}
             </motion.button>
-            <AnnouncementTimelineModal open={open} announcements={announcements} loading={feedQuery.isFetching} error={announcements.length ? "" : error} onClose={() => setOpen(false)} onRetry={() => void feedQuery.refetch()} />
+            <AnnouncementTimelineModal
+                open={open}
+                announcements={announcements}
+                loading={feedQuery.isFetching}
+                error={announcements.length ? "" : error}
+                automaticPrompt={automaticPrompt}
+                onClose={() => automaticPrompt ? dismissAutomaticPrompt("once") : setOpen(false)}
+                onDismissOnce={() => dismissAutomaticPrompt("once")}
+                onDismissToday={() => dismissAutomaticPrompt("today")}
+                onRetry={() => void feedQuery.refetch()}
+            />
         </>
     );
+}
+
+function announcementFeedFingerprint(announcements: AnnouncementFeed["announcements"]) {
+    return announcements
+        .map((announcement) => `${announcement.id}:${announcement.publishedAt}`)
+        .sort()
+        .join("|");
+}
+
+function announcementAutoPromptSuppressed(userId: string) {
+    try {
+        return localStorage.getItem(`${ANNOUNCEMENT_DISMISS_TODAY_PREFIX}.${userId}`) === localDateKey();
+    } catch {
+        return false;
+    }
+}
+
+function rememberAnnouncementDismissalToday(userId: string) {
+    try {
+        localStorage.setItem(`${ANNOUNCEMENT_DISMISS_TODAY_PREFIX}.${userId}`, localDateKey());
+    } catch {
+        // 浏览器禁用存储时仍允许关闭弹窗，本次组件生命周期内不会重复打开。
+    }
+}
+
+function localDateKey() {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }

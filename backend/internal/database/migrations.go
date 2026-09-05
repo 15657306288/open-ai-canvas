@@ -54,6 +54,26 @@ var schemaMigrations = []migration{
 	{version: 7, name: "asset_library_folders", checksum: assetLibraryFoldersChecksum, apply: migrateSchemaV7},
 }
 
+// reconcileLegacyMigrationV6 repairs databases created while asset folders were
+// temporarily assigned to migration 6 before resource playback became migration 6.
+// The schema changes are additive and the transaction keeps the record update atomic.
+func reconcileLegacyMigrationV6(tx *gorm.DB, applied schemaMigration, expected migration) error {
+	if expected.version != 6 || applied.Name != "asset_library_folders" || applied.Checksum != assetLibraryFoldersChecksum {
+		return nil
+	}
+	if err := migrateSchemaV6(tx); err != nil {
+		return fmt.Errorf("补齐资源播放副本结构：%w", err)
+	}
+	if err := tx.Model(&schemaMigration{}).Where("version = ?", applied.Version).Updates(map[string]any{
+		"name":       expected.name,
+		"checksum":   expected.checksum,
+		"applied_at": applied.AppliedAt,
+	}).Error; err != nil {
+		return fmt.Errorf("修复数据库迁移 %d 记录：%w", applied.Version, err)
+	}
+	return nil
+}
+
 func migrateSchemaV2(tx *gorm.DB) error {
 	return tx.Exec("CREATE INDEX IF NOT EXISTS idx_schema_migrations_applied_at ON schema_migrations (applied_at)").Error
 }
@@ -169,6 +189,12 @@ func MigrateSchema(db *gorm.DB) error {
 			var applied schemaMigration
 			err := tx.First(&applied, "version = ?", item.version).Error
 			if err == nil {
+				if err := reconcileLegacyMigrationV6(tx, applied, item); err != nil {
+					return err
+				}
+				if applied.Version == item.version && applied.Name == "asset_library_folders" && item.version == 6 {
+					continue
+				}
 				if err := validateMigrationRecord(applied, item); err != nil {
 					return err
 				}
