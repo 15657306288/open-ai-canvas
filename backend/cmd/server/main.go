@@ -137,6 +137,7 @@ func run(ctx context.Context) error {
 	handler.RegisterSessionRoutes(api, svc)
 	handler.RegisterSkillRoutes(api, svc)
 	handler.RegisterUserDataRoutes(api, svc)
+	handler.RegisterChunkedUploadRoutes(api, svc)
 	handler.RegisterDiagnosticsRoutes(api, svc)
 	handler.RegisterPluginRoutes(api, svc)
 	projectAPI := api.Group("")
@@ -156,6 +157,8 @@ func run(ctx context.Context) error {
 	}
 	httpServer := &http.Server{Handler: r, ReadHeaderTimeout: 10 * time.Second}
 	svc.StartWorker()
+	// 启动后回填存量视频的播放副本转码（幂等，无待处理项即退出）。
+	go svc.BackfillPlaybackTranscodes()
 	status.markStarted()
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- httpServer.Serve(listener) }()
