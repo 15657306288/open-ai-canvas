@@ -55,6 +55,25 @@ export interface TerminalOutcome {
     message?: string;
 }
 
+/** 外部生成确认请求参数（网关 reserve 后创建）。 */
+export interface ConfirmationRequest {
+    userId: string;
+    orderId: string;
+    tool: string;
+    modelKey?: string;
+    amountMicrocredits: number;
+    promptSummary?: string;
+    idempotencyKey: string;
+}
+
+/** 确认结果：id 供轮询，status 为 pending/approved/rejected/expired。 */
+export interface ConfirmationOutcome {
+    ok: boolean;
+    id?: string;
+    status?: "pending" | "approved" | "rejected" | "expired";
+    message?: string;
+}
+
 /** 网关需要账户体系提供的全部能力（统一异步）。 */
 export interface AccountProvider {
     readonly kind: "local" | "remote";
@@ -68,6 +87,10 @@ export interface AccountProvider {
     /** 工具失败后退款/释放冻结（幂等）。 */
     refund(orderId: string, idempotencyKey: string, error: string): Promise<TerminalOutcome>;
     recordCall(subjectId: string, toolName: string): Promise<void>;
+    /** 创建"生成前用户确认"请求（仅 remote 支持；local 返回不可用）。 */
+    createConfirmation(req: ConfirmationRequest): Promise<ConfirmationOutcome>;
+    /** 轮询确认状态（仅 remote 支持；local 返回不可用）。 */
+    confirmationStatus(id: string): Promise<ConfirmationOutcome>;
 }
 
 function toPrincipal(k: ApiKey): Principal {
@@ -173,6 +196,14 @@ export class LocalAccountProvider implements AccountProvider {
 
     async recordCall(subjectId: string, toolName: string): Promise<void> {
         this.keyStore.recordUsage(subjectId, toolName);
+    }
+
+    async createConfirmation(): Promise<ConfirmationOutcome> {
+        return { ok: false, message: "local 模式不支持外部生成确认" };
+    }
+
+    async confirmationStatus(): Promise<ConfirmationOutcome> {
+        return { ok: false, message: "local 模式不支持外部生成确认" };
     }
 }
 
@@ -296,6 +327,46 @@ export class RemoteAccountProvider implements AccountProvider {
         try {
             await this.local.recordCall(subjectId, toolName);
         } catch { /* ignore */ }
+    }
+
+    /** 创建外部生成确认请求；网关 reserve 后调用，用户批准后才执行生成。 */
+    async createConfirmation(req: ConfirmationRequest): Promise<ConfirmationOutcome> {
+        if (!req.userId || !req.orderId || !req.tool || !req.idempotencyKey || !Number.isInteger(req.amountMicrocredits) || req.amountMicrocredits <= 0) {
+            return { ok: false, message: "确认请求参数不完整" };
+        }
+        try {
+            const r = await this.request<{ id?: string; status?: string }>("/confirmations", {
+                userId: req.userId,
+                orderId: req.orderId,
+                tool: req.tool,
+                ...(req.modelKey ? { modelKey: req.modelKey } : {}),
+                amountMicrocredits: req.amountMicrocredits,
+                ...(req.promptSummary ? { promptSummary: req.promptSummary.slice(0, 500) } : {}),
+                idempotencyKey: req.idempotencyKey,
+            });
+            if (r.status === 200 && r.env.code === 0 && r.env.data?.id) {
+                return { ok: true, id: r.env.data.id, status: (r.env.data.status ?? "pending") as ConfirmationOutcome["status"] };
+            }
+            return { ok: false, message: r.env.msg || "创建确认失败" };
+        } catch (e) {
+            console.error(`[account-remote] createConfirmation 不可用: ${e instanceof Error ? e.message : String(e)}`);
+            return { ok: false, message: "确认服务暂时不可用" };
+        }
+    }
+
+    /** 轮询确认状态（网关挂起等待用户批准/拒绝/超时）。 */
+    async confirmationStatus(id: string): Promise<ConfirmationOutcome> {
+        if (!id) return { ok: false, message: "确认 ID 缺失" };
+        try {
+            const r = await this.request<{ id?: string; status?: string }>(`/confirmations/${encodeURIComponent(id)}`, undefined, "GET");
+            if (r.status === 200 && r.env.code === 0 && r.env.data?.status) {
+                return { ok: true, id: r.env.data.id, status: r.env.data.status as ConfirmationOutcome["status"] };
+            }
+            return { ok: false, message: r.env.msg || "查询确认失败" };
+        } catch (e) {
+            console.error(`[account-remote] confirmationStatus 不可用: ${e instanceof Error ? e.message : String(e)}`);
+            return { ok: false, message: "确认服务暂时不可用" };
+        }
     }
 }
 
