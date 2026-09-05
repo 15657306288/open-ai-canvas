@@ -5,7 +5,7 @@
 - 插件 ID：`artbox-video`。
 - Provider ID：`artbox-video`。
 - 能力：`video`。
-- 默认 Base URL：`http://127.0.0.1:3000`。
+- 默认 Base URL：`https://artbox.top`。
 - 鉴权驱动：`bearer`。
 - 创建：`POST /v1/video/generations`。
 - 查询：`GET /v1/video/generations/{{taskId}}`。
@@ -88,10 +88,10 @@
 {
   "apiVersion": "yingce.plugin/v2",
   "id": "artbox-video",
-  "name": "NewAPI Video Generations Channel 2",
+  "name": "ArtBox Video",
   "version": "2.0.0",
-  "author": "NewAPI / 影策",
-  "description": "NewAPI Video Generations Channel 2 独立请求协议插件。",
+  "author": "影策 / yingce-dev",
+  "description": "ArtBox（new-api 中转，openai-video 线协议）视频生成渠道插件。",
   "documentation": "<当前插件的完整 documentation，由 README.md 与 docs/interface.md 拼接而成；为避免 JSON 递归，此处不重复展开正文。>",
   "permissions": [
     "generation.run",
@@ -111,7 +111,7 @@
     "providers": [
       {
         "id": "artbox-video",
-        "label": "NewAPI Video Generations Channel 2",
+        "label": "ArtBox Video",
         "capabilities": [
           "video"
         ],
@@ -122,7 +122,7 @@
           "creation",
           "agent"
         ],
-        "baseUrl": "http://127.0.0.1:3000",
+        "baseUrl": "https://artbox.top",
         "requiresPublicMediaUrls": true,
         "auth": {
           "type": "bearer",

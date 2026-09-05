@@ -63,8 +63,9 @@ build_payment_provider official-payment-wechat-native ./cmd/payment-wechat
 build_payment_provider official-payment-alipay-page ./cmd/payment-alipay
 
 package_plugin() {
-  package_id=$1
-  package_dir="$root_dir/$package_id"
+  source_dir=$1
+  package_id=$2
+  package_dir="$root_dir/$source_dir"
   output_file="$root_dir/$package_id.yingce-plugin"
   temporary_file="$root_dir/.$package_id.yingce-plugin.tmp"
   rm -f "$temporary_file"
@@ -77,7 +78,7 @@ package_plugin() {
 
 if [ "$payments_only" = true ]; then
   for payment_plugin in $payment_plugins; do
-    package_plugin "$payment_plugin"
+    package_plugin "$payment_plugin" "$payment_plugin"
   done
   exit 0
 fi
@@ -88,6 +89,10 @@ done
 
 for manifest in "$root_dir"/*/manifest.json; do
   package_dir=${manifest%/manifest.json}
-  package_id=${package_dir##*/}
-  package_plugin "$package_id"
+  source_dir=${package_dir##*/}
+  case "$source_dir" in
+    src-*) package_id=${source_dir#src-} ;;
+    *) package_id=$source_dir ;;
+  esac
+  package_plugin "$source_dir" "$package_id"
 done

@@ -5,7 +5,7 @@
 - 插件 ID：`hongniao-video`。
 - Provider ID：`hongniao-video`。
 - 能力：`video`。
-- 默认 Base URL：`http://127.0.0.1:3000`。
+- 默认 Base URL：`https://open.hongniaoai.com/api`。
 - 鉴权驱动：`bearer`。
 - 创建：`POST /v1/video/generations`。
 - 查询：`GET /v1/video/generations/{{taskId}}`。
@@ -88,10 +88,10 @@
 {
   "apiVersion": "yingce.plugin/v2",
   "id": "hongniao-video",
-  "name": "NewAPI Video Generations Channel 2",
+  "name": "红鸟视频",
   "version": "2.0.0",
-  "author": "NewAPI / 影策",
-  "description": "NewAPI Video Generations Channel 2 独立请求协议插件。",
+  "author": "影策 / yingce-dev",
+  "description": "红鸟（open.hongniaoai.com）视频生成渠道插件；视频提交端点以平台为准，当前按 /v1/video/generations。",
   "documentation": "<当前插件的完整 documentation，由 README.md 与 docs/interface.md 拼接而成；为避免 JSON 递归，此处不重复展开正文。>",
   "permissions": [
     "generation.run",
@@ -111,7 +111,7 @@
     "providers": [
       {
         "id": "hongniao-video",
-        "label": "NewAPI Video Generations Channel 2",
+        "label": "红鸟视频",
         "capabilities": [
           "video"
         ],
@@ -122,7 +122,7 @@
           "creation",
           "agent"
         ],
-        "baseUrl": "http://127.0.0.1:3000",
+        "baseUrl": "https://open.hongniaoai.com/api",
         "requiresPublicMediaUrls": true,
         "auth": {
           "type": "bearer",

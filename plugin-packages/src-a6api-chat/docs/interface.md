@@ -5,7 +5,7 @@
 - 插件 ID：`a6api-chat`。
 - Provider ID：`a6api-chat`。
 - 能力：`text`。
-- 默认 Base URL：`http://127.0.0.1:3000`。
+- 默认 Base URL：`https://api.a6api.com`。
 - 鉴权驱动：`bearer`。
 - 创建：`POST /v1/chat/completions`。
 - Agent：`POST /v1/chat/completions`。
@@ -109,10 +109,10 @@
 {
   "apiVersion": "yingce.plugin/v2",
   "id": "a6api-chat",
-  "name": "NewAPI Chat",
+  "name": "A6API Chat",
   "version": "2.0.0",
-  "author": "NewAPI / 影策",
-  "description": "NewAPI Chat 独立请求协议插件。",
+  "author": "影策 / yingce-dev",
+  "description": "A6API（new-api 兼容 OpenAI 线协议）文本生成渠道插件。",
   "documentation": "<当前插件的完整 documentation，由 README.md 与 docs/interface.md 拼接而成；为避免 JSON 递归，此处不重复展开正文。>",
   "permissions": [
     "generation.run",
@@ -132,7 +132,7 @@
     "providers": [
       {
         "id": "a6api-chat",
-        "label": "NewAPI Chat",
+        "label": "A6API Chat",
         "capabilities": [
           "text"
         ],
@@ -143,7 +143,7 @@
           "creation",
           "agent"
         ],
-        "baseUrl": "http://127.0.0.1:3000",
+        "baseUrl": "https://api.a6api.com",
         "requiresPublicMediaUrls": false,
         "auth": {
           "type": "bearer",
