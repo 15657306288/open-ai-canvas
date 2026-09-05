@@ -158,6 +158,55 @@ func TestMigrateSchemaV4AddsResourceUploadKeyToExistingSchema(t *testing.T) {
 	}
 }
 
+func TestMigrateSchemaRepairsLegacyAssetFoldersMigrationOrder(t *testing.T) {
+	db, err := Open(Config{Driver: "sqlite", DSN: "file:migration-legacy-v6-order?mode=memory&cache=shared"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.Resource{}, &model.Asset{}, &model.AssetFolder{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&schemaMigration{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range schemaMigrations[:5] {
+		if err := db.Create(&schemaMigration{Version: item.version, Name: item.name, Checksum: item.checksum, AppliedAt: time.Now().UTC()}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Create(&schemaMigration{Version: 6, Name: "asset_library_folders", Checksum: assetLibraryFoldersChecksum, AppliedAt: time.Now().UTC()}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if err := MigrateSchema(db); err != nil {
+		t.Fatalf("repair legacy migration order: %v", err)
+	}
+	if !db.Migrator().HasColumn(&model.Resource{}, "playback_status") || !db.Migrator().HasColumn(&model.Resource{}, "playback_object_key") || !db.Migrator().HasColumn(&model.Resource{}, "playback_error") {
+		t.Fatal("legacy database did not receive resource playback columns")
+	}
+	status, err := ReadSchemaStatus(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !status.Ready || status.Current != CurrentSchemaVersion {
+		t.Fatalf("unexpected repaired schema status: %#v", status)
+	}
+	var applied schemaMigration
+	if err := db.First(&applied, "version = ?", 6).Error; err != nil {
+		t.Fatal(err)
+	}
+	if applied.Name != "asset_library_folders" || applied.Checksum != assetLibraryFoldersChecksum {
+		t.Fatalf("historical migration 6 must be preserved: %#v", applied)
+	}
+	var playback schemaMigration
+	if err := db.First(&playback, "version = ?", 7).Error; err != nil {
+		t.Fatal(err)
+	}
+	if playback.Name != "resource_playback_variant" || playback.Checksum != resourcePlaybackChecksum {
+		t.Fatalf("migration 7 must supply playback schema: %#v", playback)
+	}
+}
+
 func TestMigrateSchemaRollsBackFailedMigration(t *testing.T) {
 	db, err := Open(Config{Driver: "sqlite", DSN: "file:migration-rollback?mode=memory&cache=shared"})
 	if err != nil {
