@@ -140,6 +140,40 @@ func RegisterInternalRoutes(api *gin.RouterGroup, svc *service.Service) {
 		}
 		ok(c, internalOrderView(order))
 	})
+
+	// POST /api/internal/confirmations —— 网关在 reserve 后创建"生成前用户确认"请求。
+	// 生成类工具（canvas_generate_image/video/audio/text、canvas_run_generation）外部调用必须
+	// 先经用户批准；网关挂起轮询 GET /confirmations/:id，approved 才执行工具，rejected/expired 退款。
+	g.POST("/confirmations", func(c *gin.Context) {
+		var req struct {
+			UserID             string `json:"userId"`
+			OrderID            string `json:"orderId"`
+			Tool               string `json:"tool"`
+			ModelKey           string `json:"modelKey"`
+			AmountMicrocredits int64  `json:"amountMicrocredits"`
+			PromptSummary      string `json:"promptSummary"`
+			IdempotencyKey     string `json:"idempotencyKey"`
+		}
+		if !decodeInternalJSON(c, &req) {
+			return
+		}
+		conf, err := svc.CreateAgentConfirmation(req.UserID, req.OrderID, req.Tool, req.ModelKey, req.AmountMicrocredits, req.PromptSummary, req.IdempotencyKey)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, internalConfirmationView(conf))
+	})
+
+	// GET /api/internal/confirmations/:id —— 网关轮询确认状态（approved/rejected/expired/pending）。
+	g.GET("/confirmations/:id", func(c *gin.Context) {
+		conf, err := svc.InternalAgentConfirmation(strings.TrimSpace(c.Param("id")))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, internalConfirmationView(conf))
+	})
 }
 
 type internalTerminalRequest struct {
@@ -168,6 +202,20 @@ func internalOrderView(order *model.BillingOrder) gin.H {
 		"status":             string(order.Status),
 		"amountMicrocredits": order.AmountMicrocredits,
 		"idempotencyKey":     order.IdempotencyKey,
+	}
+}
+
+// internalConfirmationView 是外部生成确认的最小对外视图（网关轮询 + 网站前端共用）。
+func internalConfirmationView(conf *model.AgentConfirmation) gin.H {
+	return gin.H{
+		"id":                 conf.ID,
+		"orderId":            conf.OrderID,
+		"tool":               conf.Tool,
+		"modelKey":           conf.ModelKey,
+		"amountMicrocredits": conf.AmountMicrocredits,
+		"promptSummary":      conf.PromptSummary,
+		"status":             string(conf.Status),
+		"expiresAt":          conf.ExpiresAt,
 	}
 }
 

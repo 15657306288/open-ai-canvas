@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runBilledCall, type BilledCallDeps } from "../src/bridge/billing-lifecycle.js";
-import type { AccountProvider, AuthOutcome, Principal, ReserveOutcome, TerminalOutcome } from "../src/bridge/account-provider.js";
+import type { AccountProvider, AuthOutcome, ConfirmationOutcome, ConfirmationRequest, Principal, ReserveOutcome, TerminalOutcome } from "../src/bridge/account-provider.js";
 
 /** 记录调用序列的假账户，便于断言 reserve→call→settle/refund 顺序与幂等键一致性。 */
 class FakeAccount implements AccountProvider {
@@ -11,6 +11,9 @@ class FakeAccount implements AccountProvider {
     reserveResult: ReserveOutcome = { ok: true, orderId: "ord_1" };
     settleResult: TerminalOutcome = { ok: true };
     refundResult: TerminalOutcome = { ok: true };
+    /** 确认门：创建请求记录 + 轮询状态队列（默认 approved，兼容既有 remote 测试）。 */
+    confirmCreated: ConfirmationRequest[] = [];
+    confirmStatusQueue: NonNullable<ConfirmationOutcome["status"]>[] = ["approved"];
 
     async authenticateByKey(): Promise<AuthOutcome> { return { ok: false, reason: "not_found", status: 401 }; }
     async authenticateClient(): Promise<AuthOutcome> { return { ok: false, reason: "bad_secret", status: 401 }; }
@@ -25,6 +28,13 @@ class FakeAccount implements AccountProvider {
         this.seq.push("refund"); this.idemAt.refund = idem; return this.refundResult;
     }
     async recordCall(): Promise<void> { this.seq.push("record"); }
+    async createConfirmation(req: ConfirmationRequest): Promise<ConfirmationOutcome> {
+        this.confirmCreated.push(req); return { ok: true, id: "conf_1", status: "pending" };
+    }
+    async confirmationStatus(): Promise<ConfirmationOutcome> {
+        const next = this.confirmStatusQueue.shift() ?? "approved";
+        return { ok: true, id: "conf_1", status: next };
+    }
 }
 
 function depsFor(acct: FakeAccount, callTool: BilledCallDeps["callTool"]) {
@@ -144,4 +154,113 @@ test("[lifecycle] remote 模式：画布真实选择的模型（args.model）随
     assert.equal(acct.reservedModel, "agnes-video-2.5-flash", "reserve 必须携带画布选择的模型");
     assert.deepEqual(acct.seq, ["reserve", "call", "settle", "record"]);
     assert.equal(r.content[0].text, "VIDEO_OK");
+});
+
+test("[确认门] remote + 生成工具 + 用户批准：确认请求携带后端定价金额/模型/摘要，批准后才执行", async () => {
+    class RemoteFake extends FakeAccount {
+        override kind = "remote" as const;
+        override reserveResult: ReserveOutcome = { ok: true, orderId: "ord_confirm", microcredits: 20_000 };
+    }
+    const acct = new RemoteFake();
+    const { deps, logs } = depsFor(acct, async () => "GEN_OK");
+    const r = await runBilledCall(
+        "canvas_generate_image",
+        { model: "nano-banana-2", prompt: "一只猫" },
+        keyAuth,
+        deps,
+    );
+
+    assert.equal(acct.confirmCreated.length, 1, "生成前必须创建确认请求");
+    const req = acct.confirmCreated[0];
+    assert.equal(req.orderId, "ord_confirm");
+    assert.equal(req.amountMicrocredits, 20_000, "确认金额必须以后端定价为准");
+    assert.equal(req.modelKey, "nano-banana-2");
+    assert.equal(req.promptSummary, "一只猫");
+    assert.deepEqual(acct.seq, ["reserve", "call", "settle", "record"], "批准后顺序不变");
+    assert.equal(r.isError, undefined);
+    assert.equal(r.content[0].text, "GEN_OK");
+    assert.equal(logs.some((e) => e.ok === "approved"), true, "日志应记录已批准");
+});
+
+test("[确认门] remote + 生成工具 + 用户拒绝：绝不执行工具，退款并返回失败", async () => {
+    class RemoteFake extends FakeAccount {
+        override kind = "remote" as const;
+        override reserveResult: ReserveOutcome = { ok: true, orderId: "ord_reject", microcredits: 20_000 };
+    }
+    const acct = new RemoteFake();
+    acct.confirmStatusQueue = ["rejected"];
+    let called = false;
+    const { deps } = depsFor(acct, async () => { called = true; return "X"; });
+    const r = await runBilledCall("canvas_generate_video", { model: "agnes-video-2.5", prompt: "x" }, keyAuth, deps);
+
+    assert.equal(called, false, "用户拒绝后不得执行生成");
+    assert.deepEqual(acct.seq, ["reserve", "refund", "record"]);
+    assert.equal(r.isError, true);
+    assert.match(r.content[0].text, /拒绝/);
+    assert.equal(acct.idemAt.reserve, acct.idemAt.refund, "退款必须用同一幂等键");
+});
+
+test("[确认门] remote + 生成工具 + 确认超时：退款并返回失败", async () => {
+    class RemoteFake extends FakeAccount {
+        override kind = "remote" as const;
+        override reserveResult: ReserveOutcome = { ok: true, orderId: "ord_timeout", microcredits: 20_000 };
+    }
+    const acct = new RemoteFake();
+    acct.confirmStatusQueue = ["pending", "pending", "pending"];
+    let called = false;
+    const { deps } = depsFor(acct, async () => { called = true; return "X"; });
+    const before = process.env.CANVAS_CONFIRM_TIMEOUT_MS;
+    process.env.CANVAS_CONFIRM_TIMEOUT_MS = "2000";
+    try {
+        const r = await runBilledCall("canvas_run_generation", { model: "x", prompt: "y" }, keyAuth, deps);
+        assert.equal(called, false, "确认超时不得执行生成");
+        assert.deepEqual(acct.seq, ["reserve", "refund", "record"]);
+        assert.equal(r.isError, true);
+        assert.match(r.content[0].text, /超时/);
+    } finally {
+        if (before === undefined) delete process.env.CANVAS_CONFIRM_TIMEOUT_MS; else process.env.CANVAS_CONFIRM_TIMEOUT_MS = before;
+    }
+});
+
+test("[确认门] local 内测模式：不启用确认门，保持原计费流程", async () => {
+    const acct = new FakeAccount(); // kind = local
+    const { deps } = depsFor(acct, async () => "LOCAL_OK");
+    const r = await runBilledCall("canvas_generate_image", { model: "m", prompt: "p" }, keyAuth, deps);
+
+    assert.equal(acct.confirmCreated.length, 0, "local 模式不创建确认请求");
+    assert.deepEqual(acct.seq, ["reserve", "call", "settle", "record"]);
+    assert.equal(r.content[0].text, "LOCAL_OK");
+});
+
+test("[确认门] remote + 非生成工具：不创建确认，直接执行", async () => {
+    class RemoteFake extends FakeAccount {
+        override kind = "remote" as const;
+        override reserveResult: ReserveOutcome = { ok: true, orderId: "ord_ctx", microcredits: 5_000 };
+    }
+    const acct = new RemoteFake();
+    const { deps } = depsFor(acct, async () => "CTX_OK");
+    const r = await runBilledCall("canvas_get_context", {}, keyAuth, deps);
+
+    assert.equal(acct.confirmCreated.length, 0);
+    assert.deepEqual(acct.seq, ["reserve", "call", "settle", "record"]);
+    assert.equal(r.content[0].text, "CTX_OK");
+});
+
+test("[确认门] 确认请求创建失败：fail-closed，退款且不执行工具", async () => {
+    class RemoteFake extends FakeAccount {
+        override kind = "remote" as const;
+        override reserveResult: ReserveOutcome = { ok: true, orderId: "ord_fail", microcredits: 20_000 };
+        override async createConfirmation(): Promise<ConfirmationOutcome> {
+            return { ok: false, message: "确认服务不可用" };
+        }
+    }
+    const acct = new RemoteFake();
+    let called = false;
+    const { deps } = depsFor(acct, async () => { called = true; return "X"; });
+    const r = await runBilledCall("canvas_generate_image", { prompt: "p" }, keyAuth, deps);
+
+    assert.equal(called, false);
+    assert.deepEqual(acct.seq, ["reserve", "refund", "record"]);
+    assert.equal(r.isError, true);
+    assert.match(r.content[0].text, /确认/);
 });

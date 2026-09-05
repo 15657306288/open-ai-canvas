@@ -125,6 +125,7 @@ func run(ctx context.Context) error {
 	handler.RegisterPaymentRoutes(api, svc)
 	// MCP 网关内部计费接口（X-Internal-Token 保护，复用网站钱包/两阶段计费）
 	handler.RegisterInternalRoutes(api, svc)
+	handler.RegisterAgentConfirmationRoutes(api, svc)
 	handler.RegisterLibTVRoutes(api, svc)
 	handler.RegisterTapNowRoutes(api, svc)
 	// 登录态模型目录代理：避免浏览器直连各上游时分别处理 CORS。

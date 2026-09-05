@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 10
+const CurrentSchemaVersion int64 = 11
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -21,6 +21,7 @@ const resourceUploadKeyChecksum = "sha256:resource-upload-key-v7-20260901"
 const paymentTopupChecksum = "sha256:payment-topup-v8-20260902"
 const assetLibraryFoldersChecksum = "sha256:asset-library-folders-v9-20260902"
 const skillVersionContentHashChecksum = "sha256:skill-version-content-hash-v10-20260903"
+const agentConfirmationChecksum = "sha256:agent-confirmation-v11-20260905"
 
 const postgresSchemaMigrationLockID int64 = 73123910420260830
 
@@ -56,6 +57,7 @@ var schemaMigrations = []migration{
 	{version: 8, name: "payment_topup", checksum: paymentTopupChecksum, apply: migrateSchemaV8},
 	{version: 9, name: "asset_library_folders", checksum: assetLibraryFoldersChecksum, apply: migrateSchemaV9},
 	{version: 10, name: "skill_version_content_hash_identity", checksum: skillVersionContentHashChecksum, apply: migrateSchemaV10},
+	{version: 11, name: "agent_confirmation", checksum: agentConfirmationChecksum, apply: migrateSchemaV11},
 }
 
 func migrateSchemaV2(tx *gorm.DB) error {
@@ -201,6 +203,14 @@ func migrateSchemaV10(tx *gorm.DB) error {
 	// 根据结构标签补齐/更新唯一索引。
 	if err := tx.AutoMigrate(&model.SkillVersion{}); err != nil {
 		return fmt.Errorf("建立技能版本内容幂等索引：%w", err)
+	}
+	return nil
+}
+
+// migrateSchemaV11 外部 Agent 生成确认表：网关 reserve 后挂起，用户批准后才真正执行生成。
+func migrateSchemaV11(tx *gorm.DB) error {
+	if err := tx.AutoMigrate(&model.AgentConfirmation{}); err != nil {
+		return fmt.Errorf("创建外部生成确认表：%w", err)
 	}
 	return nil
 }
