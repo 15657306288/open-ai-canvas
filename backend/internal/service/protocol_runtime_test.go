@@ -15,6 +15,41 @@ import (
 	"infinite-canvas/backend/internal/protocol"
 )
 
+func TestOfficialPluginRuntimeIgnoresHiddenFilesButRejectsInvalidPackages(t *testing.T) {
+	directory := t.TempDir()
+	t.Setenv("CANVAS_OFFICIAL_PLUGIN_DIR", directory)
+	if err := os.WriteFile(filepath.Join(directory, "._sample.yingce-plugin"), []byte("filesystem metadata"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newPluginRuntime(t.TempDir()); err != nil {
+		t.Fatalf("hidden metadata must not be parsed as a package: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "invalid.yingce-plugin"), []byte("invalid package"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newPluginRuntime(t.TempDir()); err == nil {
+		t.Fatal("invalid visible plugin package must still fail validation")
+	}
+}
+
+func TestLocalImageProtocolsDoNotShadowOfficialPackages(t *testing.T) {
+	center, err := newPluginRuntime(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"agnes-image", "grsai-image"} {
+		if _, ok := center.registrySnapshot().Resolve(id); !ok {
+			t.Fatalf("local protocol %s was lost", id)
+		}
+	}
+	for _, id := range []string{"agnes-video", "hongniao-image", "hongniao-video", "chat-completion"} {
+		adapter, ok := center.registrySnapshot().Resolve(id)
+		if !ok || adapter.Metadata().Execution != "declarative" {
+			t.Fatalf("official protocol %s was shadowed by a builtin", id)
+		}
+	}
+}
+
 func TestPluginViewIncludesDocumentationForEveryOfficialProtocol(t *testing.T) {
 	center, err := newPluginRuntime(t.TempDir())
 	if err != nil {
@@ -25,7 +60,7 @@ func TestPluginViewIncludesDocumentationForEveryOfficialProtocol(t *testing.T) {
 	for _, plugin := range plugins {
 		pluginsByID[plugin.Manifest.ID] = plugin
 	}
-	packages, err := filepath.Glob(filepath.Join("..", "..", "..", "plugin-packages", "*.yingce-plugin"))
+	packages, err := filepath.Glob(filepath.Join("..", "..", "..", "plugin-packages", "[^.]*.yingce-plugin"))
 	if err != nil {
 		t.Fatal(err)
 	}

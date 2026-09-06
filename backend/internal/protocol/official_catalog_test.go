@@ -17,7 +17,7 @@ const (
 )
 
 func TestOfficialProtocolPackagesAreSelfContainedDeclarativePlugins(t *testing.T) {
-	paths, err := filepath.Glob(filepath.Join("..", "..", "..", "plugin-packages", "*.yingce-plugin"))
+	paths, err := filepath.Glob(filepath.Join("..", "..", "..", "plugin-packages", "[^.]*.yingce-plugin"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -55,10 +55,10 @@
 {
   "apiVersion": "yingce.plugin/v2",
   "id": "hongniao-image-res",
-  "name": "OpenAI Images",
+  "name": "红鸟高清图",
   "version": "2.0.0",
-  "author": "OpenAI / 影策",
-  "description": "OpenAI Images generations 与 multipart edits 协议插件。",
+  "author": "影策 / yingce-dev",
+  "description": "红鸟高分辨率图片渠道插件（ph-gpt-image-2k / ph-gpt-image-4k）。",
   "documentation": "<当前插件的完整 documentation，由 README.md 与 docs/interface.md 拼接而成；为避免 JSON 递归，此处不重复展开正文。>",
   "permissions": [
     "generation.run",
@@ -84,7 +84,7 @@
     "providers": [
       {
         "id": "hongniao-image-res",
-        "label": "OpenAI Images",
+        "label": "红鸟高清图",
         "capabilities": [
           "image"
         ],
@@ -95,7 +95,7 @@
           "creation",
           "agent"
         ],
-        "baseUrl": "https://api.openai.com",
+        "baseUrl": "https://open.hongniaoai.com/api",
         "auth": {
           "type": "bearer",
           "field": "apiKey"

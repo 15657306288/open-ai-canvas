@@ -18,7 +18,7 @@ import {
     setCreationPhase,
     shouldSubmitGeneration,
     type AgentStateStorage,
-} from "./canvas-agent-state";
+} from "../src/lib/canvas/canvas-agent-state";
 import type { CanvasNodeData } from "@/types/canvas";
 
 function memoryStorage(): AgentStateStorage & { data: Map<string, string> } {

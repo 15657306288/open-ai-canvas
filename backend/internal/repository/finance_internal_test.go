@@ -40,7 +40,7 @@ func newInternalBillingOrder(userID, key string, amount int64) *model.BillingOrd
 		Capability:                 "mcp",
 		Scene:                      "mcp",
 		BillingMode:                "fixed_request",
-		UnitPriceMicrocredits:      amount,
+		UnitPriceMicrocredits:      float64(amount),
 		MultiplierBasisPoints:      10_000,
 		Quantity:                   1,
 		AmountMicrocredits:         amount,

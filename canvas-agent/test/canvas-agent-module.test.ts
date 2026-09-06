@@ -5,6 +5,7 @@ import { test } from "node:test";
 
 import { buildCanvasContext } from "../src/canvas-context.js";
 import { CanvasSession } from "../src/canvas-session.js";
+import { buildRunPlan, type ReadOnlyExecution } from "../src/agent-orchestration.js";
 import { createLocalRuntimeApp } from "../src/local-runtime.js";
 import { LocalRuntimeSessionManager } from "../src/local-runtime-session.js";
 import { createCanvasAgentHttpModule } from "../src/modules/canvas-agent-http.js";
@@ -160,6 +161,71 @@ test("CanvasSession exposes precise node and connection reads", async () => {
     assert.equal((await session.callTool("canvas_get_connection", { id: "connection-1" }) as { found: boolean }).found, true);
     assert.equal((await session.callTool("canvas_get_node", { id: "missing" }) as { found: boolean }).found, false);
     session.dispose();
+});
+
+test("CanvasSession only completes a planned write step after browser confirmation", async () => {
+    const session = new CanvasSession();
+    const events = eventResponse();
+    session.openEvents(new URL("http://127.0.0.1/events?clientId=run-step"), events.response as never);
+    session.updateState({ nodes: [], connections: [], viewport: { x: 0, y: 0, k: 1 } }, "run-step");
+    const plan = buildRunPlan({ prompt: "请整理小说", runId: "run-session" });
+    const director = plan.steps.find((step) => step.agentId === "director");
+    assert.ok(director);
+    const readOnlyExecution: ReadOnlyExecution = {
+        runId: plan.runId,
+        observations: [{ stepId: director.id, agentId: director.agentId, status: "completed", tools: [] }],
+        blockedStepIds: [],
+    };
+
+    session.beginAgentRun(plan, readOnlyExecution);
+    try {
+        const pending = session.callTool("canvas_create_text_node", { text: "hello", title: "正文" });
+        await new Promise((resolve) => setImmediate(resolve));
+        const call = latestToolCall(events.writes()) as { requestId: string; name: string; semanticTool?: string; runId?: string; stepId?: string; attempt?: number };
+        assert.equal(call.name, "canvas_apply_ops");
+        assert.equal(call.semanticTool, "canvas_create_text_node");
+        assert.equal(call.runId, plan.runId);
+        assert.equal(call.stepId, `${plan.runId}:script`);
+        assert.equal(call.attempt, 1);
+        assert.equal(events.writes().some((value) => value.includes('"type":"step.completed"')), false);
+
+        session.resolveResult({ requestId: call.requestId, result: { ok: true } });
+        assert.deepEqual(await pending, { ok: true });
+        const execution = await session.finishAgentRun();
+        assert.deepEqual(execution?.completedStepIds, [`${plan.runId}:script`]);
+        assert.equal(events.writes().some((value) => value.includes('"type":"step.completed"')), true);
+    } finally {
+        session.dispose();
+    }
+});
+
+test("CanvasSession reports a rejected browser write as step.failed", async () => {
+    const session = new CanvasSession();
+    const events = eventResponse();
+    session.openEvents(new URL("http://127.0.0.1/events?clientId=run-step-failed"), events.response as never);
+    session.updateState({ nodes: [], connections: [], viewport: { x: 0, y: 0, k: 1 } }, "run-step-failed");
+    const plan = buildRunPlan({ prompt: "请整理小说", runId: "run-session-failed" });
+    const director = plan.steps.find((step) => step.agentId === "director");
+    assert.ok(director);
+    session.beginAgentRun(plan, {
+        runId: plan.runId,
+        observations: [{ stepId: director.id, agentId: director.agentId, status: "completed", tools: [] }],
+        blockedStepIds: [],
+    });
+
+    try {
+        const pending = session.callTool("canvas_create_text_node", { text: "hello" });
+        await new Promise((resolve) => setImmediate(resolve));
+        const call = latestToolCall(events.writes());
+        session.resolveResult({ requestId: call.requestId, error: "browser rejected" });
+        await assert.rejects(pending, /browser rejected/);
+        const execution = await session.finishAgentRun();
+        assert.deepEqual(execution?.failedStepIds, [`${plan.runId}:script`]);
+        assert.equal(events.writes().some((value) => value.includes('"type":"step.failed"')), true);
+        assert.equal(events.writes().some((value) => value.includes('"type":"step.completed"')), false);
+    } finally {
+        session.dispose();
+    }
 });
 
 test("CanvasSession closes only streams owned by a revoked Runtime session", async () => {
@@ -601,7 +667,7 @@ test("[connector] P0-A-2 a stream that never reconnects clears canvas state afte
     session.dispose();
 });
 
-test("canvas_create_storyboard_shots idempotently projects shots, updates existing and retains positions", async () => {
+test("canvas_create_storyboard_shots projects shots and returns browser-confirmed node IDs", async () => {
     const session = new CanvasSession();
     const events = eventResponse();
     session.openEvents(new URL("http://127.0.0.1/events?clientId=storyboard-client"), events.response as never);
@@ -634,7 +700,6 @@ test("canvas_create_storyboard_shots idempotently projects shots, updates existi
             shots: [
                 { shotId: "shot-001", title: "镜头 1 · 更新版", description: "更新后的画面" },
                 { shotId: "shot-002", title: "镜头 2 · 新镜头", description: "全新镜头画面" },
-                { shotId: "shot-001", title: "重复传入", description: "重复内容" },
             ],
         });
 
@@ -646,21 +711,28 @@ test("canvas_create_storyboard_shots idempotently projects shots, updates existi
         const updateOp = ops.find((op) => op.type === "update_node" && op.id === "custom-positioned-shot-1");
         assert.ok(updateOp, "已有镜头必须触发 update_node");
         assert.equal((updateOp.patch as Record<string, unknown>)?.title, "镜头 1 · 更新版");
-        assert.equal((updateOp.metadata as Record<string, unknown>)?.workflowDescription, "更新后的画面");
-        assert.equal((updateOp.metadata as Record<string, unknown>)?.projectionVersion, 2);
+        assert.equal((updateOp.metadata as Record<string, unknown>)?.content, "更新后的画面");
+        assert.equal((updateOp.patch as Record<string, unknown>)?.position, undefined);
 
         // shot-002 必须生成 add_node 操作
         const addOp = ops.find((op) => op.type === "add_node" && (op.metadata as Record<string, unknown>)?.shotId === "shot-002");
         assert.ok(addOp, "新镜头必须触发 add_node");
         assert.equal(addOp.title, "镜头 2 · 新镜头");
 
-        session.resolveResult({ requestId: call.requestId, result: { accepted: true } });
-        const result = await promise as any;
-        assert.equal(result.ok, true);
-        assert.deepEqual(result.existingNodeIds, ["custom-positioned-shot-1"]);
+        session.resolveResult({
+            requestId: call.requestId,
+            result: {
+                nodes: [
+                    { id: "custom-positioned-shot-1", metadata: { shotId: "shot-001" } },
+                    { id: "browser-created-shot-2", metadata: { shotId: "shot-002" } },
+                ],
+            },
+        });
+        const result = await promise as { existingNodeIds: string[]; updatedNodeIds: string[]; createdNodeIds: string[]; totalProjected: number };
+        assert.deepEqual(result.existingNodeIds, ["custom-positioned-shot-1", "browser-created-shot-2"]);
         assert.deepEqual(result.updatedNodeIds, ["custom-positioned-shot-1"]);
-        assert.equal(result.createdNodeIds.length, 1);
-        assert.ok(result.duplicateShotMappings["shot-001"]);
+        assert.deepEqual(result.createdNodeIds, ["browser-created-shot-2"]);
+        assert.equal(result.totalProjected, 2);
     } finally {
         session.dispose();
     }

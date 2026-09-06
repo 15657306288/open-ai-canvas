@@ -48,6 +48,7 @@ export async function startBrowserRuntimeFixture(options: BrowserRuntimeFixtureO
         port: options.port,
         log: options.log ?? (() => undefined),
         persistConfig: () => undefined,
+        lockFilePath: path.join(options.configDir, "runtime.lock"),
     });
     await runtime.ready;
     return {

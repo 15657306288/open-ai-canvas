@@ -25,6 +25,7 @@ test("browser Runtime harness uses an isolated port and performs no real CLI wor
         log: (line) => lines.push(line),
     });
     try {
+        assert.equal((await fs.stat(path.join(configDir, "runtime.lock"))).isFile(), true);
         const response = await fetch(`${fixture.endpoint}/runtime/info`, {
             headers: { Origin: trustedOrigin },
         });
@@ -36,6 +37,7 @@ test("browser Runtime harness uses an isolated port and performs no real CLI wor
         assert.equal(lines.join("\n").includes("master"), false);
     } finally {
         await fixture.close();
+        await assert.rejects(fs.stat(path.join(configDir, "runtime.lock")), { code: "ENOENT" });
         await fs.rm(configDir, { recursive: true, force: true });
     }
 });

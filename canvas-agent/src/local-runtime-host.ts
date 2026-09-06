@@ -29,6 +29,7 @@ export type StartLocalRuntimeOptions = {
     port?: number;
     log?: (line: string) => void;
     persistConfig?: (config: LocalRuntimeConfig) => void;
+    lockFilePath?: string;
     /** [connector] P0-B-1 MCP HTTP 门面开关；默认开启（Q1 拍板），可传 { enabled: false } 关闭 */
     mcp?: { enabled?: boolean; canvasOnly?: boolean; maxSessions?: number };
     /** [connector] P0-B-3 远程主动外连 bridge（Q3：本地零入站端口）。
@@ -173,7 +174,7 @@ export function startLocalRuntime(options: StartLocalRuntimeOptions = {}): Local
     let lockRelease: (() => void) | undefined;
     if (requestedPort !== 0) {
         const lockResult = acquireRuntimeLock({
-            lockFilePath: path.join(CONFIG_DIR, "runtime.lock"),
+            lockFilePath: options.lockFilePath ?? path.join(CONFIG_DIR, "runtime.lock"),
             port: requestedPort,
             token: config.token,
             endpoint,

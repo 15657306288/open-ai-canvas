@@ -37,6 +37,31 @@ func TestMigrateSchemaRecordsAndValidatesVersion(t *testing.T) {
 	}
 }
 
+func TestMigrateSchemaV14AllowsReusingArchivedLogicalModelCode(t *testing.T) {
+	db, err := Open(Config{Driver: "sqlite", DSN: "file:migration-logical-model-active-code?mode=memory&cache=shared"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TABLE logical_models (id text PRIMARY KEY, code text NOT NULL, archived_at datetime)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE UNIQUE INDEX idx_logical_models_code ON logical_models(code)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`INSERT INTO logical_models(id, code, archived_at) VALUES ('archived', 'gpt-image-2', CURRENT_TIMESTAMP)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateSchemaV14(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`INSERT INTO logical_models(id, code, archived_at) VALUES ('active', 'gpt-image-2', NULL)`).Error; err != nil {
+		t.Fatalf("reusing archived code after migration: %v", err)
+	}
+	if err := db.Exec(`INSERT INTO logical_models(id, code, archived_at) VALUES ('duplicate', 'gpt-image-2', NULL)`).Error; err == nil {
+		t.Fatal("active logical model code must remain unique")
+	}
+}
+
 func TestMigrateSchemaRejectsChecksumMismatch(t *testing.T) {
 	db, err := Open(Config{Driver: "sqlite", DSN: "file:migration-checksum?mode=memory&cache=shared"})
 	if err != nil {
@@ -89,7 +114,7 @@ func TestMigrateSchemaV3NormalizesLegacyAccessoryCategory(t *testing.T) {
 	}
 }
 
-func TestMigrateSchemaV4AddsResourceUploadKeyToExistingSchema(t *testing.T) {
+func TestMigrateSchemaV7AddsResourceUploadKeyToExistingSchema(t *testing.T) {
 	db, err := Open(Config{Driver: "sqlite", DSN: "file:migration-resource-upload-key?mode=memory&cache=shared"})
 	if err != nil {
 		t.Fatal(err)
@@ -97,16 +122,7 @@ func TestMigrateSchemaV4AddsResourceUploadKeyToExistingSchema(t *testing.T) {
 	if err := db.Exec(`CREATE TABLE resources (id TEXT PRIMARY KEY, user_id TEXT NOT NULL)`).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&schemaMigration{}); err != nil {
-		t.Fatal(err)
-	}
-	for _, item := range schemaMigrations[:3] {
-		if err := db.Create(&schemaMigration{Version: item.version, Name: item.name, Checksum: item.checksum, AppliedAt: time.Now().UTC()}).Error; err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	if err := MigrateSchema(db); err != nil {
+	if err := migrateSchemaV7(db); err != nil {
 		t.Fatalf("migrate existing schema: %v", err)
 	}
 	if !db.Migrator().HasColumn(&model.Resource{}, "upload_key") {
@@ -115,13 +131,8 @@ func TestMigrateSchemaV4AddsResourceUploadKeyToExistingSchema(t *testing.T) {
 	if !db.Migrator().HasIndex(&model.Resource{}, "idx_resources_user_upload_key") {
 		t.Fatal("resource upload key index was not added")
 	}
-	var status SchemaStatus
-	status, err = ReadSchemaStatus(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !status.Ready || status.Current != CurrentSchemaVersion {
-		t.Fatalf("unexpected schema status: %#v", status)
+	if err := migrateSchemaV7(db); err != nil {
+		t.Fatalf("upload migration is not idempotent: %v", err)
 	}
 
 	firstKey := "same-upload"
@@ -130,6 +141,45 @@ func TestMigrateSchemaV4AddsResourceUploadKeyToExistingSchema(t *testing.T) {
 	}
 	if err := db.Exec(`INSERT INTO resources (id, user_id, upload_key) VALUES (?, ?, ?)`, "resource-2", "user-1", firstKey).Error; err == nil {
 		t.Fatal("duplicate resource upload key should be rejected")
+	}
+}
+
+func TestMigrateSchemaRejectsUpstreamAssetFoldersMigrationOrder(t *testing.T) {
+	db, err := Open(Config{Driver: "sqlite", DSN: "file:migration-legacy-v6-order?mode=memory&cache=shared"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.Resource{}, &model.Asset{}, &model.AssetFolder{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&schemaMigration{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range schemaMigrations[:5] {
+		if err := db.Create(&schemaMigration{Version: item.version, Name: item.name, Checksum: item.checksum, AppliedAt: time.Now().UTC()}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Create(&schemaMigration{Version: 6, Name: "asset_library_folders", Checksum: assetLibraryFoldersChecksum, AppliedAt: time.Now().UTC()}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if err := MigrateSchema(db); err == nil || !strings.Contains(err.Error(), "不一致") {
+		t.Fatalf("expected incompatible lineage rejection: %v", err)
+	}
+	var applied schemaMigration
+	if err := db.First(&applied, "version = ?", 6).Error; err != nil {
+		t.Fatal(err)
+	}
+	if applied.Name != "asset_library_folders" || applied.Checksum != assetLibraryFoldersChecksum {
+		t.Fatalf("historical migration 6 must be preserved: %#v", applied)
+	}
+	var count int64
+	if err := db.Model(&schemaMigration{}).Where("version > ?", 6).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatal("rejected migration appended history")
 	}
 }
 

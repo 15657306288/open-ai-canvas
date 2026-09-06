@@ -272,6 +272,7 @@ export type CanvasNodeMetadata = {
     chapterTitle?: string;
     shotIndex?: number;
     shotId?: string;
+    projectionKey?: string;
     sceneId?: string;
     characterIds?: string[];
     referenceSetId?: string;
@@ -507,13 +508,16 @@ export type ConnectionHandle = {
     anchorRatio?: number;
 };
 
+export type CanvasSelectionStrategy = "replace" | "add" | "toggle" | "subtract";
+export type CanvasSelectionHitMode = "contain" | "intersect";
+
 export type SelectionBox = {
     startWorldX: number;
     startWorldY: number;
     currentWorldX: number;
     currentWorldY: number;
-    additive: boolean;
-    subtractive: boolean;
+    strategy: CanvasSelectionStrategy;
+    hitMode: CanvasSelectionHitMode;
     initialSelectedNodeIds: string[];
 };
 

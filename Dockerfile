@@ -1,14 +1,15 @@
 # Bridge 使用 Go 标准库交叉编译为原生 Windows/Linux 程序，避免把 Bun/Node 运行时打进下载文件。
-FROM docker.m.daocloud.io/library/golang:1.24-alpine AS comfy-bridge-build
+FROM golang:1.24-alpine AS comfy-bridge-build
 
 WORKDIR /src
+ENV GOMAXPROCS=2
 COPY canvas-agent/native/comfy-bridge ./
 RUN CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/OpenAICanvas-ComfyBridge.exe . \
     && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/OpenAICanvas-ComfyBridge-linux-amd64 . \
     && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o /out/OpenAICanvas-ComfyBridge-linux-arm64 .
 
 # 构建 Vite 前端产物。
-FROM docker.m.daocloud.io/oven/bun:1.3.13 AS web-build
+FROM oven/bun:1.3.13 AS web-build
 
 WORKDIR /app/web
 ARG VITE_TLDRAW_LICENSE_KEY
@@ -31,7 +32,7 @@ RUN rm -rf node_modules/.vite dist \
     && bun --bun ./node_modules/vite/bin/vite.js build
 
 # 运行镜像：nginx 托管静态前端，并在 Compose 中把 /api 转发到后端服务。
-FROM docker.m.daocloud.io/library/nginx:1.27-alpine
+FROM nginx:1.27-alpine
 
 COPY --from=web-build /app/web/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf

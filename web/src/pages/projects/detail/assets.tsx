@@ -42,7 +42,7 @@ import {
 } from "@/services/api/projects";
 import { saveRemoteUserDataNow } from "@/services/user-data-sync";
 import { useAssetStore, type Asset, type AssetCategory, type AssetStatus, type EntityAsset, type ImageAsset } from "@/stores/use-asset-store";
-import { useConfigStore, useEffectiveConfig, decodeChannelModel } from "@/stores/use-config-store";
+import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { CanvasNodeType, type CanvasFolderStyle, type CanvasFolderTheme, type CanvasNodeData } from "@/types/canvas";
 import { saveAs } from "file-saver";
 
@@ -299,29 +299,16 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
     const generateMutation = useMutation({
         mutationKey: ["project-character-turnaround", detail.project.id],
         mutationFn: async (asset: ProjectAsset) => {
-            console.log("[DEBUG] generateMutation mutationFn called", { assetId: asset.id, assetTitle: asset.title, hasCharacter: Boolean(asset.character) });
             if (!asset.character) throw new Error("角色版本信息不完整");
             const projectImageModel = detail.project.defaultImageModel || effectiveConfig.imageModel || effectiveConfig.model;
-            const decoded = decodeChannelModel(projectImageModel);
             const config = {
                 ...effectiveConfig,
-                imageModel: detail.project.defaultImageModel || "",
-                model: decoded.model || projectImageModel,
-                channelId: decoded.channelId || effectiveConfig.channelId,
+                imageModel: projectImageModel,
             };
-            console.log("[DEBUG] config prepared", { projectImageModel, decoded: { channelId: decoded.channelId, model: decoded.model }, configModel: config.model, configImageModel: config.imageModel, configChannelId: config.channelId, channelCount: config.channels?.length });
             const ready = isAiConfigReady(config, projectImageModel);
-            console.log("[DEBUG] isAiConfigReady result:", ready);
             if (!ready) throw new Error("请先在设置中配置可用的图片模型");
             const projectStyle = resolveProjectCanvasStyle(detail.project.stylePresetId, detail.project.styleProfileJson);
-            console.log("[DEBUG] projectStyle resolved", { hasStyle: Boolean(projectStyle), hasProfile: Boolean(projectStyle?.profile) });
-            try {
-                await generateCharacterTurnaround({ projectId: detail.project.id, assetId: asset.id, versionId: asset.character.versionId, name: asset.title, definition: asset.character.definition, projectStyle, config });
-                console.log("[DEBUG] generateCharacterTurnaround succeeded");
-            } catch (e) {
-                console.error("[DEBUG] generateCharacterTurnaround failed:", e);
-                throw e;
-            }
+            await generateCharacterTurnaround({ projectId: detail.project.id, assetId: asset.id, versionId: asset.character.versionId, name: asset.title, definition: asset.character.definition, projectStyle, config });
             return getProjectCharacter(detail.project.id, asset.id);
         },
         onSuccess: (result) => { syncPersonalCharacterProjection(result.asset); done("三视图已生成并绑定到新角色版本"); },
@@ -458,6 +445,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
 
             <AssetLibraryPickerModal
                 open={addOpen}
+                remoteLibrary
                 items={availablePickerItems}
                 categoryLabels={{ ...pickerCategoryLabels, ...externalAssetSources.categoryLabels }}
                 folders={externalAssetSources.folders}
@@ -479,6 +467,8 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
             </Modal>
             <AssetLibraryPickerModal
                 open={Boolean(imageAsset)}
+                remoteLibrary
+                remoteKind="image"
                 items={imagePickerItems}
                 categoryLabels={{ ...pickerCategoryLabels, ...externalAssetSources.categoryLabels }}
                 folders={externalAssetSources.folders}
@@ -497,6 +487,8 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
             />
             <AssetLibraryPickerModal
                 open={voicePickerOpen}
+                remoteLibrary
+                remoteKind="audio"
                 items={audioPickerItems}
                 categoryLabels={{ all: "全部音频", audio: "声音素材" }}
                 initialCategory="audio"

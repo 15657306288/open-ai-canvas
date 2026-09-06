@@ -127,7 +127,7 @@ func (c *pluginRuntime) bootstrapBuiltInPlugins() error {
 	}
 	builtInIDs := make(map[string]struct{}, len(entries)+2)
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".yingce-plugin") {
+		if entry.IsDir() || strings.HasPrefix(entry.Name(), ".") || !strings.HasSuffix(strings.ToLower(entry.Name()), ".yingce-plugin") {
 			continue
 		}
 		packageData, err := os.ReadFile(filepath.Join(officialDir, entry.Name()))
@@ -309,10 +309,11 @@ func (c *pluginRuntime) reload() error {
 	if err != nil {
 		return err
 	}
-	// 先注册所有内置协议（builtin），确保 grsai-image、hongniao-image 等内置协议在 pluginRuntime 中也可用
-	for _, metadata := range protocol.Builtins().List("", "", true) {
-		if adapter, ok := protocol.Builtins().Get(metadata.ID); ok {
-			_ = registry.Register(adapter)
+	for _, id := range []string{"agnes-image", "grsai-image"} {
+		if adapter, ok := protocol.Builtins().Get(id); ok {
+			if err := registry.Register(adapter); err != nil {
+				return err
+			}
 		}
 	}
 	for id, record := range plugins {
