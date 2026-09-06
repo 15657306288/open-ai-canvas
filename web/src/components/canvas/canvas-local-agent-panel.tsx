@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { App, Button, Segmented, Tooltip } from "antd";
 import copyToClipboard from "copy-to-clipboard";
-import { CheckCircle2, Copy, ExternalLink, FolderOpen, History, LoaderCircle, PlugZap, Plus, RefreshCw, Terminal, Trash2 } from "lucide-react";
+import { Copy, ExternalLink, FolderOpen, History, LoaderCircle, PlugZap, Plus, RefreshCw, Terminal, Trash2 } from "lucide-react";
 import { motion } from "motion/react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
@@ -26,7 +26,6 @@ import {
 import { canvasAgentPostconditionMessage, hashCanvasAgentSnapshot, previewCanvasAgentOps, summarizeCanvasAgentOps, verifyCanvasAgentOps, type CanvasAgentOp, type CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
 import { buildCanvasAgentContext, findCanvasAgentNodes, getCanvasAgentConnection, getCanvasAgentGenerationTasks, getCanvasAgentNode, getCanvasAgentResources, validateCanvasAgentOps } from "@/lib/canvas/canvas-agent-context";
 import { buildCanvasResourceReferences } from "@/lib/canvas/canvas-resource-references";
-import { buildLocalAgentSetupCommands, detectLocalAgentSetupPlatform, type LocalAgentSetupPlatform } from "@/lib/canvas/local-agent-setup";
 import { listAddedSkills, type Skill } from "@/services/api/skills";
 import { skillRuntime } from "@/services/skill-runtime";
 import { isProjectAgentReadTool, isProjectAgentToolName, runProjectAgentTool } from "@/services/api/project-agent-tools";
@@ -969,9 +968,8 @@ function AgentConnectView({
     onToggleEnabled: () => void;
 }) {
     const { message } = App.useApp();
-    const [platform, setPlatform] = useState<LocalAgentSetupPlatform>(() => detectLocalAgentSetupPlatform());
-    const origin = typeof window === "undefined" ? "http://localhost:3000" : window.location.origin;
-    const commands = buildLocalAgentSetupCommands(origin, platform);
+    const mcpUrl = typeof window === "undefined" ? "/mcp" : `${window.location.origin}/mcp`;
+    const command = `codex mcp add yingce --url ${mcpUrl} --bearer-token-env-var CANVAS_AGENT_TOKEN`;
     const statusText = canvasAgentConnectionStatusText({ enabled, connected: false, activity, connectError });
     const statusColor = connectError ? "#dc2626" : enabled ? "#d97706" : theme.node.muted;
     const copyCommand = async (value: string, label: string) => {
@@ -985,9 +983,9 @@ function AgentConnectView({
         <div className="thin-scrollbar min-h-0 flex-1 overflow-y-auto p-4">
             <div className="mx-auto w-full max-w-[620px] space-y-5 pb-4">
                 <div>
-                    <div className="text-base font-semibold leading-6">连接本地 Agent</div>
+                    <div className="text-base font-semibold leading-6">连接外部智能体</div>
                     <div className="mt-1 text-xs leading-5" style={{ color: theme.node.muted }}>
-                        在这台电脑启动 Canvas Agent 后，网页会通过 127.0.0.1 建立本机安全连接。连接成功后，这里会自动恢复原对话。
+                        你的网站账户已经登录。复制下面的 MCP 指令，让 Codex 或其他智能体直接使用当前影策画布。
                     </div>
                 </div>
                 <div className="rounded-md p-3" style={{ background: theme.spatial.surface }}>
@@ -1000,9 +998,7 @@ function AgentConnectView({
                                     <span className="truncate">{statusText}</span>
                                 </span>
                             </div>
-                            <div className="mt-1 text-xs leading-5" style={{ color: theme.node.muted }}>
-                                {enabled ? "正在检测本机 127.0.0.1:17371；服务启动后会自动连接。" : "先完成下面两步，再点击连接。"}
-                            </div>
+                            <div className="mt-1 text-xs leading-5" style={{ color: theme.node.muted }}>外部智能体通过网站 MCP 网关访问，权限和积分归当前账户。</div>
                         </div>
                         <Button className="!h-8 !px-3" type={enabled ? "default" : "primary"} icon={<PlugZap className="size-4" />} onClick={onToggleEnabled}>
                             {enabled ? "停止重试" : connectError ? "重新连接" : "开始连接"}
@@ -1022,47 +1018,20 @@ function AgentConnectView({
                         <div className="flex items-start gap-3">
                             <span className="grid size-6 shrink-0 place-items-center rounded-full text-xs font-semibold" style={{ background: theme.node.fill, color: theme.node.text }}>1</span>
                             <div className="min-w-0 flex-1">
-                                <div className="flex flex-wrap items-center justify-between gap-2">
-                                    <div>
-                                        <div className="text-sm font-medium leading-5">安装本机 Runtime</div>
-                                        <div className="mt-1 text-xs leading-5" style={{ color: theme.node.muted }}>需要 Git、Node.js 18+。当前版本从 GitHub 源码安装。</div>
-                                    </div>
-                                    <Segmented
-                                        size="small"
-                                        value={platform}
-                                        options={[
-                                            { label: "macOS / Linux", value: "unix" },
-                                            { label: "Windows", value: "windows" },
-                                        ]}
-                                        onChange={(value) => setPlatform(value as LocalAgentSetupPlatform)}
-                                    />
-                                </div>
-                                <CommandBlock value={commands.install} theme={theme} onCopy={() => copyCommand(commands.install, "安装命令")} />
+                                <div className="text-sm font-medium leading-5">添加影策 MCP</div>
+                                <div className="mt-1 text-xs leading-5" style={{ color: theme.node.muted }}>在外部 Codex 终端执行以下命令，然后重新打开 Codex。</div>
+                                <CommandBlock value={command} theme={theme} onCopy={() => copyCommand(command, "MCP 命令")} />
                             </div>
                         </div>
                     </section>
-
-                    <section className="border-b py-4" style={{ borderColor: theme.node.stroke }}>
+                    <section className="py-4">
                         <div className="flex items-start gap-3">
-                            <span className="grid size-6 shrink-0 place-items-center rounded-full text-xs font-semibold" style={{ background: theme.node.fill, color: theme.node.text }}>2</span>
-                            <div className="min-w-0 flex-1">
-                                <div className="text-sm font-medium leading-5">启动并授权当前站点</div>
-                                <div className="mt-1 text-xs leading-5" style={{ color: theme.node.muted }}>
-                                    命令已绑定 <span className="font-mono">{origin}</span>。保持终端运行，再回到上方开始连接。
-                                </div>
-                                <CommandBlock value={commands.start} theme={theme} onCopy={() => copyCommand(commands.start, "启动命令")} />
-                            </div>
-                        </div>
-                    </section>
-
-                    <section className="pt-4">
-                        <div className="flex items-start gap-3">
-                            <span className="grid size-6 shrink-0 place-items-center rounded-full" style={{ background: theme.node.fill, color: theme.node.text }}><CheckCircle2 className="size-3.5" /></span>
+                            <span className="grid size-6 shrink-0 place-items-center rounded-full" style={{ background: theme.node.fill, color: theme.node.text }}>2</span>
                             <div className="min-w-0 flex-1 text-xs leading-5" style={{ color: theme.node.muted }}>
-                                <div className="text-sm font-medium" style={{ color: theme.node.text }}>当前支持范围</div>
-                                <div className="mt-1">网页侧边栏使用 Codex；外部 MCP 已提供 Codex 与 Claude Code 接入。Hermes、WorkBuddy 尚未验证。Codex 需要已登录或配置可用凭据。</div>
+                                <div className="text-sm font-medium" style={{ color: theme.node.text }}>开始使用</div>
+                                <div className="mt-1">在智能体中说“读取当前影策画布”，它会通过当前账户调用画布工具。写入和生成操作仍按权限与积分规则执行。</div>
                                 <Button type="link" size="small" className="mt-1 !h-7 !px-0" href="https://github.com/ddcat-ai/open-ai-canvas/tree/main/canvas-agent" target="_blank" rel="noreferrer" icon={<ExternalLink className="size-3.5" />}>
-                                    查看完整说明
+                                    查看接入说明
                                 </Button>
                             </div>
                         </div>
