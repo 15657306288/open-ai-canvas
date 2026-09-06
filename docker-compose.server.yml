@@ -92,3 +92,22 @@ services:
       backend:
         condition: service_healthy
     restart: unless-stopped
+
+  canvas-agent:
+    container_name: open-ai-canvas-agent
+    image: open-ai-canvas-agent:server
+    build:
+      context: ./canvas-agent
+      dockerfile: Dockerfile
+    environment:
+      CANVAS_HOST: 0.0.0.0
+      PORT: 17371
+      CANVAS_AGENT_URL: ${CANVAS_AGENT_URL:-http://127.0.0.1:17371}
+      CANVAS_AGENT_TOKEN: ${CANVAS_AGENT_TOKEN:?必须配置 CANVAS_AGENT_TOKEN}
+      FRAMEFIELD_LOCAL_RUNTIME_CONFIG_DIR: /data
+      FRAMEFIELD_TRUSTED_WEB_ORIGINS: ${FRAMEFIELD_TRUSTED_WEB_ORIGINS:-*}
+    ports:
+      - "${CANVAS_AGENT_BIND:-0.0.0.0}:17371:17371"
+    volumes:
+      - ${CANVAS_AGENT_DATA_PATH:-./canvas-agent-data}:/data
+    restart: unless-stopped

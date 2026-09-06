@@ -1,6 +1,6 @@
 # 影策 Canvas Agent
 
-本地 Canvas Agent 用来连接画布网页和用户电脑上的 Codex / Claude Code。本地开发时优先连接 `http://localhost:3000`，不需要先使用线上站点。
+Canvas Runtime 连接画布网页并通过 MCP 向外部 Codex / Claude Code 提供能力。本地开发时优先连接 `http://localhost:3000`，生产部署建议使用 Compose 中独立的 `canvas-agent` 容器。
 
 ## 启动
 
@@ -83,6 +83,22 @@ Canvas Agent 内置 `portrait-clearance` Local Runtime 模块。它只接收签�
 发布前需要在 GitHub 仓库 Secrets 中配置 `NPM_TOKEN`。
 
 ## Codex MCP
+
+### 容器 MCP
+
+Compose 会启动独立的 `canvas-agent` 服务并暴露 Streamable HTTP MCP：
+
+```text
+http://<服务器地址>:17371/mcp
+```
+
+启动前必须配置服务令牌：
+
+```bash
+CANVAS_AGENT_TOKEN='使用随机生成的长令牌' docker compose up -d canvas-agent
+```
+
+外部 Codex 使用该地址，并以 `Authorization: Bearer <CANVAS_AGENT_TOKEN>` 访问。不要把真实令牌提交到仓库、插件配置或聊天记录中。
 
 如果希望 Codex 终端能直接操作画布，需要先把 Canvas Agent 注册成 Codex MCP。
 

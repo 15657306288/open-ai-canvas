@@ -57,8 +57,8 @@ export function loadConfig(create = false): LocalRuntimeConfig {
     } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
         const config = normalizeLocalRuntimeConfig({
-            url: `http://127.0.0.1:${Number(process.env.PORT) || DEFAULT_PORT}`,
-            token: crypto.randomBytes(18).toString("hex"),
+            url: process.env.CANVAS_AGENT_URL?.trim() || `http://127.0.0.1:${Number(process.env.PORT) || DEFAULT_PORT}`,
+            token: process.env.CANVAS_AGENT_TOKEN?.trim() || crypto.randomBytes(18).toString("hex"),
             trustedWebOrigins: configuredTrustedOrigins(),
             browserRegistrations: [],
         });
@@ -72,8 +72,8 @@ export function normalizeLocalRuntimeConfig(value: unknown): LocalRuntimeConfig 
         throw new Error("Local Runtime config is invalid");
     }
     const input = value as Partial<LocalRuntimeConfig>;
-    if (typeof input.url !== "string" || !isLoopbackRuntimeUrl(input.url)) {
-        throw new Error("Local Runtime URL must use 127.0.0.1");
+    if (typeof input.url !== "string" || !isRuntimeUrl(input.url)) {
+        throw new Error("Runtime URL must use http:// or https://");
     }
     if (typeof input.token !== "string" || !input.token) {
         throw new Error("Local Runtime master token is invalid");
@@ -155,11 +155,11 @@ function safeSegment(value: string) {
     return value.replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 120) || "default";
 }
 
-function isLoopbackRuntimeUrl(value: string) {
+function isRuntimeUrl(value: string) {
     try {
         const url = new URL(value);
-        return url.protocol === "http:"
-            && url.hostname === "127.0.0.1"
+        return (url.protocol === "http:" || url.protocol === "https:")
+            && Boolean(url.hostname)
             && Boolean(url.port)
             && url.pathname === "/"
             && !url.username
