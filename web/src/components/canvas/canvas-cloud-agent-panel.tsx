@@ -5,6 +5,7 @@ import { ArrowLeft, Bot, Check, ChevronRight, CircleDot, Clock3, Download, Histo
 import { saveAs } from "file-saver";
 import { buildAgentDebugExport } from "@/lib/canvas/agent-debug-export";
 import { agentPlanVisible, latestAgentPlanItems, pendingAgentQuestion } from "@/lib/canvas/cloud-agent-plan";
+import { markdownPlainText } from "@/lib/markdown-plain-text";
 import { nanoid } from "nanoid";
 
 import { ModelPicker } from "@/components/model-picker";

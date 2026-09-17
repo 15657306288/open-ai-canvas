@@ -105,7 +105,6 @@ export type LogicalModelMutation = {
     code: string;
     name: string;
     icon: string;
-    description?: string;
     description: string;
     capability: CapabilitySpec["capability"];
     enabled: boolean;
@@ -151,6 +150,7 @@ export type PublicChannelModel = {
     displayName: string;
     sortOrder?: number;
     icon: string;
+    description?: string;
     capability: string;
     protocol?: string;
     capabilityConfig?: Record<string, any>;
