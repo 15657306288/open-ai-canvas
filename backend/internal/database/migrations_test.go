@@ -442,3 +442,32 @@ func TestMigrateSchemaV13AddsCloudAgentCanvasMutation(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrateSchemaV20AddsChannelModelDescription(t *testing.T) {
+	db, err := Open(Config{Driver: "sqlite", DSN: "file:migration-channel-model-description-v20?mode=memory&cache=shared"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := MigrateSchema(db); err != nil {
+		t.Fatal(err)
+	}
+	if !db.Migrator().HasColumn(&model.ChannelModel{}, "Description") {
+		t.Fatal("migration v20 did not add channel model description column")
+	}
+	if err := db.Migrator().DropColumn(&model.ChannelModel{}, "Description"); err != nil {
+		t.Fatalf("drop description column: %v", err)
+	}
+	if err := db.Where("version = ?", 20).Delete(&schemaMigration{}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := MigrateSchema(db); err != nil {
+		t.Fatalf("upgrade from v19: %v", err)
+	}
+	if !db.Migrator().HasColumn(&model.ChannelModel{}, "Description") {
+		t.Fatal("v20 upgrade did not restore the channel model description column")
+	}
+	status, err := ReadSchemaStatus(db)
+	if err != nil || !status.Ready || status.Current != CurrentSchemaVersion {
+		t.Fatalf("unexpected upgraded schema status: %+v, %v", status, err)
+	}
+}

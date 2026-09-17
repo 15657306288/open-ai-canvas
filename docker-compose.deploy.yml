@@ -1,6 +1,8 @@
 services:
   postgres:
     image: postgres:17-alpine
+    security_opt:
+      - seccomp:unconfined
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-open_ai_canvas}
       POSTGRES_USER: ${POSTGRES_USER:-open_ai_canvas}

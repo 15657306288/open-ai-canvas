@@ -9,6 +9,7 @@ export type ChannelModelFormValues = {
     providerModelKey?: string;
     displayName?: string;
     icon?: string;
+    description?: string;
     capability: ModelCapabilityChoice;
     protocol?: string;
     priceTiers: PriceTierFormValues[];
@@ -31,6 +32,7 @@ export function initialChannelModelValues(item: ChannelModel | null, protocols: 
         providerModelKey: upstreamModel,
         displayName: item?.displayName || "",
         icon: item?.icon || "",
+        description: item?.description || "",
         capability,
         protocol,
         priceTiers: item ? (item.priceTiers?.length ? item.priceTiers.map(priceTierToForm) : [legacyPriceTierToForm(item)]) : [defaultPriceTier()],

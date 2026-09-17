@@ -105,6 +105,7 @@ export type LogicalModelMutation = {
     code: string;
     name: string;
     icon: string;
+    description?: string;
     description: string;
     capability: CapabilitySpec["capability"];
     enabled: boolean;

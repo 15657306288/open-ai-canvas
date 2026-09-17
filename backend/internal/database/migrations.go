@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 19
+const CurrentSchemaVersion int64 = 20
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -77,6 +77,7 @@ var schemaMigrations = []migration{
 		return tx.AutoMigrate(&model.AgentMemorySetting{})
 	}},
 	{version: 19, name: "payment_plugin_version", checksum: "sha256:payment-plugin-version-v19-20260917", apply: migrateSchemaV19},
+	{version: 20, name: "channel_model_description", checksum: "sha256:channel-model-description-v20-20260917", apply: migrateSchemaV20},
 }
 
 func migrateSchemaV14(tx *gorm.DB) error {
@@ -258,6 +259,15 @@ func addPaymentPluginVersionColumn(tx *gorm.DB, value any) error {
 	}
 	if err := tx.Migrator().AddColumn(value, "PluginVersion"); err != nil {
 		return fmt.Errorf("增加支付插件版本列：%w", err)
+	}
+	return nil
+}
+
+// migrateSchemaV20 为系统渠道模型补充面向用户的说明字段。
+// 说明只用于前台选型展示，存量模型保持空说明，不影响价格、路由与结算。
+func migrateSchemaV20(tx *gorm.DB) error {
+	if !tx.Migrator().HasColumn(&model.ChannelModel{}, "Description") {
+		return tx.Migrator().AddColumn(&model.ChannelModel{}, "Description")
 	}
 	return nil
 }

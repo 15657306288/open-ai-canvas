@@ -44,6 +44,9 @@ type ChannelModel struct {
 	DisplayName                  string               `json:"displayName" gorm:"size:160"`
 	SortOrder                    int                  `json:"sortOrder" gorm:"not null;default:0"`
 	Icon                         string               `json:"icon" gorm:"size:80"`
+	// Description 是面向用户的模型说明（上游时长/分辨率限制、素材要求、计费口径等）。
+	// 它随公开模型目录发布，只用于展示与选型，不参与调用与结算合同。
+	Description                  string               `json:"description" gorm:"size:600"`
 	Capability                   string               `json:"capability" gorm:"size:32;index"`
 	Protocol                     ChannelInterfaceType `json:"protocol" gorm:"size:32;index"`
 	BillingMode                  string               `json:"billingMode" gorm:"size:32"`

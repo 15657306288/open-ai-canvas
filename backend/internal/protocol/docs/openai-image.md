@@ -1,6 +1,6 @@
 # OpenAI Images
 
-OpenAI Images 插件实现 JSON 文生图请求，并解析 OpenAI Images 风格的 `data[]` 响应。上游官方还提供 multipart 图像编辑接口，但当前宿主适配器的创建路径只构造 `/v1/images/generations`；详情中列出编辑接口是为了说明协议能力，不代表当前画布已发送编辑请求。
+OpenAI Images 插件实现 JSON 文生图及 multipart 图像编辑，并解析 OpenAI Images 风格的 `data[]` 响应。当前插件包根据参考图自动选择路径；不要仅根据静态 `create.path` 判断实际调用接口，还必须检查 `pathTemplate` 和 `contentTypeTemplate`。
 
 ## 接口与鉴权
 
@@ -12,7 +12,7 @@ Authorization: Bearer <API_KEY>
 Content-Type: application/json
 ```
 
-官方编辑接口为 `POST /v1/images/edits`、`multipart/form-data`。当前适配器未在有参考图时切换到该路径，这是明确的实现缺口。
+无参考图使用上述 JSON 接口；有参考图使用 `POST /v1/images/edits`、`multipart/form-data`，源图进入 `image` 文件字段，蒙版进入 `mask`。宿主拒绝缺少源图的蒙版编辑。
 
 ## 模型、尺寸与质量
 
@@ -22,7 +22,7 @@ Content-Type: application/json
 
 {{PARAMETERS}}
 
-当前实现：`imageCount -> n`、`aspectRatio -> size`、`quality -> quality`；`extra` 可透传 `size`、`quality`、`background`、`response_format`、`output_format`、`style`、`n`。`images` 和 `resolution` 当前不会进入文生图请求。
+当前实现：`imageCount -> n`、`aspectRatio -> size`、`quality -> quality`。宿主先把画布比例预设转换为像素尺寸，例如 `1:1 -> 1024x1024`，不能把 `1:1` 原样发给图片接口。非法显式尺寸在提交前拒绝；ddcat 的宽高均不得超过 4096。Provider 扩展字段位于 `providerOptions.openai-image`，具体映射以安装的 manifest 为准。参考图通过 multipart 文件发送；`resolution` 不直接映射为输出像素尺寸。
 
 ## 文生图请求
 
@@ -63,7 +63,7 @@ curl "{channel_base_url}/v1/images/edits" \
   -F "prompt=保持人物一致，改成雨夜街道"
 ```
 
-该示例是上游协议参考；在宿主中使用前必须补 multipart 构造、参考图数量与 MIME 校验、编辑响应测试。
+该路径已经由插件包及宿主 multipart 传输实现。回归测试覆盖比例转换、编辑请求和 Base64 返回；`TestDDCatLiveImageRoundTrip` 仅在显式设置 `DDCAT_SMOKE_API_KEY` 时发起两次真实收费请求，默认测试会跳过。连接 EOF 表示结果未完整收到，不能据此确认上游没有生成或扣费；不得盲目自动重新提交。
 
 ## 官方资料
 

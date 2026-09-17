@@ -22,6 +22,7 @@ type ChannelModelRequest struct {
 	ProviderModelKey             string                         `json:"providerModelKey"`
 	DisplayName                  string                         `json:"displayName"`
 	Icon                         string                         `json:"icon"`
+	Description                  string                         `json:"description"`
 	Capability                   string                         `json:"capability"`
 	Protocol                     string                         `json:"protocol"`
 	BillingMode                  string                         `json:"billingMode"`
@@ -351,6 +352,7 @@ func (s *Service) SaveAdminChannelModel(actor *model.User, channelID string, id 
 		item.DisplayName = modelKey
 	}
 	item.Icon = strings.TrimSpace(req.Icon)
+	item.Description = truncateRunes(strings.TrimSpace(req.Description), 600)
 	item.Capability = capability
 	item.Protocol = protocol
 	s.applyChannelModelPriceTierSummary(item, tiers)

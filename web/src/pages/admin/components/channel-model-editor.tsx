@@ -107,6 +107,7 @@ export function ChannelModelEditor({
                 providerModelKey: upstreamModel,
                 displayName: values.displayName?.trim() || values.modelKey.trim(),
                 icon: values.icon?.trim() || "",
+                description: values.description?.trim() || "",
                 capability: values.capability,
                 protocol: values.protocol,
                 priceTiers: values.priceTiers.map((tier) => ({
@@ -262,6 +263,9 @@ export function ChannelModelEditor({
                                             </Form.Item>
                                             <Form.Item name="icon" label="模型 Logo">
                                                 <ModelIconPicker />
+                                            </Form.Item>
+                                            <Form.Item name="description" label="模型说明" tooltip="展示在前台模型选择器里，用来说明该模型的能力边界与计费口径。">
+                                                <Input.TextArea rows={2} maxLength={600} showCount placeholder="例如：固定 720P，支持 5/10/15 秒，最多 9 张参考图，按次计费。" />
                                             </Form.Item>
                                         </div>
                                         {tiersWithOwnUpstream.length ? (

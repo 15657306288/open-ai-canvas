@@ -514,46 +514,35 @@ func TestImageResponseKeepsBase64AsDataURL(t *testing.T) {
 	}
 }
 
-func TestOpenAIImagesEditUsesJSONImageReferences(t *testing.T) {
+func TestOpenAIImagesEditUsesMultipartImageReferences(t *testing.T) {
 	adapter := officialPackageAdapter(t, "openai-images.yingce-plugin", "openai-image")
-	if !adapter.Metadata().RequiresPublicMediaURLs {
-		t.Fatal("OpenAI Images reference inputs must be hydrated as public URLs")
+	if adapter.Metadata().RequiresPublicMediaURLs {
+		t.Fatal("OpenAI Images edit inputs must be hydrated as bytes")
 	}
 	spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
 		Model:  "gpt-image-2.5",
 		Prompt: "combine both references",
 		Images: []MediaReference{
-			{URL: "https://cdn.example/reference-1.png", Role: "edit_source", Order: 0},
-			{URL: "https://cdn.example/reference-2.png", Role: "edit_source", Order: 1},
-			{URL: "https://cdn.example/mask.png", Role: "mask", Order: 2},
+			{DataURL: "data:image/png;base64,aW1hZ2Ux", Role: "edit_source", Order: 0},
+			{DataURL: "data:image/png;base64,aW1hZ2Uy", Role: "edit_source", Order: 1},
+			{DataURL: "data:image/png;base64,bWFzaw==", Role: "mask", Order: 2},
 		},
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if spec.Path != "/v1/images/edits" || spec.ContentType != "application/json" || len(spec.Files) != 0 {
+	if spec.Path != "/v1/images/edits" || spec.ContentType != "multipart/form-data" || len(spec.Files) != 3 {
 		t.Fatalf("edit request = path:%q contentType:%q files:%#v", spec.Path, spec.ContentType, spec.Files)
 	}
 	body, ok := spec.Body.(map[string]any)
 	if !ok {
 		t.Fatalf("body = %#v", spec.Body)
 	}
-	images, ok := body["images"].([]any)
-	if !ok || len(images) != 2 {
-		t.Fatalf("images = %#v", body["images"])
+	if _, exists := body["images"]; exists {
+		t.Fatalf("multipart edit must not send JSON image URLs: %#v", body["images"])
 	}
-	for index, want := range []string{"https://cdn.example/reference-1.png", "https://cdn.example/reference-2.png"} {
-		image, ok := images[index].(map[string]any)
-		if !ok || image["image_url"] != want {
-			t.Fatalf("images[%d] = %#v, want image_url %q", index, images[index], want)
-		}
-	}
-	mask, ok := body["mask"].(map[string]any)
-	if !ok || mask["image_url"] != "https://cdn.example/mask.png" {
-		t.Fatalf("mask = %#v", body["mask"])
-	}
-	if _, exists := body["response_format"]; exists {
-		t.Fatalf("response_format should not be sent by default: %#v", body["response_format"])
+	if body["response_format"] != "b64_json" {
+		t.Fatalf("response_format = %#v", body["response_format"])
 	}
 }
 

@@ -44,6 +44,7 @@ type PublicChannelModel struct {
 	DisplayName      string                        `json:"displayName"`
 	SortOrder        int                           `json:"sortOrder"`
 	Icon             string                        `json:"icon"`
+	Description      string                        `json:"description,omitempty"`
 	Capability       string                        `json:"capability"`
 	Protocol         model.ChannelInterfaceType    `json:"protocol"`
 	CapabilityConfig map[string]any                `json:"capabilityConfig,omitempty"`
@@ -204,6 +205,7 @@ func (s *Service) sanitizeChannelModel(cm *model.ChannelModel) (PublicChannelMod
 		DisplayName:      cm.DisplayName,
 		SortOrder:        cm.SortOrder,
 		Icon:             cm.Icon,
+		Description:      cm.Description,
 		Capability:       cm.Capability,
 		Protocol:         cm.Protocol,
 		CapabilityConfig: capabilityConfig,

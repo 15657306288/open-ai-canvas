@@ -54,6 +54,7 @@ export type ChannelModel = {
     displayName: string;
     sortOrder?: number;
     icon: string;
+    description?: string;
     capability: "text" | "image" | "video" | "audio" | "";
     protocol?: import("@/lib/model-protocols").ModelProtocol;
     billingMode: "fixed_request" | "per_second" | "token";
@@ -97,6 +98,7 @@ export type ChannelModelMutation = {
     providerModelKey?: string;
     displayName?: string;
     icon?: string;
+    description?: string;
     capability: ChannelModel["capability"];
     protocol?: ChannelModel["protocol"];
     enabled?: boolean;
