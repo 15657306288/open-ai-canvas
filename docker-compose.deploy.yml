@@ -29,7 +29,7 @@ services:
     restart: unless-stopped
 
   migrate:
-    image: ghcr.io/ddcat-ai/open-ai-canvas-backend:${CANVAS_IMAGE_TAG:-latest}
+    image: ghcr.io/15657306288/open-ai-canvas-backend:${CANVAS_IMAGE_TAG:-latest}
     command: ["migrate-schema", "up"]
     environment:
       CANVAS_BACKEND_DATA_DIR: /data
@@ -40,7 +40,7 @@ services:
         condition: service_healthy
 
   backend:
-    image: ghcr.io/ddcat-ai/open-ai-canvas-backend:${CANVAS_IMAGE_TAG:-latest}
+    image: ghcr.io/15657306288/open-ai-canvas-backend:${CANVAS_IMAGE_TAG:-latest}
     environment:
       CANVAS_BACKEND_ADDR: ":8080"
       CANVAS_BACKEND_DATA_DIR: /data
@@ -72,7 +72,7 @@ services:
     stop_grace_period: ${CANVAS_SHUTDOWN_TIMEOUT:-10m}
 
   web:
-    image: ghcr.io/ddcat-ai/open-ai-canvas-web:${CANVAS_IMAGE_TAG:-latest}
+    image: ghcr.io/15657306288/open-ai-canvas-web:${CANVAS_IMAGE_TAG:-latest}
     ports:
       - "${CANVAS_HTTP_PORT:-3000}:3000"
     depends_on:
