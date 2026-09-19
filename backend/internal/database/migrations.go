@@ -110,6 +110,9 @@ var schemaMigrations = []migration{
 	}},
 	{version: 35, name: "canvas_durable_branches", checksum: "sha256:canvas-durable-branches-v31-20260920", apply: func(tx *gorm.DB) error { return tx.AutoMigrate(&model.CanvasBranch{}) }},
 	{version: 36, name: "canvas_media_grants", checksum: "sha256:canvas-media-grants-v32-20260920", apply: migrateCanvasMediaGrants},
+	{version: 37, name: "canvas_template_library", checksum: "sha256:canvas-template-library-v28-20260919", apply: func(tx *gorm.DB) error {
+		return tx.AutoMigrate(&model.CanvasTemplate{}, &model.CanvasTemplateVersion{})
+	}},
 }
 
 func migrateChannelCreditCost(tx *gorm.DB) error {

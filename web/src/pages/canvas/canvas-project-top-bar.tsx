@@ -42,6 +42,7 @@ type CanvasTopBarProps = {
     onSave: () => void | Promise<void>;
     onForceSave: () => void;
     onImportImage: () => void;
+    onOpenTemplates: () => void;
     onImportLibTV: () => void;
     onImportTapNow: () => void;
     onUndo: () => void;
@@ -78,6 +79,7 @@ export function CanvasTopBar({
     onSave,
     onForceSave,
     onImportImage,
+    onOpenTemplates,
     onImportLibTV,
     onImportTapNow,
     onUndo,
@@ -181,6 +183,7 @@ export function CanvasTopBar({
                                     { key: "force-save", icon: <CloudUpload className="size-4" />, label: "修复素材关联并保存", onClick: onForceSave },
                                     ...(creditsEnabled ? [{ key: "credit-usage", icon: <Gauge className="size-4" />, label: "我在此画布的积分用量", onClick: () => void openUsage() }] : []),
                                     { type: "divider" },
+                                    { key: "templates", icon: <LayoutTemplate className="size-4" />, label: "打开模板库", onClick: onOpenTemplates },
                                     { key: "import", icon: <Upload className="size-4" />, label: "导入素材", onClick: onImportImage },
                                     { key: "search", icon: <Search className="size-4" />, label: <MenuLabel text="搜索节点" shortcut="⌘ F" />, onClick: onOpenSearch },
                                     {
@@ -282,6 +285,11 @@ export function CanvasTopBar({
                             onClick={onOpenSearch}
                             aria-label="搜索画布节点"
                         />
+                    </CanvasTopBarTooltip>
+                    <CanvasTopBarTooltip label="模板库">
+                        <Button type="text" className="canvas-topbar-action !h-10 !rounded-xl !px-2.5 !font-medium" style={{ color: theme.node.text }} icon={<LayoutTemplate className="size-4" />} onClick={onOpenTemplates} aria-label="打开模板库">
+                            <span className="hidden lg:inline">模板</span>
+                        </Button>
                     </CanvasTopBarTooltip>
                     <CanvasTopBarTooltip label="导入第三方画布">
                         <Dropdown
