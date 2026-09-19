@@ -246,6 +246,7 @@ export type CanvasNodeMetadata = {
     templateMediaURL?: string;
     templateMediaKind?: "image" | "video";
     templateMediaIds?: string[];
+    templateMediaTemplateId?: string;
     previewContent?: string;
     videoPreview?: {
         content: string;

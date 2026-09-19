@@ -15,6 +15,7 @@ import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-refer
 import type { CanvasTheme } from "@/lib/canvas-theme";
 import { formatBytes } from "@/lib/image-utils";
 import { resourceFileUrl, resourceIdFromStorageKey } from "@/services/api/resources";
+import { canvasTemplateMediaURL } from "@/services/api/canvas-templates";
 import type { GenerationTask } from "@/services/api/task-center";
 import { scheduleResourceBlobCache } from "@/services/resource-blob-cache";
 import { resolveMediaUrl } from "@/services/file-storage";
@@ -397,7 +398,7 @@ function skillOutputModeLabel(mode?: string) {
 }
 
 function ImageNodeContent(props: CanvasNodeContentProps) {
-    const hasPreview = Boolean(props.node.metadata?.content || props.node.metadata?.templateMediaURL);
+    const hasPreview = Boolean(props.node.metadata?.content || props.node.metadata?.templateMediaURL || props.node.metadata?.templateMediaIds?.length);
     if (!hasPreview && props.isBatchRoot) {
         const content = props.node.metadata?.status === "loading"
             ? <LoadingContent node={props.node} theme={props.theme} />
@@ -458,7 +459,7 @@ function VideoNodeContent({ node, theme, mediaActive = false, onMediaPlayRequest
         };
     }, [node.id, node.metadata?.naturalHeight, node.metadata?.naturalWidth, subtitleEntries.length, updateMediaNode, url]);
 
-    if (!node.metadata?.content && !node.metadata?.templateMediaURL) return <EmptyMediaContent icon={<Video className="size-7 opacity-35" />} label="空视频节点" color={theme.node.placeholder} />;
+    if (!node.metadata?.content && !node.metadata?.templateMediaURL && !node.metadata?.templateMediaIds?.length) return <EmptyMediaContent icon={<Video className="size-7 opacity-35" />} label="空视频节点" color={theme.node.placeholder} />;
     if (!mediaActive) return <InactiveVideoPreview node={node} theme={theme} onPlay={() => onMediaPlayRequest?.(node.id)} />;
     if (!url) return <MediaLoadingState icon={<LoaderCircle className="size-5 animate-spin" />} label={loading ? "正在加载视频" : "视频资源不可用"} />;
 
@@ -550,7 +551,8 @@ function VideoPreviewPlayButton({ title, onPlay }: { title: string; onPlay: () =
 
 function useVideoPlaybackUrl(node: CanvasNodeData, active: boolean) {
     const rawContent = node.metadata?.content || "";
-    const fallback = node.metadata?.templateMediaURL || (node.metadata?.importSource?.provider === "libtv" ? buildLibTVVideoSourceUrl(rawContent) : rawContent);
+    const templateMediaURL = templatePreviewURL(node);
+    const fallback = templateMediaURL || (node.metadata?.importSource?.provider === "libtv" ? buildLibTVVideoSourceUrl(rawContent) : rawContent);
     const storageKey = node.metadata?.storageKey || "";
     const [url, setUrl] = useState("");
     const [loading, setLoading] = useState(false);
@@ -646,7 +648,7 @@ function useNodeResourceUrl(node: CanvasNodeData, eager: boolean) {
     // `previewContent` is intentionally passive-only.  When a media node is
     // activated, VideoPlayer/Audio must receive the playable asset, never the
     // LibTV OSS snapshot URL stored for the thumbnail.
-    const fallback = node.metadata?.templateMediaURL || (node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio
+    const fallback = templatePreviewURL(node) || (node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio
         ? content
         : node.metadata?.previewContent
             || (node.type === CanvasNodeType.Image && node.metadata?.importSource?.provider === "libtv" ? buildLibTVImagePreviewUrl(content) : content));
@@ -675,6 +677,13 @@ function useNodeResourceUrl(node: CanvasNodeData, eager: boolean) {
     }, [eager, fallback, isLazyVisual, isRemoteResource, remoteUrl]);
 
     return { url, loading };
+}
+
+function templatePreviewURL(node: CanvasNodeData) {
+    if (node.metadata?.templateMediaURL) return node.metadata.templateMediaURL;
+    const templateId = node.metadata?.templateMediaTemplateId;
+    const mediaId = node.metadata?.templateMediaIds?.[0];
+    return templateId && mediaId ? canvasTemplateMediaURL(templateId, mediaId) : "";
 }
 
 function useNearViewport(ref: RefObject<Element | null>) {
