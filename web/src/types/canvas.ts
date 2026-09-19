@@ -242,6 +242,10 @@ export type CanvasNodeMetadata = {
               sourceType?: string;
           };
     content?: string;
+    /** NodyHub template preview media; this is display-only and is stripped when saving a template. */
+    templateMediaURL?: string;
+    templateMediaKind?: "image" | "video";
+    templateMediaIds?: string[];
     previewContent?: string;
     videoPreview?: {
         content: string;
