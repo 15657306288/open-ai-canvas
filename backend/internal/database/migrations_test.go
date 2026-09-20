@@ -383,7 +383,7 @@ func TestCanvasCollaborationMigrationPreservesExistingCanvas(t *testing.T) {
 		}
 	}
 	status, err := ReadSchemaStatus(db)
-	if err != nil || !status.Ready || status.Current != 32 {
+	if err != nil || !status.Ready || status.Current != CurrentSchemaVersion {
 		t.Fatalf("schema = %#v, %v", status, err)
 	}
 }
