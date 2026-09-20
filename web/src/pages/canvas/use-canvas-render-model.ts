@@ -30,11 +30,13 @@ type UseCanvasRenderModelOptions = {
     infoNodeId: string | null;
     cropNodeId: string | null;
     maskEditNodeId: string | null;
+    imageEditNodeId: string | null;
     annotationNodeId: string | null;
     splitNodeId: string | null;
     upscaleNodeId: string | null;
     superResolveNodeId: string | null;
     angleNodeId: string | null;
+    lightingNodeId: string | null;
     emotionNodeId: string | null;
     previewNodeId: string | null;
     contextMenu: ContextMenuState | null;
@@ -60,11 +62,13 @@ export function useCanvasRenderModel({
     infoNodeId,
     cropNodeId,
     maskEditNodeId,
+    imageEditNodeId,
     annotationNodeId,
     splitNodeId,
     upscaleNodeId,
     superResolveNodeId,
     angleNodeId,
+    lightingNodeId,
     emotionNodeId,
     previewNodeId,
     contextMenu,
@@ -220,11 +224,13 @@ export function useCanvasRenderModel({
     const infoNode = infoNodeId ? nodeById.get(infoNodeId) || null : null;
     const cropNode = cropNodeId ? nodeById.get(cropNodeId) || null : null;
     const maskEditNode = maskEditNodeId ? nodeById.get(maskEditNodeId) || null : null;
+    const imageEditNode = imageEditNodeId ? nodeById.get(imageEditNodeId) || null : null;
     const annotationNode = annotationNodeId ? nodeById.get(annotationNodeId) || null : null;
     const splitNode = splitNodeId ? nodeById.get(splitNodeId) || null : null;
     const upscaleNode = upscaleNodeId ? nodeById.get(upscaleNodeId) || null : null;
     const superResolveNode = superResolveNodeId ? nodeById.get(superResolveNodeId) || null : null;
     const angleNode = angleNodeId ? nodeById.get(angleNodeId) || null : null;
+    const lightingNode = lightingNodeId ? nodeById.get(lightingNodeId) || null : null;
     const emotionNode = emotionNodeId ? nodeById.get(emotionNodeId) || null : null;
     const previewNode = previewNodeId ? nodeById.get(previewNodeId) || null : null;
     const contextMenuNode = contextMenu?.type === "node" ? nodeById.get(contextMenu.nodeId) || null : null;
@@ -361,6 +367,7 @@ export function useCanvasRenderModel({
         activeScriptNode,
         activeStylePresetId,
         angleNode,
+        lightingNode,
         emotionNode,
         annotationNode,
         batchChildCountById,
@@ -375,6 +382,7 @@ export function useCanvasRenderModel({
         imageAssets,
         infoNode,
         maskEditNode,
+        imageEditNode,
         mentionReferencesByNodeId,
         nodeById,
         previewNode,

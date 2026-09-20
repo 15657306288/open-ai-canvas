@@ -12,7 +12,7 @@ export function useSkillRuntimeCatalog() {
         let cancelled = false;
         listAddedSkills()
             .then((result) => {
-                if (!cancelled) setSkills(result.skills.filter((skill) => skill.is_added));
+                if (!cancelled) setSkills(result.skills.filter((skill) => skill.isAdded));
             })
             .catch(() => {
                 if (!cancelled) setSkills([]);
@@ -30,7 +30,7 @@ export function useSkillRuntimeCatalog() {
 
 export function SkillRuntimePicker({ skills, loading, value, onChange, placeholder = "选择本次生成使用的技能", profile = "canvas" }: { skills: Skill[]; loading?: boolean; value: string[]; onChange: (skillIds: string[]) => void; placeholder?: string; profile?: SkillRuntimeProfile }) {
     const options = useMemo(
-        () => skills.map((skill) => ({ value: skill.skill_id, label: skill.skill_name, title: skill.description })),
+        () => skills.map((skill) => ({ value: skill.skillId, label: skill.skillName, title: skill.description })),
         [skills],
     );
     const maxSkills = SKILL_RUNTIME_PROFILES[profile].maxSkills;

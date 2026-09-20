@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"infinite-canvas/backend/internal/service"
@@ -14,7 +15,7 @@ import (
 const internalErrorMessage = "系统处理失败，请稍后重试"
 
 func ok(c *gin.Context, data any) {
-	c.JSON(http.StatusOK, gin.H{"code": 0, "data": data, "msg": "ok"})
+	c.JSON(http.StatusOK, gin.H{"code": service.CodeOK, "data": data, "msg": "ok"})
 }
 
 // fail 只接受调用方已经确认可公开的错误；service 返回值统一交给 failService 投影。
@@ -23,31 +24,50 @@ func fail(c *gin.Context, status int, err error) {
 	if err != nil && strings.TrimSpace(err.Error()) != "" {
 		message = err.Error()
 	}
-	writeFailure(c, status, status, message)
+	writeFailure(c, status, status, service.ReasonForStatus(status), message)
 }
 
 func failService(c *gin.Context, err error) {
+	var cooldown *service.EmailCodeCooldownError
+	if errors.As(err, &cooldown) {
+		c.Header("Retry-After", strconv.Itoa(cooldown.Seconds))
+		writeFailure(c, http.StatusTooManyRequests, service.CodeRateLimited, service.ReasonRateLimited, cooldown.Error())
+		return
+	}
+	var modelErr *service.ModelError
+	if errors.As(err, &modelErr) && modelErr.AppError != nil && validErrorStatus(modelErr.Status) {
+		writeAppError(c, modelErr.AppError)
+		return
+	}
 	var appErr *service.AppError
 	if errors.As(err, &appErr) && validErrorStatus(appErr.Status) {
-		code := appErr.Code
-		if code == 0 {
-			code = appErr.Status
-		}
-		message := strings.TrimSpace(appErr.Message)
-		if message == "" {
-			message = safeInternalErrorMessage(appErr.Status)
-		}
-		if appErr.Status >= http.StatusInternalServerError {
-			diagnosticErr := appErr.Cause
-			if diagnosticErr == nil {
-				diagnosticErr = appErr
-			}
-			logHandlerError(c, appErr.Status, diagnosticErr)
-		}
-		writeFailure(c, appErr.Status, code, message)
+		writeAppError(c, appErr)
 		return
 	}
 	failInternal(c, http.StatusInternalServerError, err)
+}
+
+func writeAppError(c *gin.Context, appErr *service.AppError) {
+	code := appErr.Code
+	if code == 0 {
+		code = appErr.Status
+	}
+	reason := appErr.Reason
+	if reason == "" {
+		reason = service.ReasonForStatus(appErr.Status)
+	}
+	message := strings.TrimSpace(appErr.Message)
+	if message == "" {
+		message = safeInternalErrorMessage(appErr.Status)
+	}
+	if appErr.Status >= http.StatusInternalServerError {
+		diagnosticErr := appErr.Cause
+		if diagnosticErr == nil {
+			diagnosticErr = appErr
+		}
+		logHandlerError(c, appErr.Status, diagnosticErr)
+	}
+	writeFailure(c, appErr.Status, code, reason, message)
 }
 
 // failInternal 保留真实 HTTP 状态，但绝不把未分类错误原文写入响应。
@@ -56,11 +76,15 @@ func failInternal(c *gin.Context, status int, err error) {
 		status = http.StatusInternalServerError
 	}
 	logHandlerError(c, status, err)
-	writeFailure(c, status, status, safeInternalErrorMessage(status))
+	writeFailure(c, status, status, service.ReasonForStatus(status), safeInternalErrorMessage(status))
 }
 
-func writeFailure(c *gin.Context, status int, code int, message string) {
-	c.JSON(status, gin.H{"code": code, "data": nil, "msg": message})
+func writeFailure(c *gin.Context, status int, code int, reason service.ErrorReason, message string) {
+	body := gin.H{"code": code, "data": nil, "msg": message}
+	if reason != "" {
+		body["reason"] = reason
+	}
+	c.JSON(status, body)
 }
 
 func validErrorStatus(status int) bool {

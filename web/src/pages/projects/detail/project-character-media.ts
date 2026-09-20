@@ -1,4 +1,5 @@
 import { runBackendCanvasGenerationTask } from "@/lib/canvas/canvas-project-generation";
+import { PromptTemplateOperation, promptTemplateTaskPlaceholder } from "@/lib/prompts";
 import { resolveStyleExecutionPlan, serializeStyleProfile, type StyleProfileSnapshot } from "@/lib/canvas/style-profile";
 import { logicalModelIDForConfig, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 
@@ -14,9 +15,9 @@ export async function generateCharacterTurnaround(input: { projectId: string; as
         projectId: input.projectId,
         nodeId: `character-turnaround:${input.assetId}`,
         mode: "image",
-        prompt: "使用当前启用的角色三视图模板。",
+        prompt: promptTemplateTaskPlaceholder("角色三视图"),
         config: generationConfig,
-        metadata: { operation: "character_turnaround", promptTemplateOperation: "character_turnaround", promptTemplateVariables, characterAssetId: input.assetId, stylePresetId: input.projectStyle?.id, styleProfileJson: input.projectStyle?.profile ? serializeStyleProfile(input.projectStyle.profile) : undefined, styleExecutionPlan, resolvedCharacterVersions: [{ assetId: input.assetId, versionId: input.versionId }] },
+        metadata: { operation: PromptTemplateOperation.CharacterTurnaround, promptTemplateOperation: PromptTemplateOperation.CharacterTurnaround, promptTemplateVariables, characterAssetId: input.assetId, stylePresetId: input.projectStyle?.id, styleProfileJson: input.projectStyle?.profile ? serializeStyleProfile(input.projectStyle.profile) : undefined, styleExecutionPlan, resolvedCharacterVersions: [{ assetId: input.assetId, versionId: input.versionId }] },
     });
 }
 

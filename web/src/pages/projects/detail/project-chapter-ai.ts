@@ -1,6 +1,8 @@
 import { runBackendCanvasGenerationTask } from "@/lib/canvas/canvas-project-generation";
-import { storyboardRowsFromTask } from "@/lib/canvas/canvas-project-domain";
-import { parseCharacterBreakdown, type CharacterBreakdown } from "@/lib/canvas/canvas-character-reference";
+import { PromptTemplateOperation, promptTemplateTaskPlaceholder } from "@/lib/prompts";
+import { storyboardRowsFromTask, storyboardRowsOutputContract } from "@/lib/canvas/canvas-project-domain";
+import { parseChapterAssetBreakdown, type ChapterAssetBreakdown } from "@/lib/canvas/chapter-asset-breakdown";
+import { parseCharacterBreakdown } from "@/lib/canvas/canvas-character-reference";
 import { backendProviderConfig, parseBackendGenerationResult } from "@/services/api/generation-task";
 import { createGenerationTask, waitForGenerationTask, type GenerationTask } from "@/services/api/task-center";
 import type { Skill } from "@/services/api/skills";
@@ -38,24 +40,28 @@ export function chapterTaskIdentity(task: GenerationTask): { chapterId: string; 
     return null;
 }
 
-export function chapterCharactersFromGenerationTask(task: GenerationTask) {
+export function chapterAssetsFromGenerationTask(task: GenerationTask) {
     const result = parseBackendGenerationResult(task);
-    if (!result.text?.trim()) throw new Error("模型没有返回可用的角色提取结果");
-    return parseCharacterBreakdown(result.text);
+    if (!result.text?.trim()) throw new Error("模型没有返回可用的章节资产提取结果");
+    // 历史角色任务的输出契约只有角色；仅按明确的模板操作恢复，不能给新任务缺字段兜底。
+    if (generationTaskMetadata(task.inputJson).promptTemplateOperation === PromptTemplateOperation.CharacterExtract) {
+        return { characters: parseCharacterBreakdown(result.text), scenes: [], props: [] };
+    }
+    return parseChapterAssetBreakdown(result.text);
 }
 
 export function chapterStoryboardFromGenerationTask(task: GenerationTask) {
     return storyboardRowsFromTask(task);
 }
 
-export async function extractChapterCharacters(input: ChapterAnalysisInput, options?: ChapterTaskOptions): Promise<CharacterBreakdown[]> {
+export async function extractChapterAssets(input: ChapterAnalysisInput, options?: ChapterTaskOptions): Promise<ChapterAssetBreakdown> {
     const result = await runProjectTextTask(input, "chapter_character_breakdown", {
         项目名称: input.projectName,
         章节名称: input.chapterTitle,
         项目画风: input.projectStyle || "项目尚未指定画风，保持视觉描述中性、可执行。",
         章节正文: input.sourceText,
     }, options);
-    return parseCharacterBreakdown(result);
+    return parseChapterAssetBreakdown(result);
 }
 
 type ChapterStoryboardGenerationInput = {
@@ -84,14 +90,21 @@ export async function generateChapterStoryboard(input: ChapterStoryboardGenerati
         skills: input.skills,
         selectedSkillIds: input.selectedSkillIds,
     });
+    // 技能上下文只描述工作流，不会约束输出结构；必须显式带上输出契约，否则模型返回 Markdown 表格。
+    const prompt = [
+        skillExecution.prompt,
+        storyboardRowsOutputContract("每个镜头必须能独立用于生成首帧图片和镜头视频。"),
+    ].join("\n\n");
     const task = await createGenerationTask({
         projectId: input.projectId,
-        type: "agent_storyboard_rows",
-        operation: "storyboard_rows",
-        prompt: skillExecution.prompt,
+        type: "canvas_text",
+        operation: "storyboard",
+        prompt,
         model,
         ...(logicalModelIDForConfig(config) ? { logicalModelId: logicalModelIDForConfig(config) } : {}),
         input: {
+            // 后端只在 video_ 前缀的任务上兜底 mode，文本任务必须显式带上。
+            mode: "text",
             canvasAssets: input.assets,
             requirements: "输出可直接写入分镜制作并继续生成分镜图、动作预演和镜头视频的分镜表。",
             projectStyle: input.projectStyle,
@@ -118,9 +131,9 @@ async function runProjectTextTask(input: ChapterAnalysisInput, operation: string
         projectId: input.projectId,
         nodeId: `${operation}:${input.chapterId}`,
         mode: "text",
-        prompt: "使用当前启用的角色卡提取模板。",
+        prompt: promptTemplateTaskPlaceholder("章节角色、场景与道具提取"),
         config: { ...input.config, model },
-        metadata: { domainProjectId: input.projectId, chapterId: input.chapterId, operation, promptTemplateOperation: "character_extract", promptTemplateVariables },
+        metadata: { domainProjectId: input.projectId, chapterId: input.chapterId, operation, promptTemplateOperation: PromptTemplateOperation.ChapterAssetsExtract, promptTemplateVariables },
         onTaskCreated: options?.onTaskUpdate,
     });
     if (!result.text?.trim()) throw new Error("模型没有返回可用结果");

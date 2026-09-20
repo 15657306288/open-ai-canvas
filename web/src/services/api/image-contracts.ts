@@ -33,10 +33,12 @@ export type ToolResponseResult = {
 export type ToolChoice = "auto" | "required" | { type: "function"; name: string };
 
 export type BackendToolRequests = {
-    responses: Record<string, unknown>;
-    chatCompletion: Record<string, unknown>;
-    claude?: Record<string, unknown>;
-    gemini?: Record<string, unknown>;
+    canonical: {
+        messages: ResponseInputMessage[];
+        tools: ResponseFunctionTool[];
+        toolChoice: ToolChoice;
+        systemPrompt: string;
+    };
 };
 
 export type ResponseMessageContent = AiTextMessage["content"] | string;

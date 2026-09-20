@@ -35,6 +35,11 @@ type Resource struct {
 	Height           int    `json:"height"`
 	DurationMs       int64  `json:"durationMs"`
 	ETag             string `json:"etag" gorm:"size:160"`
+	// 浏览器兼容播放副本（HEVC/H.265 原片在 Chrome 等无法解码，由 ffmpeg 转 H.264）：
+	// PlaybackStatus: none|processing|ready|failed；PlaybackObjectKey 为本地播放目录下的文件名。
+	PlaybackStatus    string `json:"playbackStatus" gorm:"index;size:24"`
+	PlaybackObjectKey string `json:"playbackObjectKey"`
+	PlaybackError     string `json:"playbackError" gorm:"type:text"`
 	// UploadKey 是客户端逻辑上传身份的摘要；NULL 表示不参与幂等约束。
 	UploadKey *string   `json:"-" gorm:"size:64;uniqueIndex:idx_resources_user_upload_key,priority:2"`
 	Error     string    `json:"error"`
@@ -369,6 +374,7 @@ type CanvasProject struct {
 	ProjectID   string    `json:"projectId,omitempty" gorm:"index;size:36;index:idx_canvas_projects_user_project_updated,priority:2"`
 	Title       string    `json:"title" gorm:"size:240"`
 	PayloadJSON string    `json:"payloadJson" gorm:"type:text"`
+	Revision    int64     `json:"revision" gorm:"not null;default:1"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt" gorm:"index:idx_canvas_projects_user_updated,priority:2;index:idx_canvas_projects_user_project_updated,priority:3"`
 }
@@ -431,4 +437,31 @@ type UserAnnouncementRead struct {
 	UserID         string    `json:"userId" gorm:"index;size:36;uniqueIndex:idx_user_announcement_read,priority:1"`
 	AnnouncementID string    `json:"announcementId" gorm:"index;size:36;uniqueIndex:idx_user_announcement_read,priority:2"`
 	ReadAt         time.Time `json:"readAt"`
+}
+
+// BannerTitleRun 是通知标题中一段连续文本的样式覆盖；零值字段表示沿用默认样式。
+// 字重与字号用指针区分「未设置」和「显式设置为默认值」。
+type BannerTitleRun struct {
+	Text       string `json:"text"`
+	FontSize   *int   `json:"fontSize,omitempty"`   // px，仅接受 10-20
+	FontWeight *int   `json:"fontWeight,omitempty"` // 仅接受 400 / 500 / 600 / 700
+	FontFamily string `json:"fontFamily,omitempty"` // "" | "sans" | "serif" | "mono"
+	Color      string `json:"color,omitempty"`      // #RRGGBB
+}
+
+type BannerAnnouncement struct {
+	ID    string `json:"id" gorm:"primaryKey;size:36"`
+	Title string `json:"title" gorm:"size:120"` // 纯文本标题，由 TitleRuns 拼接得出，供列表展示和关键字检索
+	// TitleRuns 是标题的样式分段，前端按段渲染；持久化在 title_runs 文本列，由仓储层显式编解码。
+	TitleRuns     []BannerTitleRun `json:"titleRuns,omitempty" gorm:"-"`
+	TitleRunsJSON string           `json:"-" gorm:"column:title_runs;type:text"`
+	// NoticeType 决定通知条底色（"notice" | "activity" | "update" | "warning"），取值白名单见 app 层。
+	NoticeType string     `json:"noticeType" gorm:"size:24"`
+	Link       string     `json:"link" gorm:"size:500"`        // 点击跳转目标：http(s) 外链或 / 开头的站内路径；空表示不可点击
+	Status     string     `json:"status" gorm:"size:24;index"` // "active" | "disabled"
+	StartsAt   *time.Time `json:"startsAt,omitempty" gorm:"index"`
+	EndsAt     *time.Time `json:"endsAt,omitempty" gorm:"index"`
+	CreatedBy  string     `json:"createdBy" gorm:"size:36"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	UpdatedAt  time.Time  `json:"updatedAt"`
 }

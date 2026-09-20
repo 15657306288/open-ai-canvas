@@ -1,7 +1,7 @@
 package handler
 
 import (
-	"strconv"
+	"net/http"
 
 	"infinite-canvas/backend/internal/service"
 
@@ -48,8 +48,11 @@ func RegisterAdminStorageRoutes(r *gin.RouterGroup, svc *service.Service) {
 			failService(c, err)
 			return
 		}
-		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+		page, limit, err := parsePaginationQuery(c, 20)
+		if err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
 		result, err := svc.AdminResourcePage(user, service.AdminResourceQuery{
 			Keyword: c.Query("keyword"), Kind: c.Query("kind"), Status: c.Query("status"),
 			Provider: c.Query("provider"), UserID: c.Query("userId"), Page: page, Limit: limit,

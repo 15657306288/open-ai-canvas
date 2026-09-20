@@ -35,7 +35,7 @@ jobs:
       - name: Verify canonical payment packages
         env:
           PAYMENT_PLUGIN_SMOKE_TEST: "1"
-        run: sh plugin-packages/verify-payment-packages.sh linux amd64
+        run: sh plugin-packages/verify-payment-packages.sh --all linux amd64
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - name: Build and execute payment packages for every image platform
@@ -59,10 +59,21 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.9
+      - name: Reject leftover package manager lockfiles
+        working-directory: ${{ github.workspace }}
+        run: |
+          leftover=0
+          for file in web/pnpm-lock.yaml web/package-lock.json web/yarn.lock; do
+            if [ -f "$file" ]; then
+              echo "forbidden lockfile: $file"
+              leftover=1
+            fi
+          done
+          if [ "$leftover" -ne 0 ]; then
+            echo "web installs from bun.lock only"
+            exit 1
+          fi
       - name: Install dependencies
-        run: bun install --frozen-lockfile
-      - name: Install Canvas Agent dependencies
-        working-directory: canvas-agent
         run: bun install --frozen-lockfile
       - name: Check formatting
         env:
@@ -93,6 +104,8 @@ jobs:
           fi
       - name: Typecheck
         run: bun run typecheck
+      - name: Lint retired Ant Design APIs
+        run: bun run lint
       - name: Run tests
         run: bun run test
       # ubuntu-latest 预装 google-chrome；脚本的解析顺序已覆盖该路径，

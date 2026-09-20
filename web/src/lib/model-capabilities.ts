@@ -1,4 +1,5 @@
 import type { ModelProtocol, ModelProtocolWorkflow } from "@/lib/model-protocols";
+import type { ImageResolutionOption, ImageResolutionTier } from "@/lib/image-resolution-tiers";
 
 export type ModelCapabilityConfig = {
     version: number;
@@ -8,6 +9,14 @@ export type ModelCapabilityConfig = {
 };
 
 export type TextCapabilityConfig = {
+    /** Whether the upstream text endpoint accepts SSE streaming responses. */
+    streaming?: boolean;
+    /** Whether the model exposes a user-selectable reasoning/thinking mode. */
+    thinking?: boolean;
+    /** Total provider input plus output context window, in tokens. */
+    contextWindowTokens: number;
+    /** Provider completion/reasoning output ceiling, in tokens. */
+    maxOutputTokens: number;
     references: {
         promptMaxChars: number;
         maxImages: number;
@@ -18,6 +27,15 @@ export type TextCapabilityConfig = {
 };
 
 export type ImageSizeParameter = "none" | "size" | "aspect_ratio";
+
+/**
+ * 普通视频模型提示词字符数的默认上限。
+ *
+ * 视频提示词由「输入框文本 + 连线内容 + 技能上下文」合成，远长于用户手输内容，
+ * 因此不能沿用偏小的默认值把画布工作流拦在本地。必须与后端
+ * `DefaultVideoPromptMaxChars` 保持一致，否则前端放行后端拒绝（或反之）。
+ */
+export const DEFAULT_VIDEO_PROMPT_MAX_CHARS = 8000;
 
 export type ImageCapabilityConfig = {
     references: {
@@ -31,6 +49,7 @@ export type ImageCapabilityConfig = {
         values: string[];
         default: string;
         allowCustom: boolean;
+        presets?: ImageResolutionOption[];
     };
     quality: {
         supported: boolean;
@@ -90,6 +109,14 @@ export const STANDARD_IMAGE_SIZE_VALUES = [
     "1024x1536",
 ] as const;
 
+const DEFAULT_TEXT_REFERENCE_MAX_IMAGES = 16;
+const DEFAULT_TEXT_REFERENCE_MAX_VIDEOS = 3;
+
+function isKnownMultimodalTextModel(protocol?: ModelProtocol, model = "") {
+    // Gemini、GPT 和豆包的文本/聊天接口均可承载视觉输入；兼容网关通常只改变协议名。
+    return /gemini|gpt|doubao|豆包/i.test(model) || protocol === "gemini";
+}
+
 export function normalizeCapabilityString(value: string) {
     const normalized = value.trim();
     return normalized.startsWith("string:") ? normalized.slice("string:".length) : normalized;
@@ -102,6 +129,14 @@ function normalizeCapabilityStrings(values: string[]) {
 export function normalizeModelCapabilityConfig(config: ModelCapabilityConfig): ModelCapabilityConfig {
     return {
         ...config,
+        text: config.text
+            ? {
+                  ...config.text,
+                  streaming: config.text.streaming !== false,
+                  contextWindowTokens: config.text.contextWindowTokens || 128_000,
+                  maxOutputTokens: config.text.maxOutputTokens || 16_384,
+              }
+            : config.text,
         image: config.image
             ? {
                   ...config.image,
@@ -200,7 +235,7 @@ export function defaultImageCapabilityConfig(protocol?: ModelProtocol, model = "
         image.responseFormat = { supported: true };
         image.outputFormat = { supported: false };
         image.maxOutputs = 1;
-    } else if (protocol === "volcengine-ark-image") {
+    } else if (protocol === "volcengine-ark-image" || protocol === "volcengine-ark-agent-plan-image") {
         image.references.maskSupported = false;
         image.quality.supported = false;
         image.transparentBackground.supported = false;
@@ -229,6 +264,26 @@ export function defaultImageCapabilityConfig(protocol?: ModelProtocol, model = "
         image.outputFormat = { supported: false };
         image.maxOutputs = 4;
     }
+    if (protocol === "agnes-image") {
+        // Agnes 图像：size 必填，取 1K/2K/3K/4K 档位或 WxH 精确尺寸，画面比例走独立的 ratio 字段；
+        // 参考图放 extra_body.image，支持多图合成，但没有蒙版端点。
+        image.references.maxImages = 9;
+        image.references.maskSupported = false;
+        image.size = {
+            parameter: "aspect_ratio",
+            values: ["1:1", "3:4", "4:3", "16:9", "9:16", "2:3", "3:2", "21:9"],
+            default: "1:1",
+            allowCustom: false,
+        };
+        // 官方档位是 1K/2K/3K/4K，统一层只提供 1k/2k/4k 三档；3K 保留在协议映射里但不在界面露出。
+        image.quality = { supported: true, values: ["1k", "2k", "4k"], default: "2k" };
+        image.transparentBackground = { supported: false, default: false };
+        // 顶层 response_format 是官方明确的错误写法，输出格式只能在 extra_body 内声明。
+        image.responseFormat = { supported: false };
+        image.outputFormat = { supported: false };
+        // 该端点不接受 n，单次请求固定返回一张图片。
+        image.maxOutputs = 1;
+    }
     if (protocol !== "grok-image" && model.trim().toLowerCase().startsWith("grok-imagine-image")) {
         image.references.maxImages = 0;
         image.references.maskSupported = false;
@@ -249,12 +304,20 @@ export function defaultImageCapabilityConfig(protocol?: ModelProtocol, model = "
 
 export function defaultModelCapabilityConfig(protocol?: ModelProtocol, model = ""): ModelCapabilityConfig {
     const text: TextCapabilityConfig = {
-        // 文本模型的视觉能力必须由管理员明确开启，不能根据模型名猜测。
-        references: { promptMaxChars: 32000, maxImages: 0, maxImageBytes: 0, maxVideos: 0, maxVideoBytes: 0 },
+        streaming: true,
+        contextWindowTokens: 128_000,
+        maxOutputTokens: 16_384,
+        references: {
+            promptMaxChars: 32000,
+            maxImages: isKnownMultimodalTextModel(protocol, model) ? DEFAULT_TEXT_REFERENCE_MAX_IMAGES : 0,
+            maxImageBytes: isKnownMultimodalTextModel(protocol, model) ? 30 * 1024 * 1024 : 0,
+            maxVideos: isKnownMultimodalTextModel(protocol, model) ? DEFAULT_TEXT_REFERENCE_MAX_VIDEOS : 0,
+            maxVideoBytes: isKnownMultimodalTextModel(protocol, model) ? 200 * 1024 * 1024 : 0,
+        },
     };
     const video: VideoCapabilityConfig = {
         references: {
-            promptMaxChars: 1000,
+            promptMaxChars: DEFAULT_VIDEO_PROMPT_MAX_CHARS,
             minImages: 0,
             maxImages: 9,
             maxImageBytes: 30 * 1024 * 1024,
@@ -283,7 +346,7 @@ export function defaultModelCapabilityConfig(protocol?: ModelProtocol, model = "
         video.duration = { selection: "enum", values: [4, 6, 8], default: 6 };
         video.resolutions = ["720p", "1080p"];
     }
-    if (protocol === "volcengine-ark-video" || protocol === "newapi-channel-1" || protocol === "newapi-channel-2") {
+    if (protocol === "volcengine-ark-video" || protocol === "volcengine-ark-agent-plan-video" || protocol === "newapi-channel-1" || protocol === "newapi-channel-2") {
         video.references.maxVideos = 3;
         video.references.maxAudios = 3;
         video.references.maxVideoBytes = 200 * 1024 * 1024;
@@ -292,8 +355,8 @@ export function defaultModelCapabilityConfig(protocol?: ModelProtocol, model = "
         video.references.maxAudioDurationSeconds = 15;
         video.generateAudio = { supported: true, default: true };
     }
-    if (protocol === "volcengine-ark-video" || protocol === "newapi-channel-1") video.resolutions = ["480p", "720p", "1080p"];
-    if (protocol === "volcengine-ark-video") {
+    if (protocol === "volcengine-ark-video" || protocol === "volcengine-ark-agent-plan-video" || protocol === "newapi-channel-1") video.resolutions = ["480p", "720p", "1080p"];
+    if (protocol === "volcengine-ark-video" || protocol === "volcengine-ark-agent-plan-video") {
         video.watermark = { supported: true, default: false };
         video.operations.push("reference_to_video", "audio_to_video");
     }
@@ -361,7 +424,19 @@ export function modelCapabilityConfigFor(config: { channels: Array<{ id: string;
     const fallback = defaultModelCapabilityConfig(cost?.protocol, modelName);
     if (!cost?.capabilityConfig) return fallback;
     const capabilityConfig = normalizeModelCapabilityConfig(cost.capabilityConfig);
-    const text = capabilityConfig.text ? { ...fallback.text!, ...capabilityConfig.text, references: { ...fallback.text!.references, ...capabilityConfig.text.references } } : fallback.text;
+    const mergedText = capabilityConfig.text ? { ...fallback.text!, ...capabilityConfig.text, references: { ...fallback.text!.references, ...capabilityConfig.text.references } } : fallback.text;
+    const text = mergedText && isKnownMultimodalTextModel(cost?.protocol, modelName) && (mergedText.references.maxImages === 0 || mergedText.references.maxVideos === 0)
+        ? {
+              ...mergedText,
+              references: {
+                  ...mergedText.references,
+                  maxImages: mergedText.references.maxImages || DEFAULT_TEXT_REFERENCE_MAX_IMAGES,
+                  maxImageBytes: mergedText.references.maxImageBytes || 30 * 1024 * 1024,
+                  maxVideos: mergedText.references.maxVideos || DEFAULT_TEXT_REFERENCE_MAX_VIDEOS,
+                  maxVideoBytes: mergedText.references.maxVideoBytes || 200 * 1024 * 1024,
+              },
+          }
+        : mergedText;
     const video = capabilityConfig.video ? { ...fallback.video!, ...capabilityConfig.video, references: { ...fallback.video!.references, ...capabilityConfig.video.references } } : fallback.video;
     const configuredImage = capabilityConfig.image;
     const image = configuredImage
@@ -894,10 +969,28 @@ function matchWorkflowValue(value: string, options: string[]) {
 
 export function normalizeImageValue(profile: ImageCapabilityConfig, value: { size?: string; quality?: string; count?: string; transparentBackground?: string }) {
     const size = normalizeImageSizeSetting(profile, value.size);
-    const quality = profile.quality.supported ? (value.quality && profile.quality.values.includes(value.quality) ? value.quality : profile.quality.default || "auto") : profile.quality.default || "auto";
+    const requestedQuality = String(value.quality || "").trim().toLowerCase();
+    // 比例协议的固定分辨率预设没有独立 quality 字段时，UI 仍需把当前比例对应的
+    // 预设档位带入请求。仅在 quality 未声明支持时启用，避免与 auto/low/medium/high
+    // 这组真实图片质量语义混用。
+    const presetTier = !profile.quality.supported ? imagePresetTierForSelection(profile, size) : undefined;
+    const quality = profile.quality.supported
+        ? requestedQuality === "auto" || requestedQuality === "any"
+            ? "auto"
+            : value.quality && profile.quality.values.includes(value.quality)
+                ? value.quality
+                : profile.quality.default || "auto"
+        : requestedQuality === "1k" || requestedQuality === "2k" || requestedQuality === "4k"
+            ? requestedQuality
+            : presetTier || profile.quality.default || "auto";
     const count = String(Math.max(1, Math.min(profile.maxOutputs, Math.floor(Math.abs(Number(value.count)) || 1))));
     const transparentBackground = profile.transparentBackground.supported && value.transparentBackground === "true" ? "true" : "false";
     return { size, quality, count, transparentBackground };
+}
+
+function imagePresetTierForSelection(profile: ImageCapabilityConfig, size: string): ImageResolutionTier | undefined {
+    if (profile.size.parameter !== "aspect_ratio" || !size || size === "auto") return undefined;
+    return profile.size.presets?.find((preset) => preset.ratio === size)?.tier;
 }
 
 export function normalizeImageSizeSetting(profile: ImageCapabilityConfig, value?: string) {

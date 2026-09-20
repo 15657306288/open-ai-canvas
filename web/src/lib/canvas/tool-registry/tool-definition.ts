@@ -7,6 +7,7 @@ import type { CanvasNodeData, CanvasNodeMetadata, CanvasNodeTypeId, CanvasToolMo
 
 /** 工具栏标识——每个工具栏有独立的注册表与偏好 */
 export type ToolbarId = "main" | "selection" | "node-hover" | "add-node-menu";
+export type NodeToolbarGroup = "primary" | "portrait" | "viewpoint" | "lighting" | "panorama" | "process" | "workspace" | "utility" | "more";
 
 /** 工具分类——用于分组渲染、危险隔离与 separator 自动插入 */
 export type ToolCategory =
@@ -67,6 +68,7 @@ export type ToolbarHandlers = {
     onCreateReferenceGroup: () => void;
     onBatchConnect: () => void;
     onMergeVideos: () => void;
+    onSendSelectionToAgent: () => void;
     // 节点悬停工具栏——节点操作（均接收当前节点）
     onNodeInfo: (node: CanvasNodeData) => void;
     onNodeDelete: (node: CanvasNodeData) => void;
@@ -81,6 +83,8 @@ export type ToolbarHandlers = {
     onNodeDownload: (node: CanvasNodeData) => void;
     onNodeSaveAsset: (node: CanvasNodeData) => void;
     onNodeMaskEdit: (node: CanvasNodeData) => void;
+    onNodeImageEdit: (node: CanvasNodeData) => void;
+    onNodeRemoveBackground: (node: CanvasNodeData) => void;
     onNodeEmotion: (node: CanvasNodeData) => void;
     onNodePortraitTexture: (node: CanvasNodeData) => void;
     onNodeCrop: (node: CanvasNodeData) => void;
@@ -166,12 +170,25 @@ export type ToolDefinition = {
     defaultVisible: boolean;
     /** 默认排序权重，升序 */
     defaultOrder: number;
+    /** 节点工具条的展示层级；由注册表统一决定，避免组件按工具 ID 二次编排。 */
+    nodeToolbar?: {
+        group: NodeToolbarGroup | ((ctx: ToolContext) => NodeToolbarGroup);
+        order?: number | ((ctx: ToolContext) => number);
+        section?: string;
+        description?: string;
+    };
     active?: (ctx: ToolContext) => boolean;
     disabled?: (ctx: ToolContext) => boolean;
     /** 危险操作——渲染时隔离到独立分组 */
     danger?: boolean;
     /** 面板展开型工具——使用 aria-expanded 而非 aria-pressed */
     expands?: boolean;
+    /** 互斥开关：在 dock 中渲染为分段切换，而不是两个独立按钮 */
+    switchGroup?: {
+        value: (ctx: ToolContext) => string;
+        options: Array<{ id: string; label: string; displayLabel?: string; icon: ReactNode; value: string }>;
+        onChange: (ctx: ToolContext, value: string) => void;
+    };
     /** 上下文可见性谓词——返回 false 时工具不渲染（不受 prefs 控制） */
     applicable?: (ctx: ToolContext) => boolean;
     /** 执行动作。event 来自 Dock 按钮点击 */

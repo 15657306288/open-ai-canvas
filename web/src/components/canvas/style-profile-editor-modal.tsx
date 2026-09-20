@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { App, Button, Input, Modal, Segmented, Select } from "antd";
+import { App, Button, Input, Segmented, Select } from "antd";
+import { AppModal } from "@/components/ui/product/app-modal";
 import { Braces, Image, Layers3, Save, Sparkles } from "lucide-react";
 
 import { StyleAssetBindingModal } from "@/components/canvas/style-asset-binding-modal";
@@ -52,7 +53,7 @@ export function StyleProfileEditorModal({ open, initialProfile, saving = false, 
 
     return (
         <>
-            <Modal
+            <AppModal
                 rootClassName="style-profile-editor-modal"
                 open={open}
                 title={null}
@@ -60,7 +61,7 @@ export function StyleProfileEditorModal({ open, initialProfile, saving = false, 
                 centered
                 width="min(1120px, calc(100vw - 24px))"
                 onCancel={requestClose}
-                styles={{ container: { padding: 0 }, body: { padding: 0 } }}
+                flush
             >
                 <div className="flex max-h-dvh min-h-0 flex-col overflow-hidden bg-background text-foreground">
                     <header className="flex min-h-16 items-center border-b border-border px-4 pr-12 sm:px-5 sm:pr-14">
@@ -99,7 +100,7 @@ export function StyleProfileEditorModal({ open, initialProfile, saving = false, 
                         </div>
                     </footer>
                 </div>
-            </Modal>
+            </AppModal>
             <StyleAssetBindingModal
                 open={assetsOpen}
                 profile={draft}

@@ -8,9 +8,17 @@ function compactSource(source: string) {
     return source.replace(/\s+/g, " ").trim();
 }
 
+function readCreateSource() {
+    return readFileSync(resolve(import.meta.dir, "../src/pages/create/index.tsx"), "utf8");
+}
+
+function readCreateWorkspaceSource() {
+    return readFileSync(resolve(import.meta.dir, "../src/pages/create/creation-workspace.tsx"), "utf8");
+}
+
 describe("creation library button", () => {
     test("keeps library selection in the reference area instead of the bottom dock", () => {
-        const source = readFileSync(resolve(import.meta.dir, "../src/pages/create/index.tsx"), "utf8");
+        const source = readCreateWorkspaceSource();
         const dockStart = source.indexOf('<footer className="creation-chat-dock">');
         const dockEnd = source.indexOf("</footer>", dockStart);
 
@@ -20,16 +28,17 @@ describe("creation library button", () => {
         const modePickerIndex = dockSource.indexOf("<ModePicker mode={props.mode}");
 
         expect(modePickerIndex).toBeGreaterThanOrEqual(0);
+        expect(source).not.toContain("creation-composer-mode-row");
         expect(dockSource).not.toContain('aria-label="打开素材库选择参考内容"');
         expect(dockSource).not.toContain('aria-label="从本机上传附件"');
         expect(source).toContain("onClick={props.onOpenLibrary}");
         expect(source).toContain("creation-reference-add-button");
         expect(source).toContain('showSelectedPrice={false} showOptionPrices variant="creation"');
-        expect(source).toContain("canvas-node-composer-submit-cost");
+        expect(source).toContain("creation-submit-cost");
     });
 
     test("uploads from the library without adding a reference before confirmation", () => {
-        const source = readFileSync(resolve(import.meta.dir, "../src/pages/create/index.tsx"), "utf8");
+        const source = readCreateSource();
         const pickerSource = readFileSync(resolve(import.meta.dir, "../src/components/assets/asset-library-picker-modal.tsx"), "utf8");
         const uploadStart = source.indexOf("const uploadLibraryAssets = async");
         const uploadEnd = source.indexOf("const handleLibrarySelect", uploadStart);
@@ -45,7 +54,7 @@ describe("creation library button", () => {
     });
 
     test("previews prompt reference images without removing them", () => {
-        const createSource = readFileSync(resolve(import.meta.dir, "../src/pages/create/index.tsx"), "utf8");
+        const createSource = readCreateWorkspaceSource();
         const canvasSource = readFileSync(resolve(import.meta.dir, "../src/components/canvas/canvas-node-prompt-panel.tsx"), "utf8");
 
         expect(createSource).toContain('className="creation-user-message-attachments"');
@@ -57,10 +66,10 @@ describe("creation library button", () => {
     });
 
     test("参考内容层叠轨道支持折叠、展开和 Reorder 排序", () => {
-        const source = readFileSync(resolve(import.meta.dir, "../src/pages/create/index.tsx"), "utf8");
+        const source = readCreateWorkspaceSource();
         const styles = readFileSync(resolve(import.meta.dir, "../src/styles/globals.css"), "utf8");
 
-        expect(source).toContain('import { Reorder } from "motion/react"');
+        expect(source).toContain("import { Reorder, LayoutGroup, motion, useReducedMotion } from \"motion/react\"");
         expect(source).toContain("<Reorder.Group");
         expect(source).toContain('axis="x"');
         expect(source).toContain("values={visibleAttachments}");
@@ -108,7 +117,7 @@ describe("creation library button", () => {
 
     test("resolves remote asset images from their stable resource key", () => {
         const assets = readFileSync(resolve(import.meta.dir, "../src/pages/create/creation-assets.ts"), "utf8");
-        const createSource = readFileSync(resolve(import.meta.dir, "../src/pages/create/index.tsx"), "utf8");
+        const createSource = readCreateWorkspaceSource();
 
         expect(assets).toContain("resolveResourceUrl(asset.data.storageKey");
         expect(createSource).toContain("<CachedResourceImage storageKey={item.storageKey}");
@@ -128,11 +137,46 @@ describe("creation library button", () => {
     });
 
     test("删除按钮在指针按下阶段隔离拖拽，素材库入口职责独立", () => {
-        const source = compactSource(readFileSync(resolve(import.meta.dir, "../src/pages/create/index.tsx"), "utf8"));
+        const source = compactSource(readCreateWorkspaceSource());
 
         expect(source).toContain("onPointerDownCapture={(event) => event.stopPropagation()}");
         expect(source).toContain("onRemove(item.id)");
         expect(source).toContain("onClick={props.onOpenLibrary}");
         expect(source).not.toContain("onClick={() => props.fileInputRef.current?.click()}");
+    });
+});
+
+describe("creation homepage default mode", () => {
+    test("opens the empty homepage on image generation instead of video", () => {
+        const source = readCreateSource();
+        expect(source).toContain("import { defaultCreationMode, modeLabels,");
+        expect(source).toContain("initialComposerPreferences.mode || defaultCreationMode");
+        expect(source).toContain("saved.mode || defaultCreationMode");
+        expect(source).not.toContain('mode || "video"');
+    });
+});
+
+describe("creation thread chrome", () => {
+    test("docks the conversation toolbar into the workspace top bar and keeps a compact thread composer", () => {
+        const workspace = readCreateWorkspaceSource();
+        const topBar = readFileSync(resolve(import.meta.dir, "../src/components/layout/workspace-top-bar.tsx"), "utf8");
+        const product = readFileSync(resolve(import.meta.dir, "../src/styles/workspace-product.css"), "utf8");
+
+        expect(workspace).toContain("useWorkspaceTopBarMount");
+        expect(workspace).toContain("createPortal(toolbar, mount)");
+        expect(topBar).toContain("WorkspaceTopBarExtensionSlot");
+        expect(product).toContain(".creation-chat-dock .creation-mode-tabs");
+        expect(product).not.toContain("creation-composer-mode-row");
+    });
+
+    test("parameter popovers use the user surface without a hairline stroke", () => {
+        const css = readFileSync(resolve(import.meta.dir, "../src/pages/create/creation-product.css"), "utf8");
+
+        expect(css).toContain(".creation-control-popover .ant-popover-inner");
+        expect(css).toContain("background: var(--user-surface-raised) !important");
+        expect(css).toContain("border: 0 !important");
+        expect(css).toContain("--border: transparent");
+        expect(css).toContain(".creation-choice-grid button.is-selected");
+        expect(css).toContain("background: var(--user-control-pressed) !important");
     });
 });

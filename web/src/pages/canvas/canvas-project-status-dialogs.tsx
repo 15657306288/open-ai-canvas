@@ -1,11 +1,13 @@
-import { Button, Image, Modal } from "antd";
+import { Button, Modal } from "antd";
 import { XCircle } from "lucide-react";
 
+import { CanvasImagePreview } from "@/components/canvas/canvas-image-preview";
 import { TaskDetailItem } from "./canvas-project-feedback";
 import { generationTaskShowsProgress, generationTaskStageLabel } from "@/lib/generation-task-display";
 import { formatTaskLog, type GenerationTask, type TaskLog } from "@/services/api/task-center";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 import { VideoPlayer } from "@/components/video-player";
+import { AppModal } from "@/components/ui/product/app-modal";
 import { modelDisplayName, useEffectiveConfig } from "@/stores/use-config-store";
 
 type CanvasProjectStatusDialogsProps = {
@@ -73,33 +75,26 @@ export function CanvasProjectStatusDialogs({ theme, task, taskLogs, taskLoading,
                 <div className="py-8 text-center text-base font-medium">暂未实现</div>
             </Modal>
 
-            <Modal
+            <AppModal
                 title="视频预览"
                 open={Boolean(previewNode?.metadata?.content && previewNode.type === CanvasNodeType.Video)}
                 centered
                 onCancel={onClosePreview}
                 footer={null}
                 width="min(1200px, calc(100vw - 32px))"
-                styles={{ body: { padding: 0, display: "flex", justifyContent: "center", alignItems: "center", maxHeight: "84vh", overflow: "hidden", background: "#090909" } }}
+                flush
+                styles={{ body: { display: "flex", justifyContent: "center", alignItems: "center", maxHeight: "84vh", overflow: "hidden", background: "var(--workspace-canvas-deep)" } }}
             >
                 {previewNode?.metadata?.content && previewNode.type === CanvasNodeType.Video ? (
                     <VideoPlayer src={previewNode.metadata.content} mimeType={previewNode.metadata.mimeType} title={previewNode.title || "视频预览"} hasAudio={typeof previewNode.metadata.hasAudio === "boolean" ? previewNode.metadata.hasAudio : undefined} className="max-h-[84vh] max-w-full bg-black" />
                 ) : null}
-            </Modal>
+            </AppModal>
 
             {previewNode?.metadata?.content && previewNode.type === CanvasNodeType.Image ? (
-                <Image
+                <CanvasImagePreview
                     src={previewNode.metadata.content}
                     alt={previewNode.title || "图片"}
-                    style={{ display: "none" }}
-                    preview={{
-                        open: true,
-                        movable: true,
-                        minScale: 0.5,
-                        maxScale: 12,
-                        scaleStep: 0.25,
-                        onOpenChange: (open) => !open && onClosePreview(),
-                    }}
+                    onClose={onClosePreview}
                 />
             ) : null}
 

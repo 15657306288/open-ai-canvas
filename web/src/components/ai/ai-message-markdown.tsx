@@ -1,5 +1,6 @@
 import { Streamdown, type Components } from "streamdown";
-import { code as streamdownCode } from "@streamdown/code";
+import { memo } from "react";
+import { AiMessageCodeBlock } from "./ai-message-code-block";
 
 import "streamdown/styles.css";
 
@@ -9,7 +10,8 @@ type AIMessageMarkdownProps = {
     className?: string;
 };
 
-const components: Components = {
+function buildComponents(isStreaming: boolean): Components {
+    return {
     h1: ({ children, ...props }) => <h2 {...props} className="ai-message-markdown-heading ai-message-markdown-heading-1">{children}</h2>,
     h2: ({ children, ...props }) => <h3 {...props} className="ai-message-markdown-heading ai-message-markdown-heading-2">{children}</h3>,
     h3: ({ children, ...props }) => <h4 {...props} className="ai-message-markdown-heading ai-message-markdown-heading-3">{children}</h4>,
@@ -19,7 +21,7 @@ const components: Components = {
     ol: ({ children, ...props }) => <ol {...props} className="ai-message-markdown-list ai-message-markdown-list-ordered">{children}</ol>,
     li: ({ children, ...props }) => <li {...props} className="ai-message-markdown-list-item">{children}</li>,
     blockquote: ({ children, ...props }) => <blockquote {...props} className="ai-message-markdown-blockquote">{children}</blockquote>,
-    pre: ({ children, ...props }) => <pre {...props} className="ai-message-markdown-pre">{children}</pre>,
+    pre: ({ children, ...props }) => <AiMessageCodeBlock isStreaming={isStreaming} {...props}>{children}</AiMessageCodeBlock>,
     code: ({ children, className, ...props }) => <code {...props} className={`ai-message-markdown-code ${className || ""}`.trim()}>{children}</code>,
     a: ({ children, ...props }) => <a {...props} className="ai-message-markdown-link" target="_blank" rel="noreferrer">{children}</a>,
     hr: (props) => <hr {...props} className="ai-message-markdown-rule" />,
@@ -27,13 +29,18 @@ const components: Components = {
     th: ({ children, ...props }) => <th {...props} className="ai-message-markdown-table-cell ai-message-markdown-table-header">{children}</th>,
     td: ({ children, ...props }) => <td {...props} className="ai-message-markdown-table-cell">{children}</td>,
     input: ({ ...props }) => <input {...props} className="ai-message-markdown-task" disabled />,
-};
+    };
+}
 
-export function AIMessageMarkdown({ children, isStreaming = false, className = "" }: AIMessageMarkdownProps) {
+
+const staticComponents = buildComponents(false);
+const streamingComponents = buildComponents(true);
+
+export const AIMessageMarkdown = memo(function AIMessageMarkdown({ children, isStreaming = false, className = "" }: AIMessageMarkdownProps) {
     if (!children.trim()) return null;
     return (
         <Streamdown
-            className={`ai-message-markdown ${className}`.trim()}
+            className={`ai-message-markdown ${isStreaming ? "ai-message-markdown-streaming" : ""} ${className}`.trim()}
             mode="streaming"
             dir="auto"
             isAnimating={isStreaming}
@@ -41,10 +48,9 @@ export function AIMessageMarkdown({ children, isStreaming = false, className = "
             parseIncompleteMarkdown
             skipHtml
             lineNumbers={false}
-            plugins={{ code: streamdownCode }}
-            components={components}
+            components={isStreaming ? streamingComponents : staticComponents}
         >
             {children}
         </Streamdown>
     );
-}
+});

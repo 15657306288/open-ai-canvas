@@ -8,10 +8,10 @@ import type { VideoProviderDeps } from "../src/services/api/video-provider-deps"
 import { videoResponseTools } from "../src/services/api/video-response";
 import { buildApiUrl, createModelChannel, defaultConfig, normalizeConfigSnapshot, resolveModelRequestConfig, type AiConfig } from "../src/stores/use-config-store";
 
-const originalAxiosPost = axios.post;
+const originalAxiosRequest = axios.request;
 
 afterEach(() => {
-    axios.post = originalAxiosPost;
+    axios.request = originalAxiosRequest;
 });
 
 function configForAgnes(model = "agnes-video-2.5", input: Partial<AiConfig> = {}) {
@@ -69,11 +69,11 @@ describe("Agnes Video 2.5 request contract", () => {
     test("video.ts dispatches Agnes through JSON instead of OpenAI multipart", async () => {
         let requestBody: unknown;
         let requestHeaders: Record<string, string> = {};
-        axios.post = (async (_url: string, body: unknown, options?: { headers?: Record<string, string> }) => {
-            requestBody = body;
-            requestHeaders = options?.headers || {};
+        axios.request = (async (request) => {
+            requestBody = request.data;
+            requestHeaders = request.headers as Record<string, string>;
             return { data: { id: "task-1", video_id: "video-1", status: "queued" } };
-        }) as typeof axios.post;
+        }) as typeof axios.request;
 
         const task = await createVideoGenerationTask(
             configForAgnes("agnes-video-2.5", { size: "1280x720" }),
@@ -83,7 +83,7 @@ describe("Agnes Video 2.5 request contract", () => {
 
         expect(task).toEqual({ id: "video-1", provider: "agnes", model: "agnes::agnes-video-2.5" });
         expect(requestBody).not.toBeInstanceOf(FormData);
-        expect(requestHeaders["content-type"]).toBe("application/json");
+        expect(Object.entries(requestHeaders).find(([name]) => name.toLowerCase() === "content-type")?.[1]).toBe("application/json");
         expect(requestBody).toEqual({
             model: "agnes-video-2.5",
             prompt: "自我介绍图片1",

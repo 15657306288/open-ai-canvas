@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { App, Button, Descriptions, Drawer, Empty, Progress, Skeleton, Tabs } from "antd";
+import { App, Button, Descriptions, Progress, Skeleton, Tabs } from "antd";
+import { AdminDrawer } from "@/pages/admin/ui/overlays";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
-import { PaginationBar } from "@/components/layout/workspace-page";
 import { formatCredits } from "@/constant/credits";
-import { AdminDataTable, AdminStatusBadge, AdminTableEmpty, type AdminStatusTone } from "./admin-ui";
+import { IconButton } from "@/pages/admin/ui/controls";
+import { AdminDataTable, AdminEmpty, AdminStatusBadge, AdminTableEmpty, PaginationBar, type AdminStatusTone } from "./admin-ui";
 import { getAdminUserDetail, listAdminUserAuditEvents, listAdminUserLedger, listAdminUserTasks, type AdminAuditEvent, type AdminUserDetail, type AdminUserTask } from "@/services/api/auth";
 import type { CreditLedgerEntry } from "@/services/api/wallet";
 
@@ -44,7 +45,7 @@ export function AdminUserDetailDrawer({ userId, onClose, previousUserId, nextUse
     useEffect(() => {
         if (!userId) return;
         let active = true;
-        void listAdminUserLedger(userId, { page: ledgerPage, limit: 20 })
+        void listAdminUserLedger(userId, { page: ledgerPage, pageSize: 20 })
             .then((result) => {
                 if (active) {
                     setLedger(result.entries);
@@ -59,7 +60,7 @@ export function AdminUserDetailDrawer({ userId, onClose, previousUserId, nextUse
     useEffect(() => {
         if (!userId) return;
         let active = true;
-        void listAdminUserTasks(userId, { page: taskPage, limit: 20 })
+        void listAdminUserTasks(userId, { page: taskPage, pageSize: 20 })
             .then((result) => {
                 if (active) {
                     setTasks(result.tasks);
@@ -74,7 +75,7 @@ export function AdminUserDetailDrawer({ userId, onClose, previousUserId, nextUse
     useEffect(() => {
         if (!userId) return;
         let active = true;
-        void listAdminUserAuditEvents(userId, { page: auditPage, limit: 20 })
+        void listAdminUserAuditEvents(userId, { page: auditPage, pageSize: 20 })
             .then((result) => {
                 if (active) {
                     setEvents(result.events);
@@ -88,17 +89,16 @@ export function AdminUserDetailDrawer({ userId, onClose, previousUserId, nextUse
     }, [auditPage, message, userId]);
 
     return (
-        <Drawer
+        <AdminDrawer
             title={detail ? `${detail.user.displayName || detail.user.username} · 用户详情` : "用户详情"}
             open={Boolean(userId)}
             onClose={onClose}
             size="min(920px, 100vw)"
-            destroyOnHidden
             rootClassName="admin-drawer"
             extra={onNavigate ? (
                 <div className="flex items-center gap-1">
-                    <Button type="text" size="small" aria-label="上一条用户" disabled={!previousUserId} icon={<ChevronLeft className="size-4" />} onClick={() => previousUserId && onNavigate(previousUserId)} />
-                    <Button type="text" size="small" aria-label="下一条用户" disabled={!nextUserId} icon={<ChevronRight className="size-4" />} onClick={() => nextUserId && onNavigate(nextUserId)} />
+                    <IconButton size="sm" variant="ghost" aria-label="上一条用户" disabled={!previousUserId} icon={ChevronLeft} onClick={() => previousUserId && onNavigate(previousUserId)} />
+                    <IconButton size="sm" variant="ghost" aria-label="下一条用户" disabled={!nextUserId} icon={ChevronRight} onClick={() => nextUserId && onNavigate(nextUserId)} />
                 </div>
             ) : null}
         >
@@ -225,9 +225,9 @@ export function AdminUserDetailDrawer({ userId, onClose, previousUserId, nextUse
                     ]}
                 />
             ) : (
-                <Empty description="没有用户详情" />
+                <AdminEmpty size="compact" title="没有用户详情" />
             )}
-        </Drawer>
+        </AdminDrawer>
     );
 }
 
@@ -244,7 +244,7 @@ function taskStatusTone(value?: string): AdminStatusTone {
 }
 
 function quotaUsageItems(detail: AdminUserDetail) {
-    const structuredBytes = detail.storageUsage.assetBytes + detail.storageUsage.canvasBytes + detail.storageUsage.sessionBytes;
+    const structuredBytes = detail.storageUsage.assetBytes + detail.storageUsage.canvasBytes;
     const bytes = (value: number) => value >= 1024 ** 3 ? `${(value / 1024 ** 3).toFixed(2)} GB` : `${(value / 1024 ** 2).toFixed(1)} MB`;
     const number = (value: number) => new Intl.NumberFormat("zh-CN").format(value);
     return [
@@ -254,7 +254,6 @@ function quotaUsageItems(detail: AdminUserDetail) {
         { label: "任务与请求日志数据", value: detail.storageUsage.taskBytes, limit: detail.quota.taskDataGB * 1024 ** 3, display: `${bytes(detail.storageUsage.taskBytes)} / ${detail.quota.taskDataGB} GB` },
         { label: "素材数量", value: detail.storageUsage.assetCount, limit: detail.quota.assetCount, display: `${number(detail.storageUsage.assetCount)} / ${number(detail.quota.assetCount)}` },
         { label: "画布数量", value: detail.storageUsage.canvasCount, limit: detail.quota.canvasCount, display: `${number(detail.storageUsage.canvasCount)} / ${number(detail.quota.canvasCount)}` },
-        { label: "Agent 会话数量", value: detail.storageUsage.sessionCount, limit: detail.quota.sessionCount, display: `${number(detail.storageUsage.sessionCount)} / ${number(detail.quota.sessionCount)}` },
         { label: "任务历史数量", value: detail.storageUsage.taskCount, limit: detail.quota.taskCount, display: `${number(detail.storageUsage.taskCount)} / ${number(detail.quota.taskCount)}` },
         { label: "上游请求日志数量", value: detail.storageUsage.apiCallCount, limit: detail.quota.apiCallLogCount, display: `${number(detail.storageUsage.apiCallCount)} / ${number(detail.quota.apiCallLogCount)}` },
     ];

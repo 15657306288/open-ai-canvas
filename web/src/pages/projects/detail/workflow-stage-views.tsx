@@ -22,7 +22,41 @@ export function AssetsStage({ detail, projectId, unitId }: { detail: ProjectDeta
 
 export function DeliveryStage({ detail, unitId }: { detail: ProjectDetail; unitId: string }) {
     const shots = detail.shots.filter((item) => item.unitId === unitId);
-    const readyVideos = shots.filter((shot) => detail.shotArtifacts.some((item) => item.shotId === shot.id && item.type === "video" && item.selected && item.status === "ready"));
+    const readyVideos = shots.filter((shot) =>
+        detail.shotArtifacts.some((item) => item.shotId === shot.id && item.type === "video" && item.selected && item.status === "ready"),
+    );
     const stale = detail.shotArtifacts.filter((item) => item.unitId === unitId && item.status === "stale").length;
-    return <section className="mx-auto max-w-5xl"><StageHeading eyebrow="06 / 交付与打包" title="交付前质量门禁" description="所有镜头视频就绪、过期产物清零后，再打包成片与生产资料。" /><div className="mt-6 grid gap-4 sm:grid-cols-3"><MetricCard icon={<Film className="size-5" />} label="视频已就绪" value={`${readyVideos.length} / ${shots.length}`} /><MetricCard icon={<Clock3 className="size-5" />} label="总时长" value={formatDuration(shots.reduce((total, item) => total + item.durationMs, 0))} /><MetricCard icon={<Layers3 className="size-5" />} label="过期产物" value={String(stale)} /></div><div className="mt-5 border-y border-border/70 py-5"><div className="flex items-start gap-3"><PackageCheck className="mt-0.5 size-5 text-[var(--workspace-accent)]" /><div><h3 className="text-sm font-semibold">计划交付内容</h3><p className="mt-1 text-xs leading-5 text-foreground/48">成片 MP4、字幕 SRT、分镜 JSON/CSV、资产清单和生成参数 ZIP。</p></div></div><Button className="mt-5" disabled>生成交付包（后端打包尚未接入）</Button></div></section>;
+
+    return (
+        <section className="mx-auto max-w-5xl">
+            <StageHeading
+                eyebrow="06 / 交付与打包"
+                title="交付前质量门禁"
+                description="所有镜头视频就绪、过期产物清零后，再打包成片与生产资料。"
+            />
+            <div className="mt-6 grid gap-4 sm:grid-cols-3">
+                <MetricCard icon={<Film className="size-5" />} label="视频已就绪" value={`${readyVideos.length} / ${shots.length}`} />
+                <MetricCard
+                    icon={<Clock3 className="size-5" />}
+                    label="总时长"
+                    value={formatDuration(shots.reduce((total, item) => total + item.durationMs, 0))}
+                />
+                <MetricCard icon={<Layers3 className="size-5" />} label="过期产物" value={String(stale)} />
+            </div>
+            <div className="mt-5 border-y border-border/70 py-5">
+                <div className="flex items-start gap-3">
+                    <PackageCheck className="mt-0.5 size-5 text-[var(--workspace-accent)]" />
+                    <div>
+                        <h3 className="text-sm font-semibold">计划交付内容</h3>
+                        <p className="mt-1 text-xs leading-5 text-foreground/48">
+                            成片 MP4、字幕 SRT、分镜 JSON/CSV、资产清单和生成参数 ZIP。
+                        </p>
+                    </div>
+                </div>
+                <p className="mt-5 text-xs leading-5 text-foreground/48">
+                    当前版本只提供交付前检查，不提供交付包生成入口；待后端打包任务、产物存储和下载权限具备后再开放导出。
+                </p>
+            </div>
+        </section>
+    );
 }

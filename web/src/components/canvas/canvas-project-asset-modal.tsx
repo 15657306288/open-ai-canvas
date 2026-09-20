@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 
-import { AssetLibraryPickerModal, type AssetLibraryPickerItem } from "@/components/assets/asset-library-picker-modal";
+import { AssetLibraryPickerModal, type AssetLibraryPickerItem, type AssetPickerMediaKind } from "@/components/assets/asset-library-picker-modal";
 import { useExternalAssetSources } from "@/hooks/use-external-asset-sources";
 import { externalAssetToInsertPayload, type InsertAssetPayload } from "@/components/canvas/asset-picker-modal";
 import { compileCharacterReferencePrompt } from "@/lib/canvas/canvas-character-reference";
@@ -55,15 +55,18 @@ export function CanvasProjectAssetModal({
                     character?.character?.representations.find((representation) => representation.role === "primary") ||
                     character?.character?.representations.find((representation) => representation.role === "front");
                 const remoteResourceId = resourceIdFromStorageKey(project?.storageKey);
+                // 项目资产可能只有服务端记录、没有本地素材，媒体类型要显式声明，筛选才能覆盖它们。
+                const mediaKind = character ? undefined : pickerMediaKind(media?.kind || project?.mediaType);
                 return {
                     id: item.id,
                     title: character?.title || project?.title || media?.title || "未命名资产",
                     category: item.category,
                     folderId: item.folderId,
-                    kindLabel: character ? "角色卡" : (media?.kind || project?.mediaType) === "video" ? "视频" : (media?.kind || project?.mediaType) === "audio" ? "音频" : (media?.kind || project?.mediaType) === "text" ? "文本" : "图片",
+                    kindLabel: character ? "角色卡" : mediaKind === "video" ? "视频" : mediaKind === "audio" ? "音频" : mediaKind === "text" ? "文本" : "图片",
+                    mediaKind,
                     asset: media,
                     imageUrl: coverRepresentation ? resourceFileUrl(coverRepresentation.resourceId) : project?.mediaType === "image" && remoteResourceId ? resourceFileUrl(remoteResourceId) : undefined,
-                    imageStorageKey: coverRepresentation ? `resource:${coverRepresentation.resourceId}` : undefined,
+                    imageStorageKey: coverRepresentation ? `resource:${coverRepresentation.resourceId}` : remoteResourceId ? `resource:${remoteResourceId}` : undefined,
                     imageFit: character ? "contain" : "cover",
                     description: character ? `${character.character?.visualStatus === "ready" ? "形象就绪" : "形象待完善"} · ${character.character?.voiceStatus === "ready" ? "声音已绑定" : "声音未绑定"}` : project?.previewText,
                     searchText: [media?.tags?.join(" ") || "", project?.previewText || ""].join(" "),
@@ -75,7 +78,9 @@ export function CanvasProjectAssetModal({
 
     return (
         <AssetLibraryPickerModal
+            remoteLibrary={!detail}
             open={open}
+            mediaKinds={["image", "video", "audio", "text"]}
             items={pickerItems}
             categoryLabels={{ ...categoryLabels, ...externalAssetSources.categoryLabels }}
             initialCategory={initialCategory}
@@ -114,6 +119,10 @@ export function CanvasProjectAssetModal({
             }}
         />
     );
+}
+
+function pickerMediaKind(value?: string): AssetPickerMediaKind {
+    return value === "video" || value === "audio" || value === "text" ? value : "image";
 }
 
 function toInsertPayload(item: ProjectPickerItem): InsertAssetPayload {

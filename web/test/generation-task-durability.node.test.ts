@@ -6,7 +6,7 @@ import { applyGenerationConsumerEffect } from "../src/services/generation-consum
 import { createGenerationTaskMaterializer, type GenerationTaskEffectResult, type GenerationTaskEffectStore } from "../src/services/generation-task-materializer";
 import { buildBackendToolRequests } from "../src/services/api/image";
 
-test("managed canvas agent task keeps tool definitions and tool results", () => {
+test("managed cloud agent task keeps tool definitions and tool results", () => {
     const requests = buildBackendToolRequests(
         [
             { role: "user", content: "读取画布" },
@@ -17,15 +17,13 @@ test("managed canvas agent task keeps tool definitions and tool results", () => 
         "required",
     );
 
-    assert.equal(requests.responses.tool_choice, "required");
-    assert.deepEqual(requests.responses.input, [
+    assert.deepEqual(Object.keys(requests), ["canonical"]);
+    assert.equal(requests.canonical.toolChoice, "required");
+    assert.equal(requests.canonical.systemPrompt, "");
+    assert.deepEqual(requests.canonical.tools, [{ type: "function", function: { name: "canvas_get_state", parameters: { type: "object" } } }]);
+    assert.deepEqual(requests.canonical.messages, [
         { role: "user", content: "读取画布" },
         { type: "function_call", call_id: "call-1", name: "canvas_get_state", arguments: "{}" },
-        { type: "function_call_output", call_id: "call-1", output: '{"nodes":[]}' },
-    ]);
-    assert.deepEqual(requests.chatCompletion.messages, [
-        { role: "user", content: "读取画布" },
-        { role: "assistant", content: null, tool_calls: [{ id: "call-1", type: "function", function: { name: "canvas_get_state", arguments: "{}" } }] },
         { role: "tool", tool_call_id: "call-1", content: '{"nodes":[]}' },
     ]);
 });

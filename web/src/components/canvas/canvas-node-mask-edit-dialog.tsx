@@ -1,12 +1,19 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Button, Input, Modal, Slider } from "antd";
-import { Brush, Eraser, RotateCcw, WandSparkles, X } from "lucide-react";
+import { Brush, ChevronDown, Eraser, RotateCcw, WandSparkles, X } from "lucide-react";
 
 import { readImageMeta } from "@/lib/image-utils";
+import { ImageSettingsPanel } from "@/components/image-settings-panel";
+import { ModelPicker } from "@/components/model-picker";
+import { defaultImageParamsForModel } from "@/lib/model-selection";
+import type { AiConfig } from "@/stores/use-config-store";
+import { canvasThemes } from "@/lib/canvas-theme";
+import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
 
 export type CanvasImageMaskEditPayload = {
     prompt: string;
     maskDataUrl: string;
+    generationConfig?: Partial<Pick<AiConfig, "model" | "imageModel" | "size" | "quality" | "count" | "transparentBackground">>;
 };
 
 type DrawMode = "paint" | "erase";
@@ -15,7 +22,7 @@ const defaultBrushSize = 100;
 const maskFillColor = "rgba(37, 99, 235, .38)";
 const maskBorderColor = "rgba(255, 255, 255, .72)";
 
-export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: { dataUrl: string; open: boolean; onClose: () => void; onConfirm: (payload: CanvasImageMaskEditPayload) => void }) {
+export function CanvasNodeMaskEditDialog({ dataUrl, open, config, onClose, onConfirm }: { dataUrl: string; open: boolean; config: AiConfig; onClose: () => void; onConfirm: (payload: CanvasImageMaskEditPayload) => void }) {
     const maskCanvasRef = useRef<HTMLCanvasElement>(null);
     const previewCanvasRef = useRef<HTMLCanvasElement>(null);
     const drawingRef = useRef<{ active: boolean; last: { x: number; y: number } | null }>({ active: false, last: null });
@@ -24,6 +31,9 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
     const [brushSize, setBrushSize] = useState(defaultBrushSize);
     const [mode, setMode] = useState<DrawMode>("paint");
     const [error, setError] = useState("");
+    const [generationConfig, setGenerationConfig] = useState<AiConfig>(() => config);
+    const [advancedOpen, setAdvancedOpen] = useState(false);
+    const theme = canvasThemes[useActiveTheme()];
 
     useEffect(() => {
         if (!open) return;
@@ -31,6 +41,8 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
         setBrushSize(defaultBrushSize);
         setMode("paint");
         setError("");
+        setAdvancedOpen(true);
+        setGenerationConfig(config);
         void readImageMeta(dataUrl).then(setImage);
     }, [dataUrl, open]);
 
@@ -95,15 +107,15 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
         if (!nextPrompt) return setError("请输入修改要求");
         if (!canvas) return;
         if (!canvasHasPaint(canvas)) return setError("请先涂抹局部区域");
-        onConfirm({ prompt: nextPrompt, maskDataUrl: buildEditMask(canvas) });
+        onConfirm({ prompt: nextPrompt, maskDataUrl: buildEditMask(canvas), generationConfig: { model: generationConfig.model, imageModel: generationConfig.imageModel, size: generationConfig.size, quality: generationConfig.quality, count: generationConfig.count, transparentBackground: generationConfig.transparentBackground } });
     };
 
     return (
         <Modal className="workspace-modal workspace-modal-wide" title={null} open={open && Boolean(dataUrl)} onCancel={onClose} footer={null} centered destroyOnHidden>
-            <div className="grid gap-5 lg:grid-cols-[minmax(360px,1fr)_320px]">
+            <div className="grid gap-5 lg:grid-cols-[minmax(360px,1fr)_340px]">
                 <div className="flex min-h-[360px] items-center justify-center rounded-lg bg-surface-active p-0">
                     <div className="relative inline-block max-w-full overflow-hidden rounded-lg bg-transparent select-none">
-                        <img src={dataUrl} alt="" className="block max-h-[68vh] max-w-full bg-transparent" draggable={false} />
+                        <img src={dataUrl} alt="" className="relative z-0 block max-h-[68vh] max-w-full bg-transparent" draggable={false} />
                         {image ? (
                             <>
                                 <canvas ref={maskCanvasRef} width={image.width} height={image.height} className="hidden" />
@@ -111,7 +123,7 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
                                     ref={previewCanvasRef}
                                     width={image.width}
                                     height={image.height}
-                                    className="absolute inset-0 h-full w-full cursor-crosshair touch-none"
+                                    className="absolute inset-0 z-10 h-full w-full cursor-crosshair touch-none"
                                     onPointerDown={startDraw}
                                     onPointerMove={moveDraw}
                                     onPointerUp={stopDraw}
@@ -122,45 +134,83 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
                     </div>
                 </div>
 
-                <div className="flex min-h-[360px] flex-col gap-5">
-                    <div>
-                        <h2 className="text-xl font-semibold">局部遮罩编辑</h2>
-                        <div className="mt-2 text-sm opacity-60">{image ? `${image.width} x ${image.height}px` : "读取中"}</div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                        <Button type={mode === "paint" ? "primary" : "default"} aria-pressed={mode === "paint"} icon={<Brush className="size-4" />} onClick={() => setMode("paint")}>
-                            画笔
-                        </Button>
-                        <Button type={mode === "erase" ? "primary" : "default"} aria-pressed={mode === "erase"} icon={<Eraser className="size-4" />} onClick={() => setMode("erase")}>
-                            擦除
-                        </Button>
-                    </div>
-
-                    <div className="space-y-2">
-                        <div className="flex items-center justify-between text-sm">
-                            <span className="font-medium opacity-75">笔刷大小</span>
-                            <span className="font-semibold">{brushSize}px</span>
+                <div className="flex max-h-[68vh] min-h-[360px] flex-col overflow-hidden">
+                    <div className="thin-scrollbar min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+                        <div>
+                            <h2 className="text-xl font-semibold">局部重绘</h2>
+                            <div className="mt-2 text-sm opacity-60">{image ? `${image.width} x ${image.height}px` : "读取中"}</div>
                         </div>
-                        <Slider min={8} max={160} step={2} value={brushSize} onChange={setBrushSize} />
+
+                        <div className="grid grid-cols-2 gap-2">
+                            <Button type={mode === "paint" ? "primary" : "default"} aria-pressed={mode === "paint"} icon={<Brush className="size-4" />} onClick={() => setMode("paint")}>
+                                画笔
+                            </Button>
+                            <Button type={mode === "erase" ? "primary" : "default"} aria-pressed={mode === "erase"} icon={<Eraser className="size-4" />} onClick={() => setMode("erase")}>
+                                擦除
+                            </Button>
+                        </div>
+
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between text-sm">
+                                <span className="font-medium opacity-75">笔刷大小</span>
+                                <span className="font-semibold">{brushSize}px</span>
+                            </div>
+                            <Slider min={8} max={160} step={2} value={brushSize} onChange={setBrushSize} />
+                        </div>
+
+                        <div className="space-y-2">
+                            <div className="text-sm font-medium opacity-75">修改要求</div>
+                            <Input.TextArea
+                                rows={4}
+                                value={prompt}
+                                status={error && !prompt.trim() ? "error" : undefined}
+                                placeholder="例如：把选中区域改成金属材质，保持原图光影"
+                                onChange={(event) => {
+                                    setPrompt(event.target.value);
+                                    setError("");
+                                }}
+                            />
+                            {error ? <div className="text-xs font-medium text-destructive">{error}</div> : null}
+                        </div>
+
+                        <div className="rounded-xl border border-border/60">
+                            <button
+                                type="button"
+                                className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-sm font-medium"
+                                aria-expanded={advancedOpen}
+                                onClick={() => setAdvancedOpen((current) => !current)}
+                            >
+                                <span>高级生成设置</span>
+                                <ChevronDown className={`size-4 shrink-0 opacity-60 transition-transform ${advancedOpen ? "rotate-180" : ""}`} />
+                            </button>
+                            {advancedOpen ? (
+                                <div className="space-y-3 border-t border-border/60 px-3 pb-3 pt-3">
+                                    <div className="space-y-2">
+                                        <div className="text-sm font-medium opacity-75">生成模型</div>
+                                        <ModelPicker
+                                            config={generationConfig}
+                                            value={generationConfig.imageModel || generationConfig.model}
+                                            capability="image"
+                                            fullWidth
+                                            showSelectedPrice={false}
+                                            onChange={(model) => setGenerationConfig((current) => ({ ...current, model, imageModel: model, ...defaultImageParamsForModel(current, model) }))}
+                                        />
+                                    </div>
+                                    <ImageSettingsPanel
+                                        config={generationConfig}
+                                        showTitle={false}
+                                        showCount={false}
+                                        bypassPriceGuard
+                                        className="space-y-3"
+                                        theme={theme}
+                                        onConfigChange={(key, value) => setGenerationConfig((current) => ({ ...current, [key]: value }))}
+                                    />
+                                </div>
+                            ) : null}
+                        </div>
                     </div>
 
-                    <div className="space-y-2">
-                        <div className="text-sm font-medium opacity-75">修改要求</div>
-                        <Input.TextArea
-                            rows={6}
-                            value={prompt}
-                            status={error && !prompt.trim() ? "error" : undefined}
-                            placeholder="例如：把选中区域改成金属材质，保持原图光影"
-                            onChange={(event) => {
-                                setPrompt(event.target.value);
-                                setError("");
-                            }}
-                        />
-                        {error ? <div className="text-xs font-medium text-destructive">{error}</div> : null}
-                    </div>
-
-                    <div className="mt-auto flex items-center justify-between gap-2">
+                    <div className="mt-3 flex shrink-0 items-center justify-between gap-2 border-t border-border/50 pt-3">
                         <Button icon={<RotateCcw className="size-4" />} onClick={resetMask}>
                             重置
                         </Button>

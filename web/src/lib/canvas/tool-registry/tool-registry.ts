@@ -5,7 +5,7 @@ import type { FloatingDockEntry } from "@/components/ui/aceternity/floating-dock
 import { ART_CRITIQUE_NODE_TYPE } from "@/lib/art-critique/contracts";
 import { listCreatableNodeDefinitions } from "@/lib/canvas/node-registry";
 
-import type { AddNodeMenuCommand, AddNodeMenuContext, ToolCategory, ToolContext, ToolDefinition, ToolbarId, ToolbarPrefs } from "./tool-definition";
+import type { AddNodeMenuCommand, AddNodeMenuContext, NodeToolbarGroup, ToolCategory, ToolContext, ToolDefinition, ToolbarId, ToolbarPrefs } from "./tool-definition";
 
 /** 模块级注册表 */
 const registry = new Map<ToolbarId, ToolDefinition[]>();
@@ -58,10 +58,13 @@ function getPluginNodeMenuCommands(): AddNodeMenuCommand[] {
         });
 }
 
-/** 默认偏好：全部工具按 defaultOrder 排列，全部可见 */
+/** 默认偏好：全部工具按 defaultOrder 排列；defaultVisible 为 false 的进入 hidden */
 export function defaultToolbarPrefs(toolbar: ToolbarId): ToolbarPrefs {
     const tools = getToolbarTools(toolbar);
-    return { order: tools.map((tool) => tool.id), hidden: [] };
+    return {
+        order: tools.map((tool) => tool.id),
+        hidden: tools.filter((tool) => !tool.defaultVisible).map((tool) => tool.id),
+    };
 }
 
 /**
@@ -93,6 +96,15 @@ export function resolveToolbarTools(toolbar: ToolbarId, ctx: ToolContext, prefs:
     });
 }
 
+/** 将节点工具定义解析为唯一的 Dock 展示层级和排序。 */
+export function resolveNodeToolbarPlacement(tool: ToolDefinition, ctx: ToolContext): { group: NodeToolbarGroup; order: number } {
+    const placement = tool.nodeToolbar;
+    return {
+        group: typeof placement?.group === "function" ? placement.group(ctx) : placement?.group || "more",
+        order: typeof placement?.order === "function" ? placement.order(ctx) : placement?.order ?? tool.defaultOrder,
+    };
+}
+
 /** 解析添加节点菜单命令——合并插件节点后按 applicable 过滤并排序。 */
 export function resolveAddNodeMenuCommands(ctx: AddNodeMenuContext): AddNodeMenuCommand[] {
     return [...getAddNodeMenuCommands(), ...getPluginNodeMenuCommands()].filter((command) => !command.applicable || command.applicable(ctx)).sort((a, b) => a.defaultOrder - b.defaultOrder);
@@ -118,6 +130,16 @@ function buildEntriesWithSeparators(tools: ToolDefinition[], ctx: ToolContext): 
 }
 
 function toolToEntry(tool: ToolDefinition, ctx: ToolContext): FloatingDockEntry {
+    if (tool.switchGroup) {
+        return {
+            kind: "switch",
+            id: tool.id,
+            label: resolveText(tool.label, ctx),
+            value: tool.switchGroup.value(ctx),
+            options: tool.switchGroup.options,
+            onChange: (value) => tool.switchGroup?.onChange(ctx, value),
+        };
+    }
     return {
         kind: "command",
         id: tool.id,

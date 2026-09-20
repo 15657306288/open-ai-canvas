@@ -1,4 +1,4 @@
-import { apiClient, request } from "@/services/api/request";
+import { http } from "@/services/api/request";
 
 export type ResponseInterceptionRule = {
     contains: string;
@@ -11,9 +11,9 @@ export type ResponseInterceptionSetting = {
 };
 
 export function getAdminResponseInterceptionSetting() {
-    return request<{ setting: ResponseInterceptionSetting }>(apiClient.get("/admin/settings/response-interception"));
+    return http.get<{ setting: ResponseInterceptionSetting }>("/admin/settings/response-interception");
 }
 
 export function updateAdminResponseInterceptionSetting(setting: ResponseInterceptionSetting) {
-    return request<{ setting: ResponseInterceptionSetting }>(apiClient.patch("/admin/settings/response-interception", setting));
+    return http.patch<{ setting: ResponseInterceptionSetting }>("/admin/settings/response-interception", setting);
 }

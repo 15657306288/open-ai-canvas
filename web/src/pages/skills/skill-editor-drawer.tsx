@@ -1,4 +1,7 @@
-import { App, Button, Drawer, Form, Input, Select, Switch } from "antd";
+import { App, Button, Form, Input } from "antd";
+import { AppDrawer } from "@/components/ui/product/app-drawer";
+import { Select } from "@/components/ui/base/select";
+import { Switch } from "@/components/ui/base/switch";
 import { Minus, Plus, Save, Wand2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -8,7 +11,7 @@ import { navigateToSettings } from "@/lib/settings-navigation";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { createSkill, updateSkill, type Skill, type SkillMutationInput, type SkillShowcaseMedia } from "@/services/api/skills";
 
-type SkillFormValues = Omit<SkillMutationInput, "is_private"> & { is_public: boolean };
+type SkillFormValues = Omit<SkillMutationInput, "isPrivate"> & { is_public: boolean };
 
 export function SkillEditorDrawer({ open, skill, onClose, onSaved }: { open: boolean; skill: Skill | null; onClose: () => void; onSaved: (skill: Skill) => void }) {
     const { message, modal } = App.useApp();
@@ -18,19 +21,19 @@ export function SkillEditorDrawer({ open, skill, onClose, onSaved }: { open: boo
     const [draftIdea, setDraftIdea] = useState("");
     const [drafting, setDrafting] = useState(false);
     const effectiveConfig = useEffectiveConfig();
-    const isPackageSkill = Boolean(skill && skill.source_type !== "markdown" && skill.source_type !== "builtin" && skill.source_type !== "");
+    const isPackageSkill = Boolean(skill && skill.sourceType !== "markdown" && skill.sourceType !== "builtin" && skill.sourceType !== "");
 
     useEffect(() => {
         if (!open) return;
         form.setFieldsValue({
-            skill_name: skill?.skill_name || "",
+            skillName: skill?.skillName || "",
             description: skill?.description || "",
             instruction: skill?.instruction || "",
             tag: skill?.tag || "creative",
-            is_public: skill ? !skill.is_private : true,
-            markdown_url: skill?.markdown_url || skill?.source_url || "",
-            showcase_media: skill?.showcase_media || [],
-            extra_info: skill?.extra_info || "",
+            is_public: skill ? !skill.isPrivate : true,
+            markdownUrl: skill?.markdownUrl || skill?.sourceUrl || "",
+            showcaseMedia: skill?.showcaseMedia || [],
+            extraInfo: skill?.extraInfo || "",
         });
         setDirty(false);
     }, [form, open, skill]);
@@ -47,16 +50,16 @@ export function SkillEditorDrawer({ open, skill, onClose, onSaved }: { open: boo
         setSaving(true);
         try {
             const input: SkillMutationInput = {
-                skill_name: values.skill_name,
+                skillName: values.skillName,
                 description: values.description,
                 instruction: values.instruction || "",
                 tag: values.tag,
-                is_private: !values.is_public,
-                markdown_url: values.markdown_url || "",
-                showcase_media: (values.showcase_media || []).map((item) => ({ ...item, showcase_uri: item.showcase_uri || "" })),
-                extra_info: values.extra_info || "",
+                isPrivate: !values.is_public,
+                markdownUrl: values.markdownUrl || "",
+                showcaseMedia: (values.showcaseMedia || []).map((item) => ({ ...item, showcaseUri: item.showcaseUri || "" })),
+                extraInfo: values.extraInfo || "",
             };
-            const result = skill ? await updateSkill(skill.skill_id, input) : await createSkill(input);
+            const result = skill ? await updateSkill(skill.skillId, input) : await createSkill(input);
             setDirty(false);
             message.success(skill ? "技能已更新" : "技能已创建");
             onSaved(result.skill);
@@ -82,7 +85,7 @@ export function SkillEditorDrawer({ open, skill, onClose, onSaved }: { open: boo
         try {
             const draft = await generateSkillDraft(idea, effectiveConfig);
             form.setFieldsValue({
-                skill_name: draft.skill_name || "",
+                skillName: draft.skillName || "",
                 description: draft.description || "",
                 instruction: draft.instruction || "",
                 ...(draft.tag ? { tag: draft.tag } : {}),
@@ -97,7 +100,7 @@ export function SkillEditorDrawer({ open, skill, onClose, onSaved }: { open: boo
     };
 
     return (
-        <Drawer className="library-drawer" open={open} size={720} destroyOnHidden maskClosable={!dirty} title={skill ? "编辑技能" : "创建技能"} onClose={requestClose} extra={<Button type="primary" loading={saving} icon={<Save className="size-4" />} onClick={() => form.submit()}>保存技能</Button>}>
+        <AppDrawer className="library-drawer" open={open} size={720} mask={{ closable: !dirty }} title={skill ? "编辑技能" : "创建技能"} onClose={requestClose} extra={<Button type="primary" loading={saving} icon={<Save className="size-4" />} onClick={() => form.submit()}>保存技能</Button>}>
             {!isPackageSkill ? <div className="mb-4 rounded-xl border bg-foreground/[.02] p-3">
                 <div className="mb-2 flex items-center gap-1.5 text-sm font-medium">
                     <Wand2 className="size-4" />
@@ -120,7 +123,7 @@ export function SkillEditorDrawer({ open, skill, onClose, onSaved }: { open: boo
             </div> : <div className="mb-4 rounded-xl border bg-foreground/[.02] p-3 text-sm leading-6 text-foreground/58">这是多文件技能包。这里仅编辑名称、简介、分类和展示信息；技能正文请更新 ZIP，或在 GitHub 仓库修改后执行同步。</div>}
             <Form form={form} layout="vertical" requiredMark="optional" onFinish={submit} onValuesChange={() => setDirty(true)}>
                 <div className="grid gap-x-4 sm:grid-cols-2">
-                    <Form.Item name="skill_name" label="技能名称" rules={[{ required: true, message: "请填写技能名称" }, { max: 80, message: "最多 80 个字符" }]}>
+                    <Form.Item name="skillName" label="技能名称" rules={[{ required: true, message: "请填写技能名称" }, { max: 80, message: "最多 80 个字符" }]}>
                         <Input maxLength={80} showCount placeholder="例如：短剧导演分镜" autoComplete="off" />
                     </Form.Item>
                     <Form.Item name="tag" label="技能分类" rules={[{ required: true, message: "请选择技能分类" }]}>
@@ -137,7 +140,7 @@ export function SkillEditorDrawer({ open, skill, onClose, onSaved }: { open: boo
                 </Form.Item> : null}
 
                 <div className="grid gap-x-4 sm:grid-cols-[minmax(0,1fr)_180px]">
-                    <Form.Item name="markdown_url" label={isPackageSkill ? "来源地址" : "Markdown 地址"} rules={[{ type: "url", message: "请输入有效的 HTTP(S) 链接" }]}>
+                    <Form.Item name="markdownUrl" label={isPackageSkill ? "来源地址" : "Markdown 地址"} rules={[{ type: "url", message: "请输入有效的 HTTP(S) 链接" }]}>
                         <Input type="url" inputMode="url" spellCheck={false} placeholder="https://example.com/SKILL.md" />
                     </Form.Item>
                     <Form.Item name="is_public" label="公开状态" valuePropName="checked" extra="公开后其他用户可以加入使用。">
@@ -145,7 +148,7 @@ export function SkillEditorDrawer({ open, skill, onClose, onSaved }: { open: boo
                     </Form.Item>
                 </div>
 
-                <Form.List name="showcase_media">
+                <Form.List name="showcaseMedia">
                     {(fields, { add, remove }) => (
                         <section aria-labelledby="skill-media-title">
                             <div className="mb-3 flex items-center justify-between">
@@ -158,11 +161,11 @@ export function SkillEditorDrawer({ open, skill, onClose, onSaved }: { open: boo
                                         <Form.Item {...field} name={[field.name, "type"]} className="mb-0" rules={[{ required: true, message: "选择类型" }]}>
                                             <Select options={[{ value: "image", label: "图片" }, { value: "video", label: "视频" }]} />
                                         </Form.Item>
-                                        <Form.Item {...field} name={[field.name, "showcase_url"]} className="mb-0" rules={[{ required: true, message: "请填写媒体链接" }, { type: "url", message: "链接格式无效" }]}>
+                                        <Form.Item {...field} name={[field.name, "showcaseUrl"]} className="mb-0" rules={[{ required: true, message: "请填写媒体链接" }, { type: "url", message: "链接格式无效" }]}>
                                             <Input type="url" inputMode="url" spellCheck={false} placeholder="https://example.com/media" />
                                         </Form.Item>
                                         <Button aria-label="移除媒体" title="移除媒体" icon={<Minus className="size-4" />} onClick={() => remove(field.name)} />
-                                        <Form.Item {...field} name={[field.name, "showcase_uri"]} hidden><Input /></Form.Item>
+                                        <Form.Item {...field} name={[field.name, "showcaseUri"]} hidden><Input /></Form.Item>
                                     </div>
                                 ))}
                             </div>
@@ -170,14 +173,14 @@ export function SkillEditorDrawer({ open, skill, onClose, onSaved }: { open: boo
                     )}
                 </Form.List>
 
-                <Form.Item name="extra_info" label="补充信息" className="mt-5" rules={[{ max: 2000, message: "最多 2000 个字符" }]}>
+                <Form.Item name="extraInfo" label="补充信息" className="mt-5" rules={[{ max: 2000, message: "最多 2000 个字符" }]}>
                     <Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} maxLength={2000} showCount placeholder="版本说明、依赖工具或使用注意事项" />
                 </Form.Item>
             </Form>
-        </Drawer>
+        </AppDrawer>
     );
 }
 
 function emptyMedia(): SkillShowcaseMedia {
-    return { type: "image", showcase_uri: "", showcase_url: "" };
+    return { type: "image", showcaseUri: "", showcaseUrl: "" };
 }

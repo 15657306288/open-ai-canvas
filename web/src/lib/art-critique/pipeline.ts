@@ -1,4 +1,4 @@
-import { requestToolResponse, type ResponseFunctionTool, type ResponseInputMessage } from "@/services/api/image";
+import { requestToolResponse, type ResponseFunctionTool, type ResponseInputMessage, type ToolResponseResult } from "@/services/api/image";
 import type { AiConfig } from "@/stores/use-config-store";
 
 import {
@@ -31,6 +31,7 @@ const GROUNDING_CONFIDENCE_THRESHOLD = 0.65;
 const VERIFICATION_REJECTION_THRESHOLD = 0.75;
 
 export type ArtCritiquePipelineOptions = {
+    requestStage?: (input: { config: AiConfig; messages: ResponseInputMessage[]; tool: ResponseFunctionTool; toolName: string; signal?: AbortSignal }) => Promise<ToolResponseResult>;
     signal?: AbortSignal;
     onStage?: (stage: ArtCritiquePipelineStage) => void;
     onDraftReport?: (report: ArtCritiqueReport) => void;
@@ -557,7 +558,9 @@ export function applyEditPrompts(issues: readonly ArtCritiqueIssue[], prompts: r
 
 async function requestPipelineStage<T>(config: AiConfig, messages: ResponseInputMessage[], tool: ResponseFunctionTool, toolName: string, parse: (value: unknown) => T, options: ArtCritiquePipelineOptions) {
     throwIfAborted(options.signal);
-    const response = await requestToolResponse(config, messages, [tool], { type: "function", name: toolName }, undefined, { signal: options.signal });
+    const response = options.requestStage
+        ? await options.requestStage({ config, messages, tool, toolName, signal: options.signal })
+        : await requestToolResponse(config, messages, [tool], { type: "function", name: toolName }, undefined, { signal: options.signal });
     const raw = response.toolCalls.find((candidate) => candidate.function.name === toolName)?.function.arguments || response.content;
     if (!raw?.trim()) throw new Error(`${toolName}_missing`);
     let value: unknown;
@@ -1113,7 +1116,7 @@ function emitStage(options: ArtCritiquePipelineOptions, stage: ArtCritiquePipeli
 }
 
 function rethrowIfAborted(error: unknown, signal?: AbortSignal): asserts error is Error {
-    if (signal?.aborted) throw error;
+    if (signal?.aborted || (error instanceof Error && error.name === "AbortError")) throw error;
 }
 
 function throwIfAborted(signal?: AbortSignal) {

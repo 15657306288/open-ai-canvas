@@ -1,8 +1,6 @@
-import axios from "axios";
-
 import { buildApiUrl, isSystemProxyBaseUrl, resolveBackendApiUrl, type AiConfig } from "@/stores/use-config-store";
 import { createClientId } from "@/lib/client-id";
-import { channelRequest } from "@/services/api/custom-channel-relay";
+import { createChannelTransport } from "@/services/api/channel-transport";
 import type { GeminiPayload, ImageApiResponse, RequestOptions } from "@/services/api/image-contracts";
 
 export function aiApiUrl(config: Pick<AiConfig, "baseUrl">, path: string) {
@@ -17,16 +15,8 @@ export function aiHeaders(config: Pick<AiConfig, "apiKey" | "baseUrl">, contentT
     };
 }
 
-export async function postVolcengineArkImage(config: Parameters<typeof channelRequest>[0], payload: Record<string, unknown>, options?: RequestOptions) {
-    const upstreamUrl = aiApiUrl(config, "/images/generations");
-    const request = channelRequest(config, upstreamUrl, aiHeaders(config, "application/json"));
-    return (
-        await axios.post<ImageApiResponse>(request.url, payload, {
-            headers: request.headers,
-            withCredentials: request.credentials === "include",
-            signal: options?.signal,
-        })
-    ).data;
+export async function postVolcengineArkImage(config: Parameters<typeof createChannelTransport>[0], payload: Record<string, unknown>, options?: RequestOptions) {
+    return createChannelTransport(config, "image").postJson<ImageApiResponse>(aiApiUrl(config, "/images/generations"), payload, options);
 }
 
 export function geminiBaseUrl(config: Pick<AiConfig, "baseUrl">) {
@@ -52,24 +42,17 @@ export function geminiHeaders(config: Pick<AiConfig, "apiKey">) {
     };
 }
 
-export async function postChannelJSON<T>(config: Parameters<typeof channelRequest>[0], upstreamUrl: string, body: unknown, options?: RequestOptions) {
-    const request = channelRequest(config, upstreamUrl, aiHeaders(config, "application/json"));
-    return (
-        await axios.post<T>(request.url, body, {
-            headers: request.headers,
-            withCredentials: request.credentials === "include",
-            signal: options?.signal,
-        })
-    ).data;
+export async function postChannelJSON<T>(config: Parameters<typeof createChannelTransport>[0], upstreamUrl: string, body: unknown, options?: RequestOptions) {
+    return createChannelTransport(config, "image").postJson<T>(upstreamUrl, body, options);
 }
 
-export async function postGeminiJSON(config: Parameters<typeof channelRequest>[0] & Pick<AiConfig, "model">, body: unknown, options?: RequestOptions) {
-    const request = channelRequest(config, geminiApiUrl(config, "generateContent"), geminiHeaders(config));
-    return (
-        await axios.post<GeminiPayload>(request.url, body, {
-            headers: request.headers,
-            withCredentials: request.credentials === "include",
-            signal: options?.signal,
-        })
-    ).data;
+export async function postGeminiJSON(config: Parameters<typeof createChannelTransport>[0] & Pick<AiConfig, "model">, body: unknown, options?: RequestOptions) {
+    return createChannelTransport(config, "image").postJson<GeminiPayload>(geminiApiUrl(config, "generateContent"), body, {
+        ...options,
+        headers: geminiHeaders(config),
+    });
+}
+
+export function imageChannelTransport(config: Parameters<typeof createChannelTransport>[0]) {
+    return createChannelTransport(config, "image");
 }

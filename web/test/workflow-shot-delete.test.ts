@@ -15,5 +15,5 @@ test("镜头编辑器在保存按钮左侧提供带确认的删除操作", async
 test("镜头删除 API 使用项目和镜头双重路径作用域", async () => {
     const source = await Bun.file(new URL("../src/services/api/projects.ts", import.meta.url)).text();
 
-    expect(source).toContain("api.delete(`/projects/${encodeURIComponent(projectId)}/shots/${encodeURIComponent(shotId)}`)");
+    expect(source).toContain("http.delete<{ deleted: boolean }>(`/projects/${encodeURIComponent(projectId)}/shots/${encodeURIComponent(shotId)}`)");
 });

@@ -21,7 +21,7 @@ Content-Type: application/json
 
 {{PARAMETERS}}
 
-实际映射：图片 -> `{type:"reference_image"}`，视频 -> `{type:"reference_video"}`，音频 -> `{type:"reference_voice"}`；均放入 `input.media`。默认 `resolution=720P`、`ratio=16:9`、`duration=5`。只有 `watermark=true` 时才发送水印字段；`generateAudio` 当前不发送。
+实际映射：`input.media[].type` 取素材 `role`，缺省时图片为 `reference_image`、视频为 `reference_video`、音频为 `reference_voice`。宿主视频任务会给音频带上 `reference_audio`，因此生产请求里音频 type 是 `reference_audio`。默认 `resolution=720P`、`ratio=16:9`、`duration=5`。只有 `watermark=true` 时才发送水印字段；`generateAudio` 当前不发送。
 
 ## 多模态创建示例
 

@@ -3,8 +3,8 @@ import localforage from "localforage";
 import { nanoid } from "nanoid";
 import { readImageMeta } from "@/lib/image-utils";
 import { getActiveUserScope } from "@/lib/user-scope";
-import { importResourceFromUrl, isResourceUrl, resourceFileUrl, resourceIdFromStorageKey, resourceStorageKey, uploadResourceFile } from "@/services/api/resources";
-import { cacheResourceObjectUrl, getCachedResourceBlob, getCachedResourceObjectUrl, primeResourceBlobCache } from "@/services/resource-blob-cache";
+import { importResourceFromUrl, isResourceUrl, resourceFileUrl, resourceIdFromStorageKey, resourceStorageKey, ResourceUploadError, uploadResourceFile } from "@/services/api/resources";
+import { getCachedResourceBlob, primeResourceBlobCache } from "@/services/resource-blob-cache";
 
 export type UploadedImage = {
     url: string;
@@ -13,12 +13,20 @@ export type UploadedImage = {
     height: number;
     bytes: number;
     mimeType: string;
+    /**
+     * true 表示直传失败、文件当前只存在于本机 IndexedDB。
+     * 云端数据同步会用同一幂等键重传，但在那之前它不是一份已持久化的服务端资源：
+     * `url` 是页面级 objectURL，刷新即失效。UI 不得把这种结果说成"已保存"。
+     */
+    pendingRemoteUpload?: boolean;
+    /** 直传失败原因，仅在 pendingRemoteUpload 为 true 时有值，供 UI 如实告知用户。 */
+    remoteUploadError?: string;
 };
 
 const store = localforage.createInstance({ name: "infinite-canvas", storeName: "image_files" });
 const objectUrls = new Map<string, string>();
 
-export async function uploadImage(input: string | Blob): Promise<UploadedImage> {
+export async function uploadImage(input: string | Blob, onProgress?: (uploadedBytes: number, totalBytes: number) => void): Promise<UploadedImage> {
     // 同一个逻辑上传在直传失败后会退回 IndexedDB，并由云端数据同步再次提交。
     // 提前生成本地 key，确保两条路径向后端发送相同的幂等标识。
     const storageKey = `image:${getActiveUserScope()}:${nanoid()}`;
@@ -40,8 +48,9 @@ export async function uploadImage(input: string | Blob): Promise<UploadedImage> 
     const blob = typeof input === "string" ? await (await fetch(input)).blob() : input;
     const previewUrl = URL.createObjectURL(blob);
     const meta = await readImageMeta(previewUrl);
+    let remoteUploadError = "";
     try {
-        const resource = await uploadResourceFile(blob, "image", { width: meta.width, height: meta.height, fileName: input instanceof File ? input.name : undefined, idempotencyKey: storageKey });
+        const resource = await uploadResourceFile(blob, "image", { width: meta.width, height: meta.height, fileName: input instanceof File ? input.name : undefined, idempotencyKey: storageKey }, onProgress);
         await primeResourceBlobCache(resourceStorageKey(resource.id), blob).catch(() => "");
         URL.revokeObjectURL(previewUrl);
         return {
@@ -52,13 +61,16 @@ export async function uploadImage(input: string | Blob): Promise<UploadedImage> 
             bytes: resource.size || blob.size,
             mimeType: resource.mimeType || blob.type || meta.mimeType,
         };
-    } catch {
-        // OSS is optional during local/self-hosted setup. Keep the existing local fallback.
+    } catch (error) {
+        // 鉴权失效、越权、体积超限这类失败重传也是同样结果，不能退化成"稍后自动同步"。
+        if (error instanceof ResourceUploadError && error.permanent) throw error;
+        remoteUploadError = error instanceof Error ? error.message : "图片直传失败";
     }
+    // 瞬时失败退回本机：文件仍可用，且云端数据同步会用同一幂等键重传。
     await store.setItem(storageKey, blob);
     const url = previewUrl;
     objectUrls.set(storageKey, url);
-    return { url, storageKey, width: meta.width, height: meta.height, bytes: blob.size, mimeType: blob.type || meta.mimeType };
+    return { url, storageKey, width: meta.width, height: meta.height, bytes: blob.size, mimeType: blob.type || meta.mimeType, pendingRemoteUpload: true, remoteUploadError };
 }
 
 function shouldImportRemoteImage(input: string) {
@@ -69,12 +81,7 @@ export async function resolveImageUrl(storageKey?: string, fallback = "", option
     if (!storageKey) return fallback;
     const resourceId = resourceIdFromStorageKey(storageKey);
     if (resourceId) {
-        const cached = await getCachedResourceObjectUrl(storageKey).catch(() => "");
-        if (cached) return cached;
-        if (options?.cacheMiss) {
-            const populated = await cacheResourceObjectUrl(storageKey).catch(() => "");
-            if (populated) return populated;
-        }
+        // 远程资源展示不返回 blob: URL，确保节点、素材库和弹窗都使用云端稳定地址。
         return resourceFileUrl(resourceId);
     }
     const cached = objectUrls.get(storageKey);

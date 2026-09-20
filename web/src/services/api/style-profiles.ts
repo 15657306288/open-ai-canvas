@@ -1,4 +1,4 @@
-import { apiClient, request } from "@/services/api/request";
+import { http } from "@/services/api/request";
 
 export type UserStyleProfile = {
     id: string;
@@ -16,25 +16,25 @@ export type UserStyleProfile = {
 };
 
 export function listStyleProfiles() {
-    return request<{ profiles: UserStyleProfile[] }>(apiClient.get("/style-profiles"));
+    return http.get<{ profiles: UserStyleProfile[] }>("/style-profiles");
 }
 
 export function createStyleProfile(profileJson: string) {
-    return request<{ profile: UserStyleProfile }>(apiClient.post("/style-profiles", { profileJson }));
+    return http.post<{ profile: UserStyleProfile }>("/style-profiles", { profileJson });
 }
 
 export function updateStyleProfile(id: string, profileJson: string) {
-    return request<{ profile: UserStyleProfile }>(apiClient.patch(`/style-profiles/${encodeURIComponent(id)}`, { profileJson }));
+    return http.patch<{ profile: UserStyleProfile }>(`/style-profiles/${encodeURIComponent(id)}`, { profileJson });
 }
 
 export function setStyleProfileFavorite(id: string, favorite: boolean) {
-    return request<{ id: string; favorite: boolean }>(apiClient.patch(`/style-profiles/${encodeURIComponent(id)}/favorite`, { favorite }));
+    return http.patch<{ id: string; favorite: boolean }>(`/style-profiles/${encodeURIComponent(id)}/favorite`, { favorite });
 }
 
 export function touchStyleProfile(id: string) {
-    return request<{ id: string }>(apiClient.post(`/style-profiles/${encodeURIComponent(id)}/use`));
+    return http.post<{ id: string }>(`/style-profiles/${encodeURIComponent(id)}/use`);
 }
 
 export function deleteStyleProfile(id: string) {
-    return request<{ id: string }>(apiClient.delete(`/style-profiles/${encodeURIComponent(id)}`));
+    return http.delete<{ id: string }>(`/style-profiles/${encodeURIComponent(id)}`);
 }

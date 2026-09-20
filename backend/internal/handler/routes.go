@@ -52,15 +52,65 @@ func RegisterTaskRoutes(r *gin.RouterGroup, svc *service.Service) {
 		}
 		ok(c, task)
 	})
+	r.POST("/timeline/transcriptions", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		policy, available := loadRuntimePolicy(c, svc)
+		if !available || !enforceRateLimit(c, "timeline-ts:"+user.ID, policy.Request.TaskCreatePerMinute, time.Minute) {
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
+		var req service.TimelineTranscriptionCreateRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		task, err := svc.CreateTimelineTranscriptionTask(user.ID, req)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, task)
+	})
+	r.POST("/timeline/renders", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		policy, available := loadRuntimePolicy(c, svc)
+		if !available || !enforceRateLimit(c, "timeline-render:"+user.ID, policy.Request.TaskCreatePerMinute, time.Minute) {
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 64<<20)
+		var req service.TimelineRenderCreateRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		task, err := svc.CreateTimelineRenderTask(user.ID, req)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, task)
+	})
 	r.GET("/tasks", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
 		if err != nil {
 			failService(c, err)
 			return
 		}
-		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+		pageSize, err := parsePositiveQueryInt(c.Query("pageSize"), 50)
+		if err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
 		tasks, err := svc.TasksWithOptions(user.ID, service.TaskListOptions{
-			Limit:      limit,
+			Limit:      pageSize,
 			ProjectID:  c.Query("projectId"),
 			ActiveOnly: c.Query("activeOnly") == "true",
 		})
@@ -109,7 +159,11 @@ func RegisterTaskRoutes(r *gin.RouterGroup, svc *service.Service) {
 			failService(c, err)
 			return
 		}
-		after, _ := strconv.ParseInt(c.DefaultQuery("after", "0"), 10, 64)
+		after, err := taskTextEventCursor(c)
+		if err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
 		result, err := svc.TaskTextReplay(user.ID, c.Param("id"), after)
 		if err != nil {
 			failService(c, err)
@@ -128,7 +182,7 @@ func RegisterTaskRoutes(r *gin.RouterGroup, svc *service.Service) {
 			fail(c, http.StatusBadRequest, err)
 			return
 		}
-		initial, err := svc.TaskTextReplay(user.ID, c.Param("id"), after)
+		initial, err := svc.CachedTaskTextReplay(c.Request.Context(), user.ID, c.Param("id"), after)
 		if err != nil {
 			failService(c, err)
 			return
@@ -210,18 +264,27 @@ func RegisterTaskRoutes(r *gin.RouterGroup, svc *service.Service) {
 }
 
 func taskTextEventCursor(c *gin.Context) (int64, error) {
-	raw := c.Query("after")
-	if raw == "" {
-		raw = c.GetHeader("Last-Event-ID")
+	queryRaw, headerRaw := c.Query("after"), c.GetHeader("Last-Event-ID")
+	var cursor int64
+	for _, item := range []struct {
+		name string
+		raw  string
+	}{
+		{name: "after", raw: queryRaw},
+		{name: "Last-Event-ID", raw: headerRaw},
+	} {
+		if item.raw == "" {
+			continue
+		}
+		value, err := strconv.ParseInt(item.raw, 10, 64)
+		if err != nil || value < 0 {
+			return 0, errors.New("after 或 Last-Event-ID 必须是非负整数")
+		}
+		if value > cursor {
+			cursor = value
+		}
 	}
-	if raw == "" {
-		return 0, nil
-	}
-	after, err := strconv.ParseInt(raw, 10, 64)
-	if err != nil || after < 0 {
-		return 0, errors.New("after 或 Last-Event-ID 必须是非负整数")
-	}
-	return after, nil
+	return cursor, nil
 }
 
 func streamTaskTextEvents(c *gin.Context, svc *service.Service, userID string, taskID string, after int64, replay *service.TextReplayResult) {
@@ -262,7 +325,7 @@ func streamTaskTextEvents(c *gin.Context, svc *service.Service, userID string, t
 			c.Writer.Flush()
 		case <-pollTicker.C:
 		}
-		next, err := svc.TaskTextReplay(userID, taskID, after)
+		next, err := svc.CachedTaskTextReplay(c.Request.Context(), userID, taskID, after)
 		if err != nil {
 			writeTaskTextSSE(c, "error", 0, map[string]string{"message": "任务文本流不可用"})
 			return
@@ -285,85 +348,4 @@ func writeTaskTextSSE(c *gin.Context, event string, id int64, value any) {
 	}
 	_, _ = fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", event, data)
 	c.Writer.Flush()
-}
-
-func RegisterSessionRoutes(r *gin.RouterGroup, svc *service.Service) {
-	createSession := func(c *gin.Context) {
-		user, err := currentUser(c, svc)
-		if err != nil {
-			failService(c, err)
-			return
-		}
-		policy, available := loadRuntimePolicy(c, svc)
-		if !available || !enforceRateLimit(c, "sessions:"+user.ID, policy.Request.SessionCreatePerMinute, time.Minute) {
-			return
-		}
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 16<<20)
-		var req service.CreateSessionRequest
-		if err := c.ShouldBindJSON(&req); err != nil {
-			fail(c, http.StatusBadRequest, err)
-			return
-		}
-		req.TraceID = TraceID(c)
-		req.RequestID = RequestID(c)
-		detail, err := svc.CreateSession(user.ID, req)
-		if err != nil {
-			fail(c, http.StatusBadRequest, err)
-			return
-		}
-		ok(c, detail)
-	}
-	querySession := func(c *gin.Context) {
-		user, err := currentUser(c, svc)
-		if err != nil {
-			failService(c, err)
-			return
-		}
-		detail, err := svc.SessionDetail(user.ID, c.Param("id"))
-		if err != nil {
-			fail(c, http.StatusNotFound, err)
-			return
-		}
-		ok(c, detail)
-	}
-	uploadFile := func(c *gin.Context) {
-		user, err := currentUser(c, svc)
-		if err != nil {
-			failService(c, err)
-			return
-		}
-		policy, available := loadRuntimePolicy(c, svc)
-		if !available || !enforceRateLimit(c, "session-files:"+user.ID, policy.Request.SessionFilePerMinute, time.Minute) {
-			return
-		}
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, (policy.Resource.SessionUploadMB<<20)+(1<<20))
-		file, err := c.FormFile("file")
-		if err != nil {
-			fail(c, http.StatusBadRequest, err)
-			return
-		}
-		item, err := svc.StoreUpload(user.ID, c.PostForm("sessionId"), file)
-		if err != nil {
-			failService(c, err)
-			return
-		}
-		ok(c, item)
-	}
-	downloadResults := func(c *gin.Context) {
-		user, err := currentUser(c, svc)
-		if err != nil {
-			failService(c, err)
-			return
-		}
-		detail, err := svc.SessionDetail(user.ID, c.Param("id"))
-		if err != nil {
-			fail(c, http.StatusNotFound, err)
-			return
-		}
-		ok(c, detail.Results)
-	}
-	r.POST("/sessions", createSession)
-	r.GET("/sessions/:id", querySession)
-	r.POST("/files", uploadFile)
-	r.GET("/sessions/:id/results", downloadResults)
 }
