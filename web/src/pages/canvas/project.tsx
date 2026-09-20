@@ -122,6 +122,7 @@ import { bringCanvasNodeToFront, type CanvasNodeStackOrder } from "@/lib/canvas/
 import { AiArtCritiqueModal } from "@/components/canvas/art-critique/ai-art-critique-modal";
 import { CanvasNodeGraphContext, type CanvasNodeGraphContextValue } from "@/components/canvas/canvas-node-graph-context";
 import { CanvasRefreshShell } from "./canvas-refresh-shell";
+import { CanvasPresenceOverlay, useCanvasPresence } from "./canvas-presence";
 import { queryGenerationTask } from "@/services/api/task-center";
 import type { CanvasImageEmotionPayload } from "@/components/canvas/canvas-node-emotion-panel";
 import { CanvasEmotionWorkspace } from "@/components/canvas/canvas-emotion-workspace";
@@ -143,6 +144,7 @@ import { useCanvasMediaTools } from "./use-canvas-media-tools";
 import { useCanvasNodeEditor } from "./use-canvas-node-editor";
 import { useCanvasNodeOperations } from "./use-canvas-node-operations";
 import { useCanvasProjectLifecycle } from "./use-canvas-project-lifecycle";
+import { useCanvasCollaborationRealtime } from "./use-canvas-collaboration-realtime";
 import { useCanvasRenderModel } from "./use-canvas-render-model";
 import { useCanvasSelectionController } from "./use-canvas-selection-controller";
 import { useCanvasShortDrama } from "./use-canvas-short-drama";
@@ -405,7 +407,7 @@ function InfiniteCanvasPage() {
         [backgroundMode, message],
     );
 
-    const { getHistoryCleanupContext, historyPausedRef, historyState, redoCanvas, resetHistory, undoCanvas } = useCanvasHistory({
+    const { adoptRemoteHistory, getHistoryCleanupContext, historyPausedRef, historyState, redoCanvas, resetHistory, undoCanvas } = useCanvasHistory({
         projectLoaded,
         nodes,
         connections,
@@ -460,12 +462,35 @@ function InfiniteCanvasPage() {
         setViewport,
         setProjectLoaded,
         resetHistory,
+        adoptRemoteHistory,
         cleanupAssetImages,
         cleanupCanvasFiles,
     });
 
+    const { presence, setActivity: setPresenceActivity, clearActivity: clearPresenceActivity, handlePointerMove: handlePresencePointerMove } = useCanvasPresence({
+        canvasId: projectId, enabled: Boolean(currentProject?.collaborationEnabled), projectLoaded, containerRef, viewport,
+    });
+    useCanvasCollaborationRealtime({ canvasId: projectId, enabled: Boolean(projectLoaded && currentProject?.collaborationEnabled) });
+
+    useEffect(() => {
+        if (!projectLoaded || !currentProject?.collaborationEnabled) return;
+        const onFocus = (event: FocusEvent) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) return;
+            if (target.matches("input, textarea") || target.isContentEditable) {
+                setPresenceActivity({ kind: "typing", nodeId: target.closest<HTMLElement>("[data-node-id]")?.dataset.nodeId });
+            }
+        };
+        document.addEventListener("focusin", onFocus);
+        document.addEventListener("focusout", clearPresenceActivity);
+        return () => {
+            document.removeEventListener("focusin", onFocus);
+            document.removeEventListener("focusout", clearPresenceActivity);
+        };
+    }, [projectLoaded, currentProject?.collaborationEnabled, setPresenceActivity, clearPresenceActivity]);
+
     const versions = useCanvasVersionHistory(projectId, restoreCanvasProjectVersion);
-    const openVersions = () => { closeAgent(); setVersionCompareRootId(null); versions.show(); };
+    const openVersions = (tab: "cloud" | "draft" | "branches" = "branches") => { closeAgent(); setVersionCompareRootId(null); versions.changeTab(tab); versions.show(); };
     const openAgent = useCallback(() => { versions.close(); openAssistant(); }, [versions.close, openAssistant]);
 
     const sendSelectionToAgent = useCallback((nodeId?: string) => {
@@ -564,7 +589,7 @@ function InfiniteCanvasPage() {
     // 每帧新对象会让所有节点跟着重渲染，错题本里多条崩溃都出在画布高频更新。
     const nodeGraphContext = useMemo<CanvasNodeGraphContextValue>(() => ({ getUpstreamNodes: (nodeId: string) => getContextResourceNodes(nodeId, nodes, connections) }), [connections, nodes]);
 
-    const { applyGenerationTaskResult, bindGenerationTask, finishGenerationRequest, openNodeTaskDetails, runningNodeId, setRunningNodeId, setTaskDetail, startGenerationRequest, taskDetail, taskDetailLoading, taskDetailLogs } = useCanvasGeneration({
+    const { applyGenerationTaskResult, bindGenerationTask, cancelGenerationRequest, finishGenerationRequest, openNodeTaskDetails, runningNodeId, setRunningNodeId, setTaskDetail, startGenerationRequest, taskDetail, taskDetailLoading, taskDetailLogs } = useCanvasGeneration({
         projectId,
         domainProjectId: linkedProjectId,
         projectLoaded,
@@ -925,6 +950,7 @@ function InfiniteCanvasPage() {
 
     const handleNodesDeleted = useCallback(
         (removedIds: Set<string>, nextNodes: CanvasNodeData[], removedNodes: CanvasNodeData[]) => {
+            removedIds.forEach((nodeId) => cancelGenerationRequest(nodeId));
             const clearDeletedId = (current: string | null) => (current && removedIds.has(current) ? null : current);
             setHoveredNodeId(clearDeletedId);
             setToolbarNodeId(clearDeletedId);
@@ -959,6 +985,7 @@ function InfiniteCanvasPage() {
             cleanupCanvasFiles({ projectId, nodes: nextNodes, chatSessions });
         },
         [
+            cancelGenerationRequest,
             chatSessions,
             cleanupCanvasFiles,
             message,
@@ -1126,11 +1153,13 @@ function InfiniteCanvasPage() {
         setContextMenu(null);
         setHoveredNodeId(null);
         setToolbarNodeId(null);
+        if (!selectionModifier) setPresenceActivity({ kind: "dragging" });
         if (selectionModifier) setDialogNodeId(null);
-    }, []);
+    }, [setPresenceActivity]);
 
     const handleSelectedNodeClick = useCallback(
         (node: CanvasNodeData) => {
+            clearPresenceActivity();
             // Selection is transient, but the LibTV-style paint order survives
             // deselection so a clicked lower node stays above its neighbours.
             if (node.type !== CanvasNodeType.Frame) bringNodeToFront(node.id);
@@ -1158,7 +1187,7 @@ function InfiniteCanvasPage() {
                 });
             }
         },
-        [bringNodeToFront, nodesRef],
+        [bringNodeToFront, nodesRef, clearPresenceActivity],
     );
 
     const handleNodeBringToFront = useCallback(
@@ -1171,6 +1200,7 @@ function InfiniteCanvasPage() {
 
     const handleNodeDragEnd = useCallback(
         (nodeId: string) => {
+            clearPresenceActivity();
             const node = nodesRef.current.find((item) => item.id === nodeId);
             if (!node || node.type === CanvasNodeType.Script || node.type === CanvasNodeType.Drawing || node.type === CanvasNodeType.Panorama || node.type === ART_CRITIQUE_NODE_TYPE) {
                 setDialogNodeId(null);
@@ -1181,7 +1211,7 @@ function InfiniteCanvasPage() {
             // panel from the previous node cannot reappear after mouse-up.
             setDialogNodeId(node.id);
         },
-        [nodesRef],
+        [nodesRef, clearPresenceActivity],
     );
 
     const handleCanvasDeselect = useCallback(() => {
@@ -1261,6 +1291,10 @@ function InfiniteCanvasPage() {
         setToolbarNodeId,
         setHoveredNodeId,
     });
+    const handlePresenceNodeResize = useCallback((nodeId: string, width: number, height: number, position?: Position) => {
+        setPresenceActivity({ kind: "resizing", nodeId });
+        handleNodeResize(nodeId, width, height, position);
+    }, [handleNodeResize, setPresenceActivity]);
 
     const handleRemoveNodeReference = useCallback(
         (targetNodeId: string, reference: CanvasResourceReference) => {
@@ -2202,6 +2236,7 @@ function InfiniteCanvasPage() {
                     onReplaceReferenceFiles={handleReplaceNodeReferenceFiles}
                     onClose={() => setDialogNodeId(null)}
                     onNodeMouseDown={handleNodeMouseDown}
+                    onPresenceActivity={(kind, nodeId) => setPresenceActivity({ kind, nodeId })}
                     workspaceMode={workspaceMode}
                     onImageSettingsOpenChange={(open) => {
                         setNodeImageSettingsOpen(open);
@@ -2242,6 +2277,7 @@ function InfiniteCanvasPage() {
             setDialogNodeId,
             setNodes,
             setRunningNodeId,
+            setPresenceActivity,
             skillMentionReferences,
             workspaceMode,
         ],
@@ -2548,6 +2584,10 @@ function InfiniteCanvasPage() {
                     <section data-canvas-editor inert={Boolean(versions.preview)} style={{ visibility: versions.preview ? "hidden" : undefined, opacity: versions.preview ? 0 : undefined }} className="relative min-w-0 flex-1 flex flex-col min-h-0 overflow-hidden">
                         {!focusMode ? (
                             <CanvasTopBar
+                                canvasId={projectId}
+                                presence={presence}
+                                collaborationEnabled={currentProject?.collaborationEnabled}
+                                branchContext={versions.branchContext}
                                 syncStatus={<CanvasSyncStatus projectId={projectId} onLoadLatest={reloadLatestCanvasProject} onOpenVersions={openVersions} />}
                                 versionsOpen={versions.open}
                                 onToggleVersions={() => { closeAgent(); setVersionCompareRootId(null); versions.toggle(); }}
@@ -2621,6 +2661,7 @@ function InfiniteCanvasPage() {
                         <div className="relative flex min-h-0 min-w-0 flex-1">
                             <div className="relative min-w-0 flex-1 overflow-hidden">
                                 <InfiniteCanvas
+                                    onCanvasPointerMove={handlePresencePointerMove}
                                     interactive={!versions.preview}
                                     containerRef={containerRef}
                                     viewport={viewport}
@@ -2713,7 +2754,7 @@ function InfiniteCanvasPage() {
                                                 onNodeHoverStart={handleCanvasNodeHoverStart}
                                                 onNodeHoverEnd={handleCanvasNodeHoverEnd}
                                                 onConnectStart={handleConnectStart}
-                                                onNodeResize={handleNodeResize}
+                                                onNodeResize={handlePresenceNodeResize}
                                                 onToggleFrame={handleFrameToggle}
                                                 onFolderStyleChange={handleFolderStyleChange}
                                                 onFolderThemeChange={handleFolderThemeChange}
@@ -2735,6 +2776,7 @@ function InfiniteCanvasPage() {
                                             />
                                         </CanvasNodeGraphContext.Provider>
                                     </CanvasNodeActionContext.Provider>
+                                    <CanvasPresenceOverlay presence={presence} />
                                 </InfiniteCanvas>
 
                                 <CanvasActiveTaskPanel tasks={activeTasks} onCancelTask={cancelCanvasTask} topInset={focusMode ? "var(--space-3)" : "var(--canvas-topbar-offset)"} />

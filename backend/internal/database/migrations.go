@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 31
+const CurrentSchemaVersion int64 = 36
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -105,6 +105,11 @@ var schemaMigrations = []migration{
 	{version: 31, name: "tool_favorites", checksum: "sha256:tool-favorites-v31", apply: func(tx *gorm.DB) error {
 		return tx.AutoMigrate(&model.ToolFavorite{})
 	}},
+	{version: 34, name: "canvas_collaboration_operations", checksum: "sha256:canvas-collaboration-v30-20260920", apply: func(tx *gorm.DB) error {
+		return tx.AutoMigrate(&model.CanvasProject{}, &model.CanvasCollaborator{}, &model.CanvasCollaborationNode{}, &model.CanvasCollaborationOperation{})
+	}},
+	{version: 35, name: "canvas_durable_branches", checksum: "sha256:canvas-durable-branches-v31-20260920", apply: func(tx *gorm.DB) error { return tx.AutoMigrate(&model.CanvasBranch{}) }},
+	{version: 36, name: "canvas_media_grants", checksum: "sha256:canvas-media-grants-v32-20260920", apply: migrateCanvasMediaGrants},
 }
 
 func migrateChannelCreditCost(tx *gorm.DB) error {
