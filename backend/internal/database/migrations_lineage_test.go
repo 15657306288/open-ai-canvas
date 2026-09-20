@@ -117,3 +117,65 @@ func TestMigrateSchemaRejectsUnknownLegacyLineage(t *testing.T) {
 		})
 	}
 }
+
+func TestMigrateSchemaPreservesLegacyPluginMigrationLineage(t *testing.T) {
+	db, err := Open(Config{Driver: "sqlite", DSN: "file:legacy-plugin-migration-lineage?mode=memory&cache=shared"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&schemaMigration{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range schemaMigrations {
+		if item.version > 27 {
+			break
+		}
+		if item.version == 24 {
+			item = migration{version: 24, name: "channel_model_description", checksum: legacyChannelModelDescriptionV24Checksum, apply: migrateChannelModelDescription}
+		}
+		if err := item.apply(db); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Create(&schemaMigration{Version: item.version, Name: item.name, Checksum: item.checksum, AppliedAt: time.Now().UTC()}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, item := range []migration{
+		{version: 28, name: "channel_model_label", checksum: legacyChannelModelLabelV28Checksum, apply: migrateChannelModelLabel},
+		{version: 29, name: "agent_execution_journal", checksum: "sha256:agent-execution-journal-v28", apply: migrationMustFind(t, 28).apply},
+		{version: 30, name: "agent_resource_leases", checksum: "sha256:agent-resource-leases-v29-20260919", apply: migrationMustFind(t, 29).apply},
+	} {
+		if err := item.apply(db); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Create(&schemaMigration{Version: item.version, Name: item.name, Checksum: item.checksum, AppliedAt: time.Now().UTC()}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := MigrateSchema(db); err != nil {
+		t.Fatal(err)
+	}
+	status, err := ReadSchemaStatus(db)
+	if err != nil || !status.Ready || status.Current != CurrentSchemaVersion {
+		t.Fatalf("schema = %#v, %v", status, err)
+	}
+	for version, expected := range map[int64]string{24: "channel_model_description", 28: "channel_model_label", 29: "agent_execution_journal", 30: "agent_resource_leases", 31: "builtin_tools", 32: "tool_favorites"} {
+		var record schemaMigration
+		if err := db.First(&record, "version = ?", version).Error; err != nil {
+			t.Fatal(err)
+		}
+		if record.Name != expected {
+			t.Fatalf("migration %d changed lineage: %#v", version, record)
+		}
+	}
+}
+
+func migrationMustFind(t *testing.T, version int64) migration {
+	t.Helper()
+	item, found := migrationByVersion(version)
+	if !found {
+		t.Fatalf("missing migration %d", version)
+	}
+	return item
+}

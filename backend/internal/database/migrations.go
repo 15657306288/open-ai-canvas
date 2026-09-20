@@ -22,6 +22,8 @@ const resourcePlaybackChecksum = "sha256:resource-playback-v6-20260902"
 const assetLibraryFoldersChecksum = "sha256:asset-library-folders-v6-20260902"
 const logicalModelActiveCodeChecksum = "sha256:logical-model-active-code-v8-20260905"
 const creationRuntimeChecksum = "sha256:creation-runtime-v10-20260909"
+const legacyChannelModelDescriptionV24Checksum = "sha256:channel-model-description-v24-20260918"
+const legacyChannelModelLabelV28Checksum = "sha256:channel-model-label-v28"
 
 const postgresSchemaMigrationLockID int64 = 73123910420260830
 
@@ -222,31 +224,75 @@ func migrateChannelPresentation(tx *gorm.DB) error {
 }
 
 func migrationsForDatabase(db *gorm.DB) ([]migration, error) {
+	plan := append([]migration(nil), schemaMigrations...)
 	var applied schemaMigration
 	err := db.First(&applied, "version = ?", 6).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return schemaMigrations, nil
-	}
-	if err != nil {
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, fmt.Errorf("读取数据库迁移 6：%w", err)
 	}
-	if applied.Name != "asset_library_folders" {
-		return schemaMigrations, nil
+	if err == nil && applied.Name == "asset_library_folders" {
+		legacy := migration{version: 6, name: "asset_library_folders", checksum: assetLibraryFoldersChecksum, apply: migrateSchemaV7}
+		if err := validateMigrationRecord(applied, legacy); err != nil {
+			return nil, err
+		}
+		for index, item := range plan {
+			switch item.version {
+			case 6:
+				plan[index] = legacy
+			case 7:
+				plan[index] = migration{version: 7, name: "resource_playback_variant", checksum: resourcePlaybackChecksum, apply: migrateSchemaV6}
+			}
+		}
 	}
-	legacy := migration{version: 6, name: "asset_library_folders", checksum: assetLibraryFoldersChecksum, apply: migrateSchemaV7}
-	if err := validateMigrationRecord(applied, legacy); err != nil {
-		return nil, err
+
+	var legacyV24 schemaMigration
+	err = db.First(&legacyV24, "version = ?", 24).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, fmt.Errorf("读取数据库迁移 24：%w", err)
 	}
-	plan := append([]migration(nil), schemaMigrations...)
-	for index, item := range plan {
-		switch item.version {
-		case 6:
-			plan[index] = legacy
-		case 7:
-			plan[index] = migration{version: 7, name: "resource_playback_variant", checksum: resourcePlaybackChecksum, apply: migrateSchemaV6}
+	if err == nil && (legacyV24.Name == "channel_model_description" || legacyV24.Checksum == legacyChannelModelDescriptionV24Checksum) {
+		legacyMigrations := map[int64]migration{
+			24: {version: 24, name: "channel_model_description", checksum: legacyChannelModelDescriptionV24Checksum, apply: migrateChannelModelDescription},
+			28: {version: 28, name: "channel_model_label", checksum: legacyChannelModelLabelV28Checksum, apply: migrateChannelModelLabel},
+		}
+		for _, shifted := range []struct {
+			from int64
+			to   int64
+		}{
+			{from: 28, to: 29},
+			{from: 29, to: 30},
+			{from: 30, to: 31},
+			{from: 31, to: 32},
+		} {
+			item, found := migrationByVersion(shifted.from)
+			if !found {
+				return nil, fmt.Errorf("缺少迁移定义 %d，无法兼容历史迁移谱系", shifted.from)
+			}
+			item.version = shifted.to
+			legacyMigrations[shifted.to] = item
+		}
+		for index, item := range plan {
+			if replacement, found := legacyMigrations[item.version]; found {
+				plan[index] = replacement
+			}
+		}
+		// v32 was intentionally left unused by the current lineage, but the legacy
+		// lineage needs it for the tool favorites migration shifted from v31.
+		plan = append(plan, legacyMigrations[32])
+		for i := len(plan) - 1; i > 0 && plan[i].version < plan[i-1].version; i-- {
+			plan[i], plan[i-1] = plan[i-1], plan[i]
 		}
 	}
 	return plan, nil
+}
+
+func migrationByVersion(version int64) (migration, bool) {
+	for _, item := range schemaMigrations {
+		if item.version == version {
+			return item, true
+		}
+	}
+	return migration{}, false
 }
 
 func migrateSchemaV2(tx *gorm.DB) error {
