@@ -212,9 +212,18 @@ func legacyImageSizeValues() []string {
 }
 
 func DefaultModelCapabilityConfigForModel(protocol string, modelName string) *ModelCapabilityConfig {
-	// 文本模型是否支持视觉输入不能从协议或模型名可靠推断，默认关闭，由管理员按真实上游能力开启。
 	streaming := true
-	text := &TextCapabilityConfig{Streaming: &streaming, ContextWindowTokens: 128000, MaxOutputTokens: 16384, References: TextReferenceConfig{PromptMaxChars: 32000}}
+	textReferences := TextReferenceConfig{PromptMaxChars: 32000}
+	textProfile := multimodalTextReferenceProfile(protocol, modelName)
+	if textProfile.images {
+		textReferences.MaxImages = textProfile.maxImages
+		textReferences.MaxImageBytes = textProfile.maxImageBytes
+	}
+	if textProfile.videos {
+		textReferences.MaxVideos = textProfile.maxVideos
+		textReferences.MaxVideoBytes = textProfile.maxVideoBytes
+	}
+	text := &TextCapabilityConfig{Streaming: &streaming, ContextWindowTokens: 128000, MaxOutputTokens: 16384, References: textReferences}
 	video := &VideoCapabilityConfig{
 		References:        VideoReferenceConfig{PromptMaxChars: DefaultVideoPromptMaxChars, MinImages: 0, MaxImages: 9, MaxImageBytes: 30 * 1024 * 1024, MaxVideos: 0, MaxVideoBytes: 0, MaxVideoDuration: 0, MaxAudios: 0, MaxAudioBytes: 0, MaxAudioDuration: 0},
 		Duration:          VideoDurationConfig{Selection: "range", Min: 1, Max: 15, Step: 1, Default: 6},
@@ -280,6 +289,44 @@ func DefaultModelCapabilityConfigForModel(protocol string, modelName string) *Mo
 	return &ModelCapabilityConfig{Version: 1, Text: text, Image: DefaultImageCapabilityConfig(protocol, modelName), Video: video}
 }
 
+type multimodalTextReferenceLimits struct {
+	images        bool
+	videos        bool
+	maxImages     int
+	maxImageBytes int64
+	maxVideos     int
+	maxVideoBytes int64
+}
+
+// multimodalTextReferenceProfile 是兼容中转模型的能力目录兜底。
+// 渠道保存的 capabilityConfig 仍然是最终真相；这里仅修复旧版本把常见多模态
+// 文本模型保存成 0 张参考图的配置，避免模型列表能选中但创作端永远拒绝参考图。
+func multimodalTextReferenceProfile(protocol string, modelName string) multimodalTextReferenceLimits {
+	value := strings.ToLower(strings.TrimSpace(modelName))
+	protocolValue := strings.ToLower(strings.TrimSpace(protocol))
+	profile := multimodalTextReferenceLimits{}
+	switch {
+	case strings.Contains(value, "gemini") || strings.Contains(protocolValue, "gemini"):
+		profile.images, profile.videos = true, true
+	case strings.Contains(value, "gpt") || strings.Contains(value, "doubao") || strings.Contains(value, "豆包"):
+		profile.images = true
+	case strings.Contains(value, "claude") || strings.Contains(protocolValue, "claude"):
+		// Claude Messages 支持图片，但当前出站适配器不支持视频。
+		profile.images = true
+	case strings.Contains(value, "deepseek") && (strings.Contains(value, "vl") || strings.Contains(value, "vision") || strings.Contains(value, "multimodal")):
+		profile.images = true
+	}
+	if profile.images {
+		profile.maxImages = 16
+		profile.maxImageBytes = 30 * 1024 * 1024
+	}
+	if profile.videos {
+		profile.maxVideos = 3
+		profile.maxVideoBytes = 200 * 1024 * 1024
+	}
+	return profile
+}
+
 func DecodeModelCapabilityConfig(raw string) (*ModelCapabilityConfig, error) {
 	if strings.TrimSpace(raw) == "" {
 		return nil, nil
@@ -328,6 +375,19 @@ func NormalizeModelCapabilityConfigForModel(capability string, protocol string, 
 			return nil, BadAuthRequest("请配置文本模型能力参数")
 		}
 		text := *input.Text
+		legacyProfile := multimodalTextReferenceProfile(protocol, modelName)
+		if legacyProfile.images && text.References.MaxImages == 0 {
+			text.References.MaxImages = legacyProfile.maxImages
+			if text.References.MaxImageBytes == 0 {
+				text.References.MaxImageBytes = legacyProfile.maxImageBytes
+			}
+		}
+		if legacyProfile.videos && text.References.MaxVideos == 0 {
+			text.References.MaxVideos = legacyProfile.maxVideos
+			if text.References.MaxVideoBytes == 0 {
+				text.References.MaxVideoBytes = legacyProfile.maxVideoBytes
+			}
+		}
 		if text.Streaming == nil {
 			streaming := true
 			text.Streaming = &streaming

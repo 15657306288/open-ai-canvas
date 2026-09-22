@@ -1027,19 +1027,19 @@ func manifestRequestValues(request GenerationRequest) map[string]any {
 	for _, img := range request.Images {
 		val := defaultValue(img.URL, img.DataURL)
 		if val != "" {
-			userContent = append(userContent, map[string]any{"type": "image_url", "image_url": map[string]any{"url": val}})
+			userContent = append(userContent, map[string]any{"type": "image_url", "image_url": map[string]any{"url": val, "mimeType": img.MIMEType}})
 		}
 	}
 	for _, vid := range request.Videos {
 		val := defaultValue(vid.URL, vid.DataURL)
 		if val != "" {
-			userContent = append(userContent, map[string]any{"type": "video_url", "video_url": map[string]any{"url": val}})
+			userContent = append(userContent, map[string]any{"type": "video_url", "video_url": map[string]any{"url": val, "mimeType": vid.MIMEType}})
 		}
 	}
 	for _, aud := range request.Audios {
 		val := defaultValue(aud.URL, aud.DataURL)
 		if val != "" {
-			userContent = append(userContent, map[string]any{"type": "audio_url", "audio_url": map[string]any{"url": val}})
+			userContent = append(userContent, map[string]any{"type": "audio_url", "audio_url": map[string]any{"url": val, "mimeType": aud.MIMEType}})
 		}
 	}
 	messages := make([]any, 0, len(request.Messages)+2)
@@ -1053,14 +1053,14 @@ func manifestRequestValues(request GenerationRequest) map[string]any {
 		if strings.TrimSpace(message.Role) == "" || message.Content == nil {
 			continue
 		}
-		messages = append(messages, map[string]any{"role": message.Role, "content": message.Content})
+		messages = append(messages, map[string]any{"role": message.Role, "content": message.Content, "geminiParts": geminiMessageParts(message.Content)})
 	}
 	if len(userContent) > 0 {
 		content := any(userContent)
 		if len(userContent) == 1 && len(request.Images)+len(request.Videos)+len(request.Audios) == 0 {
 			content = request.Prompt
 		}
-		messages = append(messages, map[string]any{"role": "user", "content": content})
+		messages = append(messages, map[string]any{"role": "user", "content": content, "geminiParts": geminiMessageParts(content)})
 	}
 
 	inputs := request.Inputs
@@ -1115,6 +1115,95 @@ func manifestRequestValues(request GenerationRequest) map[string]any {
 		"providerOptions": providerOptionsValue,
 		"extra":           request.Extra,
 	}
+}
+
+// geminiMessageParts projects the provider-neutral message content into the
+// native Gemini parts contract. Text remains text; data URLs become inlineData
+// and URL references become fileData. This keeps the declarative manifest
+// generic while allowing Gemini vision/video/audio models to receive the same
+// inputs that OpenAI-compatible protocols already accept.
+func geminiMessageParts(content any) []any {
+	parts := make([]any, 0)
+	var appendValue func(value any, kind string, mimeType string)
+	appendValue = func(value any, kind string, mimeType string) {
+		switch typed := value.(type) {
+		case string:
+			valueText := strings.TrimSpace(typed)
+			if valueText == "" {
+				return
+			}
+			if strings.HasPrefix(strings.ToLower(valueText), "data:") {
+				parts = append(parts, map[string]any{"inlineData": map[string]any{"mimeType": geminiMIMEType(valueText, kind, mimeType), "data": dataPayload(valueText)}})
+				return
+			}
+			if kind != "" {
+				parts = append(parts, map[string]any{"fileData": map[string]any{"mimeType": geminiMIMEType(valueText, kind, mimeType), "fileUri": valueText}})
+				return
+			}
+			parts = append(parts, map[string]any{"text": typed})
+		case map[string]any:
+			if text := manifestString(typed["text"]); strings.TrimSpace(text) != "" {
+				parts = append(parts, map[string]any{"text": text})
+				return
+			}
+			if nested, ok := typed["image_url"].(map[string]any); ok {
+				appendValue(nested["url"], "image", firstNonEmptyString(manifestString(nested["mimeType"]), manifestString(typed["mimeType"])))
+				return
+			}
+			if nested, ok := typed["video_url"].(map[string]any); ok {
+				appendValue(nested["url"], "video", firstNonEmptyString(manifestString(nested["mimeType"]), manifestString(typed["mimeType"])))
+				return
+			}
+			if nested, ok := typed["audio_url"].(map[string]any); ok {
+				appendValue(nested["url"], "audio", firstNonEmptyString(manifestString(nested["mimeType"]), manifestString(typed["mimeType"])))
+				return
+			}
+			if valueText := manifestString(typed["url"]); valueText != "" {
+				appendValue(valueText, strings.TrimSpace(kind), firstNonEmptyString(manifestString(typed["mimeType"]), mimeType))
+			}
+		case []any:
+			for _, item := range typed {
+				appendValue(item, kind, mimeType)
+			}
+		default:
+			if typed != nil {
+				encoded, err := json.Marshal(typed)
+				if err == nil {
+					appendValue(string(encoded), "", "")
+				}
+			}
+		}
+	}
+	appendValue(content, "", "")
+	return parts
+}
+
+func geminiMIMEType(value, kind, explicit string) string {
+	if mime := strings.TrimSpace(explicit); mime != "" {
+		return mime
+	}
+	if strings.HasPrefix(strings.ToLower(value), "data:") {
+		return dataMIME(value)
+	}
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "image":
+		return "image/jpeg"
+	case "video":
+		return "video/mp4"
+	case "audio":
+		return "audio/mpeg"
+	default:
+		return "application/octet-stream"
+	}
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func hasSystemMessage(messages []Message) bool {

@@ -199,6 +199,22 @@ func TestPublicChannelOnlyReturnsSystemHeadersToAdmin(t *testing.T) {
 	}
 }
 
+func TestPublicChannelDoesNotExposeLegacyModelsAfterRegistrationExists(t *testing.T) {
+	channel := model.ModelChannel{
+		ID:         "system-legacy-models",
+		Scope:      model.ChannelScopeSystem,
+		ModelsJSON: `["gemini-3.8-flash","gpt-6-astra"]`,
+	}
+	registered := []model.ChannelModel{
+		{ID: "model-gemini", ChannelID: channel.ID, ModelKey: "gemini-3.8-flash", DisplayName: "Gemini 3.8 Flash", Enabled: false},
+		{ID: "model-gpt", ChannelID: channel.ID, ModelKey: "gpt-6-astra", DisplayName: "GPT-6 Astra", Enabled: false},
+	}
+	public := publicChannel(channel, false, registered)
+	if len(public.Models) != 0 || len(public.ModelCosts) != 0 {
+		t.Fatalf("unconfigured channel models leaked into public directory: %#v", public)
+	}
+}
+
 func TestChannelFromRequestRejectsInvalidConcurrencyLimit(t *testing.T) {
 	for _, limit := range []int{0, 1000} {
 		_, err := channelFromRequest(ChannelRequest{Name: "Bad", BaseURL: "https://example.com/v1", ConcurrencyLimit: &limit}, model.ModelChannel{})

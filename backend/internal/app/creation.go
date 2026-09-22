@@ -437,6 +437,9 @@ func (s *Service) prepareCreationTask(userID string, req CreateTaskRequest) (*mo
 				return nil, nil, "", e
 			}
 			profile, e := DecodeModelCapabilityConfig(cm.CapabilityConfigJSON)
+			if e == nil {
+				profile, e = NormalizeModelCapabilityConfigForModel("text", string(cm.Protocol), firstNonEmpty(cm.ProviderModelKey, cm.ModelKey), profile)
+			}
 			if e != nil || profile == nil || profile.Text == nil || profile.Text.References.MaxImages < len(typed.ReferenceImages) {
 				return nil, nil, "", BadAuthRequest("当前文本模型未配置足够的图片理解能力")
 			}

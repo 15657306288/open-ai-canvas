@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { Button, Modal, Segmented } from "antd";
 import { ImagePlus } from "lucide-react";
 
-import { readImageMeta } from "@/lib/image-utils";
+import { canvasDialogImageInput, type CanvasDialogImageInput } from "@/lib/canvas/canvas-node-image-source";
+import { CanvasNodeImageStatus } from "@/components/canvas/canvas-node-image-status";
+import { useCanvasNodeImage } from "@/hooks/use-canvas-node-image";
 import { MAX_UPSCALE_LONG_EDGE, resolveUpscaleSize, type ImageUpscaleAlgorithm, type ImageUpscaleParams } from "@/lib/canvas/canvas-image-data";
 
 export type CanvasImageUpscaleParams = ImageUpscaleParams;
@@ -24,9 +26,20 @@ const defaultParams: CanvasImageUpscaleParams = {
     algorithm: "high",
 };
 
-export function CanvasNodeUpscaleDialog({ dataUrl, open, onClose, onConfirm }: { dataUrl: string; open: boolean; onClose: () => void; onConfirm: (params: CanvasImageUpscaleParams) => void }) {
+export function CanvasNodeUpscaleDialog({ dataUrl, image: imageInput, open, onClose, onConfirm }: {
+    /** 兼容老的 dataUrl 直传；新调用点传「storageKey 优先」的解析结果。 */
+    dataUrl?: string;
+    image?: CanvasDialogImageInput | null;
+    open: boolean;
+    onClose: () => void;
+    onConfirm: (params: CanvasImageUpscaleParams) => void;
+}) {
+    const requested = canvasDialogImageInput(dataUrl, imageInput);
+    const loaded = useCanvasNodeImage(requested, open);
     const [params, setParams] = useState<CanvasImageUpscaleParams>(defaultParams);
-    const [image, setImage] = useState<{ width: number; height: number } | null>(null);
+    // 放大倍率与输出尺寸按解码出的真实像素计算，节点宽高不等于原图尺寸。
+    const image = useMemo(() => (loaded.status === "ready" ? { width: loaded.width, height: loaded.height } : null), [loaded.height, loaded.status, loaded.width]);
+    const sourceReady = loaded.status === "ready";
     const sourceLongEdge = image ? Math.max(image.width, image.height) : 0;
     const outputSize = useMemo(() => (image ? resolveUpscaleSize(image.width, image.height, params.targetLongEdge) : null), [image, params.targetLongEdge]);
     const canUpscale = Boolean(image && sourceLongEdge < params.targetLongEdge && params.targetLongEdge <= MAX_UPSCALE_LONG_EDGE);
@@ -35,13 +48,9 @@ export function CanvasNodeUpscaleDialog({ dataUrl, open, onClose, onConfirm }: {
     useEffect(() => {
         if (!open) return;
         setParams(defaultParams);
-        setImage(null);
-    }, [dataUrl, open]);
+    }, [open, requested?.storageKey, requested?.url]);
 
-    useEffect(() => {
-        if (!open) return;
-        void readImageMeta(dataUrl).then(setImage);
-    }, [dataUrl, open]);
+
 
     useEffect(() => {
         if (!image) return;
@@ -50,7 +59,7 @@ export function CanvasNodeUpscaleDialog({ dataUrl, open, onClose, onConfirm }: {
     }, [image, sourceLongEdge]);
 
     return (
-        <Modal title={null} open={open && Boolean(dataUrl)} onCancel={onClose} footer={null} width={820} centered destroyOnHidden>
+        <Modal title={null} open={open && Boolean(requested)} onCancel={onClose} footer={null} width={820} centered destroyOnHidden>
             <div className="space-y-5">
                 <div>
                     <h2 className="text-xl font-semibold">调整尺寸</h2>
@@ -58,8 +67,9 @@ export function CanvasNodeUpscaleDialog({ dataUrl, open, onClose, onConfirm }: {
                 </div>
                 <div className="grid gap-6 md:grid-cols-[minmax(260px,1fr)_360px]">
                     <div className="rounded-xl border p-4">
-                        <div className="grid min-h-[280px] place-items-center rounded-lg bg-black/5">
-                            <img src={dataUrl} alt="" className="max-h-[320px] max-w-full rounded-lg object-contain shadow-xl" draggable={false} />
+                        <div className="relative grid min-h-[280px] place-items-center rounded-lg bg-black/5">
+                            {sourceReady ? <img src={loaded.url} alt="" className="max-h-[320px] max-w-full rounded-lg object-contain shadow-xl" draggable={false} /> : null}
+                            <CanvasNodeImageStatus status={loaded.status} error={loaded.error} onRetry={loaded.reload} />
                         </div>
                         <div className="mt-3 flex items-center justify-between text-sm">
                             <span className="opacity-60">源图</span>

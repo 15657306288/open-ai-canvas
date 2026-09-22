@@ -7,6 +7,7 @@ import { generationTaskShowsProgress, generationTaskStageLabel, generationTaskSt
 import { canvasRichTextHTML } from "@/lib/canvas/canvas-rich-text";
 import { fitNodeSize } from "@/lib/canvas/canvas-node-size";
 import { canvasTextFontSize } from "@/lib/canvas/canvas-text-scale";
+import { readCanvasTextLayers } from "@/lib/canvas/canvas-text-layer";
 import { loadCanvasDrawingPreview } from "@/lib/canvas/canvas-drawing-storage";
 import { canvasNodeVideoPreviewUrl } from "@/lib/canvas/canvas-media-preview";
 import { bindCanvasVideoHoverPreview } from "@/lib/canvas/canvas-video-hover-preview";
@@ -28,6 +29,7 @@ import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textare
 import { CanvasAudioPlayer } from "./canvas-audio-player";
 import { useCanvasNodeActions } from "./canvas-node-action-context";
 import { CanvasSubtitleOverlay } from "./canvas-subtitle-overlay";
+import { CanvasTextLayerStage } from "./canvas-text-layer-stage";
 import { CanvasFileUploadContent } from "./canvas-file-upload-content";
 import { MarkdownNodeContent } from "./nodes/markdown-node";
 import { ChartNodeContent } from "./nodes/chart-node";
@@ -594,6 +596,7 @@ function ImageContent({ node, theme, isBatchRoot, batchCount, batchPreviewNodes,
     const importedFromLibTV = node.metadata?.importSource?.provider === "libtv";
     const { updateMediaNode } = useCanvasNodeActions();
     const measuredSizeRef = useRef<{ width: number; height: number } | null>(null);
+    const textLayers = useMemo(() => readCanvasTextLayers(node.metadata), [node.metadata]);
 
     /**
      * 让节点跟随图片真实比例。
@@ -632,8 +635,16 @@ function ImageContent({ node, theme, isBatchRoot, batchCount, batchPreviewNodes,
 
     return (
         <BatchFrame batchPreviewNodes={batchPreviewNodes} batchCount={isBatchRoot ? batchCount : 0} batchExpanded={batchExpanded} batchOpening={batchOpening} batchRecovering={batchRecovering} theme={theme} onToggleBatch={onToggleBatch}>
-            <div ref={imageContainerRef} className="h-full w-full overflow-hidden rounded-[var(--node-radius)]">
+            <div ref={imageContainerRef} className="relative h-full w-full overflow-hidden rounded-[var(--node-radius)]">
                 {url ? <img src={url} alt={node.title} loading="lazy" decoding="async" draggable={false} onDragStart={(event) => event.preventDefault()} onLoad={(event) => fitToImage(event.currentTarget)} className={`pointer-events-none block h-full w-full select-none ${node.metadata?.freeResize ? "object-fill" : "object-contain"}`} /> : <div className="grid size-full place-items-center" style={{ color: theme.node.muted }}>{loading ? <LoaderCircle className="size-5 animate-spin" /> : <ImageIcon className="size-5 opacity-45" />}</div>}
+                <CanvasTextLayerStage
+                    layers={textLayers}
+                    containerWidth={node.width}
+                    containerHeight={node.height}
+                    imageWidth={node.metadata?.naturalWidth || node.width}
+                    imageHeight={node.metadata?.naturalHeight || node.height}
+                    fill={Boolean(node.metadata?.freeResize)}
+                />
             </div>
         </BatchFrame>
     );

@@ -11,6 +11,7 @@ import {
     createBatchRowsFromColumns,
     createBatchRowsFromInputs,
     createInheritedBatchRow,
+    fillBatchReferenceColumn,
     moveBatchReferenceCell,
     promoteLegacyBatchTableSize,
     removeLastBatchReferenceColumn,
@@ -190,6 +191,73 @@ describe("batch creation table", () => {
         const next = moveBatchReferenceCell(table, "row-1", 0, "row-2", 1);
         expect(next.rows[0].inputNodeIds).toEqual(["d", "b"]);
         expect(next.rows[1].inputNodeIds).toEqual(["c", "a"]);
+    });
+
+    test("bulk fills the requested reference column for selected rows only", () => {
+        const table = {
+            operation: "creative" as const,
+            concurrency: 10,
+            referenceColumns: [
+                { id: "reference-1", label: "参考图 1" },
+                { id: "reference-2", label: "参考图 2" },
+            ],
+            rows: [
+                { id: "row-1", enabled: true, inputNodeIds: ["a", "old-1"], prompt: "one", outputNodeId: "old-output" },
+                { id: "row-2", enabled: true, inputNodeIds: ["b", "old-2"], prompt: "two" },
+                { id: "row-3", enabled: true, inputNodeIds: ["c", "old-3"], prompt: "three" },
+            ],
+        };
+        const next = fillBatchReferenceColumn(table, ["source-1", "source-2"], {
+            targetColumnIndex: 1,
+            targetRowIds: ["row-1", "row-3"],
+        });
+        expect(next.rows.map((row) => row.inputNodeIds)).toEqual([
+            ["a", "source-1"],
+            ["b", "old-2"],
+            ["c", "source-2"],
+        ]);
+        expect(next.rows[0].outputNodeId).toBeUndefined();
+    });
+
+    test("bulk fill supports cycling and filling empty slots only", () => {
+        const table = {
+            operation: "creative" as const,
+            concurrency: 10,
+            referenceColumns: [{ id: "reference-1", label: "参考图 1" }],
+            rows: [
+                { id: "row-1", enabled: true, inputNodeIds: ["existing"], prompt: "one" },
+                { id: "row-2", enabled: true, inputNodeIds: [""], prompt: "two" },
+                { id: "row-3", enabled: true, inputNodeIds: [], prompt: "three" },
+            ],
+        };
+        const next = fillBatchReferenceColumn(table, ["source-1", "source-2"], {
+            targetColumnIndex: 0,
+            targetRowIds: table.rows.map((row) => row.id),
+            mode: "cycle",
+            overwrite: false,
+        });
+        expect(next.rows.map((row) => row.inputNodeIds)).toEqual([
+            ["existing"],
+            ["source-1"],
+            ["source-2"],
+        ]);
+    });
+
+    test("sequential bulk fill leaves extra target rows unchanged", () => {
+        const table = {
+            operation: "creative" as const,
+            concurrency: 10,
+            referenceColumns: [{ id: "reference-1", label: "参考图 1" }],
+            rows: [
+                { id: "row-1", enabled: true, inputNodeIds: ["old-1"], prompt: "one" },
+                { id: "row-2", enabled: true, inputNodeIds: ["old-2"], prompt: "two" },
+            ],
+        };
+        const next = fillBatchReferenceColumn(table, ["source-1"], {
+            targetColumnIndex: 0,
+            targetRowIds: table.rows.map((row) => row.id),
+        });
+        expect(next.rows.map((row) => row.inputNodeIds)).toEqual([["source-1"], ["old-2"]]);
     });
 
     test("uses a non-empty global prompt instead of the row prompt", () => {

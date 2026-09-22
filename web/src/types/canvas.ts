@@ -7,6 +7,7 @@ import type { ArtCritiqueNodeState } from "@/lib/art-critique/contracts";
 import type { CameraControlOptions } from "@/lib/canvas/camera-prompt-library";
 import type { SrtEntry, SubtitleHighlight, SubtitleStyle } from "@/types/timeline";
 import type { GenerationSpec } from "@/lib/canvas/generation-contract.generated";
+import type { CanvasTextLayer } from "@/lib/canvas/canvas-text-layer";
 
 export type Position = {
     x: number;
@@ -491,6 +492,11 @@ export type CanvasNodeMetadata = {
         smartBase: boolean;
         directImageUrl?: string | null;
     };
+    /**
+     * 图片节点上的独立文字图层：坐标使用原图像素空间，不写回底图、不消耗生成额度，
+     * 随节点缩放与平移一起变换；绘制顺序等于数组顺序。
+     */
+    textLayers?: CanvasTextLayer[];
 };
 
 export type CanvasNodeData = {

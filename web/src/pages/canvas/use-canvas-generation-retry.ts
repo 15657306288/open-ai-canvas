@@ -15,6 +15,7 @@ import {
     generationWorkflowMetadata,
     isGenerationCanceled,
     canvasImageReferenceLimitError,
+    resolveCanvasImageRetryModel,
     resolveMetadataReferences,
     resolveStoredReferenceImages,
     runBackendCanvasGenerationTask,
@@ -97,6 +98,17 @@ export function useCanvasGenerationRetry({
                           count: "1",
                       }
                     : { ...sourceGenerationConfig, count: "1" };
+            // 失败图片节点的 metadata.model 可能是历史遗留的文字模型，直接重试会被后端以
+            // “所选模型与任务能力不匹配”二次拒绝；提交前按目录能力归一到可用的图片模型。
+            if (retryMode === "image") {
+                const modelResolution = resolveCanvasImageRetryModel(effectiveConfig, savedImageMetadata?.model, sourceGenerationConfig.model);
+                if (!modelResolution.model) {
+                    message.error(modelResolution.error);
+                    navigateToSettings({ continueCreation: true });
+                    return;
+                }
+                generationConfig = { ...generationConfig, model: modelResolution.model, imageModel: modelResolution.model };
+            }
             if (!isAiConfigReady(generationConfig, generationConfig.model)) {
                 navigateToSettings({ continueCreation: true });
                 return;

@@ -7,7 +7,7 @@ import { grokImagePromptLimitError } from "@/lib/grok-image-prompt-limit";
 import { resolveGenerationWorkflowExecution, type GenerationWorkflowExecution } from "@/lib/generation-workflow-execution";
 import { isArkPlanBaseUrl } from "@/lib/seedance-video";
 import { resolveVideoOperation } from "@/lib/model-selection";
-import { logicalModelIDForConfig, modelOptionName, resolveModelChannel, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
+import { logicalModelIDForConfig, modelDisplayName, modelOptionName, resolveModelChannel, resolveModelRequestConfig, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 import { buildBackendToolRequests, type ResponseFunctionTool, type ResponseInputMessage, type ToolChoice, type ToolResponseResult } from "@/services/api/image";
@@ -216,9 +216,25 @@ export function isGenerationTaskCancelled(error: unknown, signal?: AbortSignal) 
 
 function assertBackendRuntimeConfigured(config: AiConfig, mode: BackendGenerationMode) {
     if (resolveGenerationWorkflowExecution(config, mode)) return;
+    const capabilityMismatch = systemChannelCapabilityMismatch(config, mode);
+    if (capabilityMismatch) throw new Error(capabilityMismatch);
     if (logicalModelIDForConfig(config)) return;
     const requestConfig = resolveModelRequestConfig(config, config.model);
     if (!requestConfig.channelId && !requestConfig.interfaceType) throw new Error("当前模型未选择可用请求协议，请先在模型设置中选择协议插件");
+}
+
+const GENERATION_MODE_LABELS: Record<ModelCapability, string> = { text: "文字", image: "图片", video: "视频", audio: "音频" };
+
+// 系统渠道模型的 capability 是后端准入的硬合同：任务 mode 与渠道模型能力不一致时，
+// 后端固定返回“所选模型与任务能力不匹配”。这里按目录声明做同构的前置校验，
+// 让用户拿到可执行的提示，也不再创建必然失败的结果节点。
+export function systemChannelCapabilityMismatch(config: AiConfig, mode: BackendGenerationMode) {
+    if (logicalModelIDForConfig(config)) return "";
+    const channel = resolveModelChannel(config, config.model);
+    if (channel.scope !== "system") return "";
+    const capability = channel.modelCosts?.find((item) => item.model === modelOptionName(config.model))?.capability;
+    if (!capability || capability === mode) return "";
+    return `当前模型 ${modelDisplayName(config, config.model)} 是${GENERATION_MODE_LABELS[capability]}模型，不能用于${GENERATION_MODE_LABELS[mode]}生成，请在模型设置中切换到${GENERATION_MODE_LABELS[mode]}模型`;
 }
 
 function throwIfAborted(signal?: AbortSignal) {

@@ -12,6 +12,15 @@ export const MIN_BATCH_REFERENCE_COLUMNS = 1;
 export const MAX_BATCH_REFERENCE_COLUMNS = 10;
 const LEGACY_BATCH_TABLE_WIDTH = 900;
 
+export type BatchReferenceFillMode = "sequential" | "cycle" | "same";
+
+export type BatchReferenceFillOptions = {
+    targetColumnIndex: number;
+    targetRowIds: string[];
+    mode?: BatchReferenceFillMode;
+    overwrite?: boolean;
+};
+
 /** 旧默认 900 宽的批量创作表升级到当前默认尺寸，已经手动改过宽度的节点保持原样。 */
 export function promoteLegacyBatchTableSize(node: CanvasNodeData): CanvasNodeData {
     if (node.type !== "batch-table" || node.width !== LEGACY_BATCH_TABLE_WIDTH) return node;
@@ -126,6 +135,34 @@ export function moveBatchReferenceCell(table: CanvasBatchTableData, sourceRowId:
     nextTarget.inputNodeIds[targetColumnIndex] = sourceNodeId;
     nextSource.inputNodeIds[sourceColumnIndex] = targetNodeId || "";
     return { ...table, rows: nextRows };
+}
+
+/** 将已连接的图片按表格行顺序写入指定参考图列，保留其他列和未选中的行。 */
+export function fillBatchReferenceColumn(table: CanvasBatchTableData, sourceNodeIds: string[], options: BatchReferenceFillOptions): CanvasBatchTableData {
+    const { targetColumnIndex, targetRowIds, mode = "sequential", overwrite = true } = options;
+    const sources = Array.from(new Set(sourceNodeIds.filter(Boolean)));
+    const targetIds = new Set(targetRowIds);
+    const columnCount = batchReferenceColumns(table).length;
+    if (!sources.length || !targetIds.size || targetColumnIndex < 0 || targetColumnIndex >= columnCount) return table;
+
+    let sourceIndex = 0;
+    let changed = false;
+    const rows = table.rows.map((row) => {
+        if (!targetIds.has(row.id) || (!overwrite && row.inputNodeIds[targetColumnIndex])) return row;
+        const sourceNodeId = mode === "same"
+            ? sources[0]
+            : mode === "cycle"
+                ? sources[sourceIndex % sources.length]
+                : sources[sourceIndex];
+        if (!sourceNodeId) return row;
+        sourceIndex += 1;
+        if (row.inputNodeIds[targetColumnIndex] === sourceNodeId) return row;
+        const inputNodeIds = Array.from({ length: columnCount }, (_, index) => row.inputNodeIds[index] || "");
+        inputNodeIds[targetColumnIndex] = sourceNodeId;
+        changed = true;
+        return { ...row, inputNodeIds, outputNodeId: undefined };
+    });
+    return changed ? { ...table, rows } : table;
 }
 
 export function batchPromptForRow(table: CanvasBatchTableData, row: CanvasBatchRow) {

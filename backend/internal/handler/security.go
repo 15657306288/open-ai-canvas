@@ -269,9 +269,7 @@ func normalizedProxyPath(value string) (string, error) {
 
 func channelAllowsModel(channel *model.ModelChannel, requested string) bool {
 	requested = strings.TrimPrefix(strings.TrimSpace(requested), "models/")
-	var models []string
-	_ = json.Unmarshal([]byte(channel.ModelsJSON), &models)
-	for _, configured := range models {
+	for _, configured := range model.ParseChannelModelNames(channel.ModelsJSON) {
 		if strings.TrimPrefix(strings.TrimSpace(configured), "models/") == requested {
 			return true
 		}

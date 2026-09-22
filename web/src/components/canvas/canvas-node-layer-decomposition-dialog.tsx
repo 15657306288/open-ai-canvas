@@ -1,47 +1,72 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { Button, Input, Modal, Tag } from "antd";
+import { Button, Input, InputNumber, Modal, Tag } from "antd";
 import { Layers3, Plus, RotateCcw, X } from "lucide-react";
 
 import { ModelPicker } from "@/components/model-picker";
+import { isDedicatedLayerDecompositionEndpoint, LAYER_DECOMPOSITION_DEFAULT_LAYERS, layerDecompositionCap, planLayerDecomposition } from "@/lib/canvas/canvas-layer-decomposition";
+import { modelCapabilityConfigFor } from "@/lib/model-capabilities";
 import type { AiConfig } from "@/stores/use-config-store";
+import { resolveModelRequestConfig } from "@/stores/use-config-store";
 import { defaultImageParamsForModel } from "@/lib/model-selection";
+import { canvasDialogImageInput, type CanvasDialogImageInput } from "@/lib/canvas/canvas-node-image-source";
+import { CanvasNodeImageStatus } from "@/components/canvas/canvas-node-image-status";
+import { useCanvasNodeImage } from "@/hooks/use-canvas-node-image";
 
 export type CanvasImageLayerDecompositionPayload = {
     prompt: string;
+    count?: number;
     regions?: Array<[number, number, number, number]>;
     generationConfig?: Partial<Pick<AiConfig, "model" | "imageModel" | "size" | "quality">>;
 };
 
-const DEFAULT_PROMPT = "将图片拆分为可独立编辑的图层：识别主要主体、前景、背景和重要物体，每个图层单独输出，保持原图外观和边缘细节，使用透明背景，不要合并不同图层。";
+const DEFAULT_PROMPT = "把图片拆分为可独立编辑的图层：识别主要主体、前景、背景和重要物体，保持原图外观与边缘细节，使用透明背景，不要把不同图层合并到同一张图里。";
 
 export function CanvasNodeLayerDecompositionDialog({
     dataUrl,
+    image: imageInput,
     open,
     config,
     onClose,
     onConfirm,
 }: {
-    dataUrl: string;
+    /** 兼容老的 dataUrl 直传；新调用点传「storageKey 优先」的解析结果。 */
+    dataUrl?: string;
+    image?: CanvasDialogImageInput | null;
     open: boolean;
     config: AiConfig;
     onClose: () => void;
     onConfirm: (payload: CanvasImageLayerDecompositionPayload) => void;
 }) {
+    const requested = canvasDialogImageInput(dataUrl, imageInput);
+    const loaded = useCanvasNodeImage(requested, open);
     const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
     const [generationConfig, setGenerationConfig] = useState<AiConfig>(config);
     const [regions, setRegions] = useState<Array<[number, number, number, number]>>([]);
+    const [layerCount, setLayerCount] = useState(LAYER_DECOMPOSITION_DEFAULT_LAYERS);
     const [drawing, setDrawing] = useState<{ x: number; y: number } | null>(null);
     const [draft, setDraft] = useState<[number, number, number, number] | null>(null);
     const imageFrameRef = useRef<HTMLDivElement>(null);
+
+    const selectedModel = generationConfig.imageModel || generationConfig.model;
+    const imageProfile = modelCapabilityConfigFor(generationConfig, selectedModel).image;
+    const dedicatedEndpoint = isDedicatedLayerDecompositionEndpoint(resolveModelRequestConfig(generationConfig, selectedModel).interfaceType, selectedModel);
+    const layerCap = layerDecompositionCap({ dedicatedEndpoint, maxOutputs: imageProfile?.maxOutputs });
+    const plan = planLayerDecomposition({ requestedLayers: layerCount, regionCount: regions.length, maxOutputs: imageProfile?.maxOutputs, dedicatedEndpoint, transparentBackground: imageProfile?.transparentBackground.supported });
 
     useEffect(() => {
         if (!open) return;
         setPrompt(DEFAULT_PROMPT);
         setGenerationConfig(config);
         setRegions([]);
+        setLayerCount(LAYER_DECOMPOSITION_DEFAULT_LAYERS);
         setDrawing(null);
         setDraft(null);
-    }, [config, dataUrl, open]);
+    }, [config, open, requested?.storageKey, requested?.url]);
+
+    // 换模型会改变上限，必须把已选图层数收敛到新上限之内。
+    useEffect(() => {
+        setLayerCount((current) => Math.max(1, Math.min(layerCap, current)));
+    }, [layerCap]);
 
     const point = (event: ReactPointerEvent<HTMLDivElement>) => {
         const rect = imageFrameRef.current?.getBoundingClientRect();
@@ -71,21 +96,33 @@ export function CanvasNodeLayerDecompositionDialog({
     const finishBox = () => {
         if (!draft) return;
         const [x1, y1, x2, y2] = draft;
-        if (x2 - x1 >= 2 && y2 - y1 >= 2) setRegions((current) => [...current, [Math.round(x1), Math.round(y1), Math.round(x2), Math.round(y2)]]);
+        if (x2 - x1 >= 2 && y2 - y1 >= 2) {
+            const nextRegion: [number, number, number, number] = [Math.round(x1), Math.round(y1), Math.round(x2), Math.round(y2)];
+            setRegions([...regions, nextRegion]);
+            // 每个框选区域都应得到一个图层，新选区自动抬高图层数量（不超过当前上限）。
+            setLayerCount(Math.max(1, Math.min(layerCap, Math.max(layerCount, regions.length + 1))));
+        }
         setDrawing(null);
         setDraft(null);
     };
 
-    const selectedPrompt = regions.length
-        ? `${prompt.trim()}\n\n重点处理用户框选的区域，并分别输出这些区域中的主体为独立透明 PNG 图层。选区坐标（图像 0-1000 坐标系）：${regions.map((region, index) => `区域${index + 1} <bbox>${region.join(" ")}</bbox>`).join("；")}`
-        : prompt.trim();
+    // 选区不再拼进基础提示词：逐层模式由执行层按第 k 个图层拼对应选区，单请求模式拼全部选区。
+    const selectedPrompt = prompt.trim();
 
     return (
-        <Modal open={open && Boolean(dataUrl)} onCancel={onClose} footer={null} centered destroyOnHidden width={900} title="AI 图层拆分">
+        <Modal open={open && Boolean(requested)} onCancel={onClose} footer={null} centered destroyOnHidden width={900} title="AI 图层拆分">
             <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_320px]">
                 <div className="grid min-h-[340px] place-items-center overflow-hidden rounded-xl bg-black/5 p-3 dark:bg-white/[0.04]">
-                    <div ref={imageFrameRef} className="relative inline-block max-h-[60vh] max-w-full select-none" onPointerDown={startBox} onPointerMove={moveBox} onPointerUp={finishBox} onPointerCancel={finishBox}>
-                        <img src={dataUrl} alt="待拆分图片" className="block max-h-[60vh] max-w-full object-contain" draggable={false} />
+                    <div
+                        ref={imageFrameRef}
+                        className={`relative inline-block max-h-[60vh] max-w-full select-none ${loaded.status === "ready" ? "" : "min-h-[240px] min-w-[320px]"}`}
+                        onPointerDown={loaded.status === "ready" ? startBox : undefined}
+                        onPointerMove={loaded.status === "ready" ? moveBox : undefined}
+                        onPointerUp={finishBox}
+                        onPointerCancel={finishBox}
+                    >
+                        {loaded.status === "ready" ? <img src={loaded.url} alt="待拆分图片" className="block max-h-[60vh] max-w-full object-contain" draggable={false} /> : null}
+                        <CanvasNodeImageStatus status={loaded.status} error={loaded.error} onRetry={loaded.reload} />
                         <div className="pointer-events-none absolute inset-0">
                             {regions.map((region, index) => <RegionBox key={`${region.join("-")}-${index}`} region={region} label={index + 1} />)}
                             {draft ? <RegionBox region={draft} label={regions.length + 1} draft /> : null}
@@ -103,6 +140,18 @@ export function CanvasNodeLayerDecompositionDialog({
                     </div>
                     <Input.TextArea rows={7} value={prompt} placeholder="例如：分别提取人物、产品、前景装饰和背景" onChange={(event) => setPrompt(event.target.value)} />
                     <div className="space-y-2">
+                        <div className="text-sm font-medium opacity-75">图层数量</div>
+                        <div className="flex items-center gap-3">
+                            <InputNumber min={1} max={plan.cap} value={layerCount} onChange={(value) => setLayerCount(Math.max(1, Math.min(plan.cap, Math.floor(Number(value) || 1))))} />
+                            <span className="text-xs opacity-60">上限 {plan.cap} 层{dedicatedEndpoint ? "（当前模型单次返回上限）" : "（单次拆分上限）"}</span>
+                        </div>
+                    </div>
+                    {plan.notices.length ? (
+                        <div className="space-y-1 rounded-lg bg-amber-400/10 p-2 text-xs leading-5 text-amber-700 dark:text-amber-300">
+                            {plan.notices.map((notice) => <p key={notice}>{notice}</p>)}
+                        </div>
+                    ) : null}
+                    <div className="space-y-2">
                         <div className="text-sm font-medium opacity-75">图层拆分模型</div>
                         <ModelPicker
                             config={generationConfig}
@@ -115,7 +164,7 @@ export function CanvasNodeLayerDecompositionDialog({
                     </div>
                     <div className="mt-auto flex justify-end gap-2">
                         <Button icon={<X className="size-4" />} onClick={onClose}>取消</Button>
-                        <Button type="primary" icon={<Layers3 className="size-4" />} disabled={!selectedPrompt} onClick={() => onConfirm({ prompt: selectedPrompt, regions, generationConfig: { model: generationConfig.model, imageModel: generationConfig.imageModel, size: generationConfig.size, quality: generationConfig.quality } })}>
+                        <Button type="primary" icon={<Layers3 className="size-4" />} disabled={!selectedPrompt} onClick={() => onConfirm({ prompt: selectedPrompt, count: plan.layers, regions, generationConfig: { model: generationConfig.model, imageModel: generationConfig.imageModel, size: generationConfig.size, quality: generationConfig.quality } })}>
                             开始拆分
                         </Button>
                     </div>

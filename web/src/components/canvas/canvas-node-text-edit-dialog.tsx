@@ -2,7 +2,17 @@ import { useEffect, useState } from "react";
 import { Alert, Button, Input, Modal, Spin } from "antd";
 import { FileText, RefreshCw, WandSparkles, X } from "lucide-react";
 
-export type CanvasImageTextLine = { original: string; text: string; location: string };
+import { canvasDialogImageInput, type CanvasDialogImageInput } from "@/lib/canvas/canvas-node-image-source";
+import { CanvasNodeImageStatus } from "@/components/canvas/canvas-node-image-status";
+import { useCanvasNodeImage } from "@/hooks/use-canvas-node-image";
+
+export type CanvasImageTextLine = {
+    original: string;
+    text: string;
+    location: string;
+    /** 文字框（归一化 0–1）；模型没给坐标时省略，下游走顺序排布兜底。 */
+    bbox?: { x: number; y: number; width: number; height: number };
+};
 export type CanvasImageTextEditPayload = { lines: CanvasImageTextLine[] };
 
 export function buildCanvasTextEditPrompt(lines: CanvasImageTextLine[]) {
@@ -12,17 +22,22 @@ export function buildCanvasTextEditPrompt(lines: CanvasImageTextLine[]) {
 
 export function CanvasNodeTextEditDialog({
     dataUrl,
+    image: imageInput,
     open,
     onClose,
     onDetect,
     onConfirm,
 }: {
-    dataUrl: string;
+    /** 兼容老的 dataUrl 直传；新调用点传「storageKey 优先」的解析结果。 */
+    dataUrl?: string;
+    image?: CanvasDialogImageInput | null;
     open: boolean;
     onClose: () => void;
     onDetect: () => Promise<CanvasImageTextLine[]>;
     onConfirm: (payload: CanvasImageTextEditPayload) => void;
 }) {
+    const requested = canvasDialogImageInput(dataUrl, imageInput);
+    const loaded = useCanvasNodeImage(requested, open);
     const [lines, setLines] = useState<CanvasImageTextLine[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
@@ -46,15 +61,16 @@ export function CanvasNodeTextEditDialog({
         void detect();
         // 只在打开或切换源图时识别，避免输入文字触发重复识别。
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [dataUrl, open]);
+    }, [open, requested?.storageKey, requested?.url]);
 
     const changed = lines.some((line) => line.text.trim() && line.text !== line.original);
 
     return (
-        <Modal open={open && Boolean(dataUrl)} onCancel={onClose} footer={null} centered destroyOnHidden width={980} title="图片文字编辑">
+        <Modal open={open && Boolean(requested)} onCancel={onClose} footer={null} centered destroyOnHidden width={980} title="图片文字编辑">
             <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_390px]">
-                <div className="grid min-h-[360px] place-items-center overflow-hidden rounded-xl bg-black/5 p-3 dark:bg-white/[0.04]">
-                    <img src={dataUrl} alt="待编辑图片" className="max-h-[64vh] max-w-full object-contain" draggable={false} />
+                <div className="relative grid min-h-[360px] place-items-center overflow-hidden rounded-xl bg-black/5 p-3 dark:bg-white/[0.04]">
+                    {loaded.status === "ready" ? <img src={loaded.url} alt="待编辑图片" className="max-h-[64vh] max-w-full object-contain" draggable={false} /> : null}
+                    <CanvasNodeImageStatus status={loaded.status} error={loaded.error} onRetry={loaded.reload} />
                 </div>
                 <div className="flex min-h-[360px] flex-col gap-3">
                     <div className="flex items-start justify-between gap-3">

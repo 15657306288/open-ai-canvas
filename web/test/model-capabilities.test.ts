@@ -4,12 +4,20 @@ import test from "node:test";
 // Bun 直接执行 TypeScript 测试时需要保留扩展名；生产 tsconfig 不包含 test/。
 import { DEFAULT_VIDEO_PROMPT_MAX_CHARS, defaultModelCapabilityConfig, normalizeVideoValue } from "../src/lib/model-capabilities.ts";
 
-test("text multimodal capability is not guessed from a model name", () => {
-    for (const model of ["gpt-4o", "gemini-2.5-pro", "doubao-seed"]) {
-        const text = defaultModelCapabilityConfig(undefined, model).text!;
-        assert.equal(text.references.maxImages, 0);
-        assert.equal(text.references.maxVideos, 0);
-    }
+test("known multimodal text model families default to reference media", () => {
+    const gemini = defaultModelCapabilityConfig("chat-completion", "gemini-3.8-flash-high").text!;
+    const gpt = defaultModelCapabilityConfig("chat-completion", "gpt-5.6-sol").text!;
+    const claude = defaultModelCapabilityConfig("claude-api", "claude-fable-5.1").text!;
+    const deepseek = defaultModelCapabilityConfig("chat-completion", "deepseek-vl2").text!;
+    const plain = defaultModelCapabilityConfig("chat-completion", "plain-text-model").text!;
+
+    assert.equal(gemini.references.maxImages, 16);
+    assert.equal(gemini.references.maxVideos, 3);
+    assert.equal(gpt.references.maxImages, 16);
+    assert.equal(claude.references.maxImages, 16);
+    assert.equal(claude.references.maxVideos, 0);
+    assert.equal(deepseek.references.maxImages, 16);
+    assert.equal(plain.references.maxImages, 0);
 });
 
 test("switching to MiniMax H3 replaces an unsupported 720p value with 768P", () => {

@@ -1,10 +1,10 @@
 import { isValidElement, type ReactNode } from "react";
-import { Brush, Camera, Clapperboard, Contrast, Copy, FastForward, FileText, Globe2, Grid2x2, Grid3x3, Layers3, Lock, LockOpen, Maximize2, Package, PencilLine, PersonStanding, Crop, Rewind, ScanFace, SlidersHorizontal, Smile, Sun, Upload, Scaling, WandSparkles } from "lucide-react";
+import { Brush, Camera, Clapperboard, Contrast, Copy, FastForward, FileText, Globe2, Grid2x2, Grid3x3, Layers3, Lock, LockOpen, Maximize2, Package, PencilLine, PersonStanding, Crop, Rewind, ScanFace, SlidersHorizontal, Smile, Sun, Type, Upload, Scaling, WandSparkles } from "lucide-react";
 
 import type { CanvasNodeData } from "@/types/canvas";
 import type { NodeToolbarGroup } from "@/lib/canvas/tool-registry";
 
-type ImageNodeActionToolId = "copyPrompt" | "reversePrompt" | "replace" | "resize" | "annotation" | "annotationEdit" | "textEdit" | "maskEdit" | "removeBackground" | "layerDecomposition" | "emotion" | "portraitTexture" | "crop" | "split" | "upscale" | "superResolve" | "angle" | "lighting" | "panorama" | "view" | "multi_camera_nine_grid" | "story_pitch_four_grid" | "character_face_three_view" | "product_three_view" | "storyboard_25_grid" | "character_three_view_generation" | "cinematic_light_correction" | "image_projection_after_3s" | "image_projection_before_5s";
+type ImageNodeActionToolId = "copyPrompt" | "reversePrompt" | "replace" | "resize" | "annotation" | "textEdit" | "textLayers" | "maskEdit" | "removeBackground" | "layerDecomposition" | "emotion" | "portraitTexture" | "crop" | "split" | "upscale" | "superResolve" | "angle" | "lighting" | "panorama" | "view" | "multi_camera_nine_grid" | "story_pitch_four_grid" | "character_face_three_view" | "product_three_view" | "storyboard_25_grid" | "character_three_view_generation" | "cinematic_light_correction" | "image_projection_after_3s" | "image_projection_before_5s";
 
 type ImageToolHandlers = {
     onUpload: (node: CanvasNodeData) => void;
@@ -12,6 +12,7 @@ type ImageToolHandlers = {
     onAnnotate: (node: CanvasNodeData) => void;
     onAnnotationEdit: (node: CanvasNodeData) => void;
     onTextEdit: (node: CanvasNodeData) => void;
+    onTextLayers: (node: CanvasNodeData) => void;
     onMaskEdit: (node: CanvasNodeData) => void;
     onRemoveBackground: (node: CanvasNodeData) => void;
     onLayerDecomposition: (node: CanvasNodeData) => void;
@@ -98,22 +99,12 @@ const imageToolDefinitions: ImageToolDefinition[] = [
     {
         id: "annotation",
         section: "拆分与标记",
-        description: "添加标记，另存为新图片",
-        label: "标注",
+        description: "添加标记：可另存标记图，或按标记让模型修改",
+        label: "标记",
         icon: () => <PencilLine className="size-3.5" />,
         group: "process",
         order: 40,
         run: (node, handlers) => handlers.onAnnotate(node),
-    },
-    {
-        id: "annotationEdit",
-        section: "拆分与标记",
-        description: "用画笔标记区域并让模型按标记修改",
-        label: "标注编辑",
-        icon: () => <Brush className="size-3.5" />,
-        group: "process",
-        order: 45,
-        run: (node, handlers) => handlers.onAnnotationEdit(node),
     },
     {
         id: "maskEdit",
@@ -132,6 +123,15 @@ const imageToolDefinitions: ImageToolDefinition[] = [
         group: "primary",
         order: 15,
         run: (node, handlers) => handlers.onTextEdit(node),
+    },
+    {
+        id: "textLayers",
+        label: "文字图层",
+        description: "识别或手动添加可拖拽、可缩放的排版文字，不改底图",
+        icon: () => <Type className="size-3.5" />,
+        group: "primary",
+        order: 16,
+        run: (node, handlers) => handlers.onTextLayers(node),
     },
     {
         id: "removeBackground",

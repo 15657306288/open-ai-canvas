@@ -1,21 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { Button, Switch, Tooltip } from "antd";
-import { Film, Image as ImageIcon, LoaderCircle, Minus, Play, Plus, Rows3, Trash2, Upload } from "lucide-react";
+import { Button, Checkbox, Segmented, Select, Switch, Tooltip } from "antd";
+import { Film, Image as ImageIcon, ListChecks, LoaderCircle, Minus, Play, Plus, Rows3, Trash2, Upload } from "lucide-react";
 
 import { CachedResourceImage } from "@/components/cached-resource-image";
 import { CanvasResourceMentionTextarea } from "@/components/canvas/canvas-resource-mention-textarea";
+import { AppModal } from "@/components/ui/product/app-modal";
 import {
     BATCH_REFERENCE_HANDLE_GAP,
     BATCH_REFERENCE_HANDLE_TOP,
     MAX_BATCH_REFERENCE_COLUMNS,
     MIN_BATCH_REFERENCE_COLUMNS,
     batchPromptForRow,
+    batchInputColumns,
     batchReferenceColumns,
     batchReferenceHandleId,
     batchReferenceMentionToken,
     batchTextColumns,
+    fillBatchReferenceColumn,
     batchRowReady as rowReady,
 } from "@/lib/canvas/canvas-batch-table";
+import type { BatchReferenceFillMode } from "@/lib/canvas/canvas-batch-table";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import type { CanvasTheme } from "@/lib/canvas-theme";
 import type { CanvasBatchOperation, CanvasBatchRow, CanvasBatchTableData, CanvasConnection, CanvasGenerationBatch, CanvasGenerationBatchItem, CanvasNodeData } from "@/types/canvas";
@@ -62,19 +66,84 @@ export function CanvasBatchTableNodeContent({ node, nodes, connections, batch, t
     const hasGlobalPrompt = Boolean(globalPrompt.trim());
     const nodeById = useMemo(() => new Map(nodes.map((item) => [item.id, item])), [nodes]);
     const batchItemByRowId = useMemo(() => new Map((batch?.items || []).map((item) => [item.rowId, item])), [batch?.items]);
-    const connectedImageCount = useMemo(() => new Set(connections.filter((connection) => connection.toNodeId === node.id && connection.relation !== "batch-output").map((connection) => connection.fromNodeId)).size, [connections, node.id]);
+    const connectedReferenceGroups = useMemo(() => batchInputColumns(node, connections).map((nodeIds, index) => ({
+        key: String(index),
+        label: referenceColumns[index]?.label || `参考图 ${index + 1}`,
+        nodeIds: nodeIds.filter((nodeId) => {
+            const source = nodeById.get(nodeId);
+            return source?.type === "image" && hasNodeMedia(source);
+        }),
+    })), [connections, node, nodeById, referenceColumns]);
+    const connectedImageIds = useMemo(() => Array.from(new Set(connectedReferenceGroups.flatMap((group) => group.nodeIds))), [connectedReferenceGroups]);
+    const connectedImageCount = connectedImageIds.length;
     const completed = table.rows.filter((row) => hasNodeMedia(row.outputNodeId ? nodeById.get(row.outputNodeId) : undefined)).length;
     const unfinishedReadyCount = table.rows.filter((row) => rowReady(row, table, nodeById) && !hasNodeMedia(row.outputNodeId ? nodeById.get(row.outputNodeId) : undefined)).length;
-    const gridTemplateColumns = `64px repeat(${referenceColumns.length}, 88px) ${textColumns.length ? `repeat(${textColumns.length}, minmax(168px, 0.75fr)) ` : ""}minmax(280px, 1fr) 88px 80px`;
+    const gridTemplateColumns = `88px repeat(${referenceColumns.length}, 88px) ${textColumns.length ? `repeat(${textColumns.length}, minmax(168px, 0.75fr)) ` : ""}minmax(280px, 1fr) 88px 80px`;
     const subtleSurface = `color-mix(in srgb, ${theme.node.text} 4%, transparent)`;
     const inputSurface = theme.node.panel;
     const fileInputRef = useRef<HTMLInputElement>(null);
     const uploadTargetRef = useRef<ReferenceCell | null>(null);
     const [draggingColumnId, setDraggingColumnId] = useState<string | null>(null);
     const [draggingCell, setDraggingCell] = useState<ReferenceCell | null>(null);
+    const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(() => new Set());
+    const [fillOpen, setFillOpen] = useState(false);
+    const [fillScope, setFillScope] = useState<"selected" | "all">("all");
+    const [fillSourceKey, setFillSourceKey] = useState("all");
+    const [fillTargetColumn, setFillTargetColumn] = useState(0);
+    const [fillMode, setFillMode] = useState<BatchReferenceFillMode>("sequential");
+    const [fillOverwrite, setFillOverwrite] = useState(true);
     const draggingCellRef = useRef<ReferenceCell | null>(null);
     const dragStartRef = useRef<{ x: number; y: number; pointerId: number; cell: ReferenceCell } | null>(null);
     const suppressClickRef = useRef(false);
+
+    useEffect(() => {
+        const validRowIds = new Set(table.rows.map((row) => row.id));
+        setSelectedRowIds((current) => {
+            const next = new Set(Array.from(current).filter((rowId) => validRowIds.has(rowId)));
+            return next.size === current.size ? current : next;
+        });
+    }, [table.rows]);
+
+    const allRowsSelected = table.rows.length > 0 && selectedRowIds.size === table.rows.length;
+    const someRowsSelected = selectedRowIds.size > 0 && !allRowsSelected;
+    const fillSourceIds = fillSourceKey === "all"
+        ? connectedImageIds
+        : connectedReferenceGroups.find((group) => group.key === fillSourceKey)?.nodeIds || [];
+    const fillTargetRows = table.rows.filter((row) => fillScope === "all" || selectedRowIds.has(row.id));
+    const fillEligibleRows = fillTargetRows.filter((row) => fillOverwrite || !row.inputNodeIds[fillTargetColumn]);
+    const fillCount = fillMode === "sequential" ? Math.min(fillEligibleRows.length, fillSourceIds.length) : fillSourceIds.length ? fillEligibleRows.length : 0;
+    const fillModeDescription = fillMode === "sequential"
+        ? "按来源顺序一一对应目标行；来源图片用完后，剩余行保持不变。"
+        : fillMode === "cycle"
+            ? "按来源顺序循环使用；来源图片不足时，从第一张重新开始。"
+            : "只使用来源列表中的第一张图片，填入每个目标行。";
+
+    const toggleRowSelection = (rowId: string, checked: boolean) => {
+        setSelectedRowIds((current) => {
+            const next = new Set(current);
+            if (checked) next.add(rowId);
+            else next.delete(rowId);
+            return next;
+        });
+    };
+
+    const openBatchFill = () => {
+        setFillScope(selectedRowIds.size ? "selected" : "all");
+        if (!connectedReferenceGroups.some((group) => group.key === fillSourceKey && group.nodeIds.length)) setFillSourceKey("all");
+        if (fillTargetColumn >= referenceColumns.length) setFillTargetColumn(0);
+        setFillOpen(true);
+    };
+
+    const applyBatchFill = () => {
+        const next = fillBatchReferenceColumn(table, fillSourceIds, {
+            targetColumnIndex: fillTargetColumn,
+            targetRowIds: fillTargetRows.map((row) => row.id),
+            mode: fillMode,
+            overwrite: fillOverwrite,
+        });
+        if (next !== table) onPatchTable({ rows: next.rows });
+        setFillOpen(false);
+    };
 
     const clearReferenceDrag = useCallback(() => {
         dragStartRef.current = null;
@@ -184,6 +253,9 @@ export function CanvasBatchTableNodeContent({ node, nodes, connections, batch, t
                             <Tooltip title="增量同步画布连线，不会删除已有任务行">
                                 <Button size="small" type="text" icon={<Rows3 className="size-3.5" />} onClick={onFillRows}>同步连线</Button>
                             </Tooltip>
+                            <Tooltip title="将连线图片分配到指定参考图列">
+                                <Button size="small" type="text" icon={<ListChecks className="size-3.5" />} disabled={!table.rows.length} onClick={openBatchFill}>批量填充</Button>
+                            </Tooltip>
                             <Button size="small" type="text" icon={<Plus className="size-3.5" />} onClick={onAddRow}>添加任务</Button>
                             {table.contentKind === "storyboard" && onCreateStoryboard ? <Button size="small" icon={<Film className="size-3.5" />} onClick={onCreateStoryboard}>创建视频脚本</Button> : null}
                             <Button size="small" type="primary" icon={<Play className="size-3.5" />} disabled={!unfinishedReadyCount} onClick={() => onGenerate()}>
@@ -208,7 +280,10 @@ export function CanvasBatchTableNodeContent({ node, nodes, connections, batch, t
 
             <div className="thin-scrollbar min-h-0 flex-1 overflow-auto rounded-b-[inherit]" onPointerDown={(event) => event.stopPropagation()}>
                 <div className="sticky top-0 z-10 grid h-9 items-center border-b px-3 text-center text-[11px] font-medium" style={{ borderColor: theme.node.stroke, background: theme.node.panel, color: theme.node.muted, gridTemplateColumns }}>
-                    <span className="min-w-0 truncate px-1">任务</span>
+                    <span className="flex min-w-0 items-center justify-center gap-2 px-1">
+                        {!readOnly ? <Checkbox aria-label="选择全部任务行" checked={allRowsSelected} indeterminate={someRowsSelected} onChange={(event) => setSelectedRowIds(event.target.checked ? new Set(table.rows.map((row) => row.id)) : new Set())} /> : null}
+                        <span className="truncate">任务</span>
+                    </span>
                     {referenceColumns.map((column) => (
                         <span
                             key={column.id}
@@ -243,6 +318,7 @@ export function CanvasBatchTableNodeContent({ node, nodes, connections, batch, t
                         return (
                             <div key={row.id} className="group grid items-center border-b px-3 py-3 transition-colors hover:bg-black/[.025] dark:hover:bg-white/[.025]" style={{ borderColor: theme.node.stroke, gridTemplateColumns, opacity: row.enabled ? 1 : 0.58 }}>
                                 <div className="flex items-center justify-center gap-1.5">
+                                    {!readOnly ? <Checkbox checked={selectedRowIds.has(row.id)} aria-label={`选择任务 ${index + 1}`} onChange={(event) => toggleRowSelection(row.id, event.target.checked)} /> : null}
                                     {!readOnly ? <Switch size="small" checked={row.enabled} aria-label={`启用任务 ${index + 1}`} onChange={(enabled) => onUpdateRow(row.id, { enabled })} /> : null}
                                     <span className="tabular-nums" style={{ color: theme.node.muted }}>{index + 1}</span>
                                 </div>
@@ -325,7 +401,109 @@ export function CanvasBatchTableNodeContent({ node, nodes, connections, batch, t
                     </div>
                 )}
             </div>
+            {!readOnly ? (
+                <AppModal
+                    open={fillOpen}
+                    title="批量填充参考图"
+                    width={520}
+                    okText={`填充 ${fillCount} 行`}
+                    cancelText="取消"
+                    okButtonProps={{ disabled: !fillSourceIds.length || !fillEligibleRows.length || !fillCount }}
+                    onOk={applyBatchFill}
+                    onCancel={() => setFillOpen(false)}
+                >
+                    <div className="flex flex-col gap-5 py-2" onPointerDown={(event) => event.stopPropagation()}>
+                        <div className="grid grid-cols-[112px_minmax(0,1fr)] items-center gap-3">
+                            <span className="font-medium">填充范围</span>
+                            <Segmented
+                                block
+                                value={fillScope}
+                                options={[
+                                    { label: `已勾选行 (${selectedRowIds.size})`, value: "selected", disabled: !selectedRowIds.size },
+                                    { label: `全部行 (${table.rows.length})`, value: "all" },
+                                ]}
+                                onChange={(value) => setFillScope(value as "selected" | "all")}
+                            />
+                            <span className="font-medium">图片来源</span>
+                            <Select
+                                value={fillSourceKey}
+                                options={[
+                                    { label: <BatchFillSourceLabel text={`全部已连图片 (${connectedImageIds.length})`} nodeIds={connectedImageIds} nodeById={nodeById} theme={theme} />, value: "all" },
+                                    ...connectedReferenceGroups.filter((group) => group.nodeIds.length).map((group) => ({ label: <BatchFillSourceLabel text={`${group.label}连线 (${group.nodeIds.length})`} nodeIds={group.nodeIds} nodeById={nodeById} theme={theme} />, value: group.key })),
+                                ]}
+                                onChange={setFillSourceKey}
+                            />
+                            <span className="self-start pt-1 font-medium">参考图预览</span>
+                            <BatchFillImageStrip nodeIds={fillSourceIds} nodeById={nodeById} theme={theme} />
+                            <span className="font-medium">填充到</span>
+                            <Select value={fillTargetColumn} options={referenceColumns.map((column, index) => ({ label: column.label, value: index }))} onChange={setFillTargetColumn} />
+                            <span className="font-medium">分配方式</span>
+                            <Segmented
+                                block
+                                value={fillMode}
+                                options={[
+                                    { label: "按顺序", value: "sequential" },
+                                    { label: "循环", value: "cycle" },
+                                    { label: "同一张", value: "same" },
+                                ]}
+                                onChange={(value) => setFillMode(value as BatchReferenceFillMode)}
+                            />
+                            <span />
+                            <p className="m-0 -mt-2 text-[11px] leading-5" style={{ color: theme.node.muted }}>{fillModeDescription}</p>
+                            <span className="font-medium">已有图片</span>
+                            <Segmented
+                                block
+                                value={fillOverwrite ? "replace" : "empty"}
+                                options={[{ label: "替换已有", value: "replace" }, { label: "仅填空位", value: "empty" }]}
+                                onChange={(value) => setFillOverwrite(value === "replace")}
+                            />
+                        </div>
+                        <div className="rounded-lg border px-3 py-2.5 text-xs leading-5" style={{ borderColor: theme.node.stroke, background: subtleSurface, color: theme.node.muted }}>
+                            {fillSourceIds.length
+                                ? `${fillSourceIds.length} 张连线图片 -> ${fillTargetRows.length} 个${fillScope === "selected" ? "已勾选" : "全部"}任务 -> ${referenceColumns[fillTargetColumn]?.label || "参考图"}，本次将更新 ${fillCount} 行。`
+                                : "当前没有可用的连线图片。请先将图片节点连接到批量创作表的参考图端口。"}
+                        </div>
+                    </div>
+                </AppModal>
+            ) : null}
         </div>
+    );
+}
+
+function BatchFillImageStrip({ nodeIds, nodeById, theme }: { nodeIds: string[]; nodeById: Map<string, CanvasNodeData>; theme: CanvasTheme }) {
+    if (!nodeIds.length) {
+        return <div className="rounded-lg border border-dashed px-3 py-2 text-xs" style={{ borderColor: theme.node.stroke, color: theme.node.muted }}>暂无可用参考图</div>;
+    }
+    return (
+        <div className="flex min-w-0 items-center gap-2 overflow-x-auto rounded-lg border px-2 py-1.5" style={{ borderColor: theme.node.stroke, background: `color-mix(in srgb, ${theme.node.text} 3%, transparent)` }}>
+            {nodeIds.map((nodeId, index) => {
+                const source = nodeById.get(nodeId);
+                if (!source) return null;
+                const fallback = <div className="grid size-12 place-items-center" style={{ color: theme.node.muted }}><ImageIcon className="size-4" /></div>;
+                return (
+                    <Tooltip key={nodeId} title={source.title || `参考图 ${index + 1}`}>
+                        <div className="size-12 shrink-0 overflow-hidden rounded-md border" style={{ borderColor: theme.node.stroke, background: theme.node.panel }}>
+                            <CachedResourceImage eager src={source.metadata?.previewContent || source.metadata?.content} storageKey={source.metadata?.storageKey} alt={source.title || `参考图 ${index + 1}`} className="block size-full object-cover" fallback={fallback} />
+                        </div>
+                    </Tooltip>
+                );
+            })}
+        </div>
+    );
+}
+
+function BatchFillSourceLabel({ text, nodeIds, nodeById, theme }: { text: string; nodeIds: string[]; nodeById: Map<string, CanvasNodeData>; theme: CanvasTheme }) {
+    return (
+        <span className="flex min-w-0 items-center gap-2">
+            <span className="flex shrink-0 items-center gap-0.5">
+                {nodeIds.slice(0, 3).map((nodeId) => {
+                    const source = nodeById.get(nodeId);
+                    if (!source) return null;
+                    return <CachedResourceImage key={nodeId} eager src={source.metadata?.previewContent || source.metadata?.content} storageKey={source.metadata?.storageKey} alt="" className="size-5 rounded object-cover" fallback={<ImageIcon className="size-3.5" />} />;
+                })}
+            </span>
+            <span className="truncate">{text}</span>
+        </span>
     );
 }
 

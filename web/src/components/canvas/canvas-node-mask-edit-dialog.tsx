@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Button, Input, Modal, Slider } from "antd";
 import { Brush, ChevronDown, Eraser, RotateCcw, WandSparkles, X } from "lucide-react";
 
-import { readImageMeta } from "@/lib/image-utils";
+import { canvasDialogImageInput, type CanvasDialogImageInput } from "@/lib/canvas/canvas-node-image-source";
+import { CanvasNodeImageStatus } from "@/components/canvas/canvas-node-image-status";
+import { useCanvasNodeImage } from "@/hooks/use-canvas-node-image";
 import { ImageSettingsPanel } from "@/components/image-settings-panel";
 import { ModelPicker } from "@/components/model-picker";
 import { defaultImageParamsForModel } from "@/lib/model-selection";
@@ -22,11 +24,22 @@ const defaultBrushSize = 100;
 const maskFillColor = "rgba(37, 99, 235, .38)";
 const maskBorderColor = "rgba(255, 255, 255, .72)";
 
-export function CanvasNodeMaskEditDialog({ dataUrl, open, config, onClose, onConfirm }: { dataUrl: string; open: boolean; config: AiConfig; onClose: () => void; onConfirm: (payload: CanvasImageMaskEditPayload) => void }) {
+export function CanvasNodeMaskEditDialog({ dataUrl, image: imageInput, open, config, onClose, onConfirm }: {
+    /** 兼容老的 dataUrl 直传；新调用点传「storageKey 优先」的解析结果。 */
+    dataUrl?: string;
+    image?: CanvasDialogImageInput | null;
+    open: boolean;
+    config: AiConfig;
+    onClose: () => void;
+    onConfirm: (payload: CanvasImageMaskEditPayload) => void;
+}) {
+    const requested = canvasDialogImageInput(dataUrl, imageInput);
+    const loaded = useCanvasNodeImage(requested, open);
     const maskCanvasRef = useRef<HTMLCanvasElement>(null);
     const previewCanvasRef = useRef<HTMLCanvasElement>(null);
     const drawingRef = useRef<{ active: boolean; last: { x: number; y: number } | null }>({ active: false, last: null });
-    const [image, setImage] = useState<{ width: number; height: number } | null>(null);
+    // 蒙版画布必须与原图同像素：尺寸以解码结果为准，节点宽高不等于原图尺寸。
+    const image = useMemo(() => (loaded.status === "ready" ? { width: loaded.width, height: loaded.height } : null), [loaded.height, loaded.status, loaded.width]);
     const [prompt, setPrompt] = useState("");
     const [brushSize, setBrushSize] = useState(defaultBrushSize);
     const [mode, setMode] = useState<DrawMode>("paint");
@@ -43,8 +56,7 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, config, onClose, onCon
         setError("");
         setAdvancedOpen(true);
         setGenerationConfig(config);
-        void readImageMeta(dataUrl).then(setImage);
-    }, [dataUrl, open]);
+    }, [open, requested?.storageKey, requested?.url]);
 
     useEffect(() => {
         clearCanvas(maskCanvasRef.current);
@@ -111,11 +123,12 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, config, onClose, onCon
     };
 
     return (
-        <Modal className="workspace-modal workspace-modal-wide" title={null} open={open && Boolean(dataUrl)} onCancel={onClose} footer={null} centered destroyOnHidden>
+        <Modal className="workspace-modal workspace-modal-wide" title={null} open={open && Boolean(requested)} onCancel={onClose} footer={null} centered destroyOnHidden>
             <div className="grid gap-5 lg:grid-cols-[minmax(360px,1fr)_340px]">
                 <div className="flex min-h-[360px] items-center justify-center rounded-lg bg-surface-active p-0">
-                    <div className="relative inline-block max-w-full overflow-hidden rounded-lg bg-transparent select-none">
-                        <img src={dataUrl} alt="" className="relative z-0 block max-h-[68vh] max-w-full bg-transparent" draggable={false} />
+                    <div className={`relative inline-block max-w-full overflow-hidden rounded-lg bg-transparent select-none ${image ? "" : "min-h-[240px] min-w-[320px]"}`}>
+                        {image ? <img src={loaded.url} alt="" className="relative z-0 block max-h-[68vh] max-w-full bg-transparent" draggable={false} /> : null}
+                        <CanvasNodeImageStatus status={loaded.status} error={loaded.error} onRetry={loaded.reload} />
                         {image ? (
                             <>
                                 <canvas ref={maskCanvasRef} width={image.width} height={image.height} className="hidden" />

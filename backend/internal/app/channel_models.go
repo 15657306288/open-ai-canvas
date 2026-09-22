@@ -78,14 +78,10 @@ func (s *Service) EnsureSystemChannelModels() error {
 		return err
 	}
 	for index := range channels {
-		items, err := s.repo.ChannelModels(channels[index].ID, true)
-		if err != nil {
+		// ModelsJSON 是旧渠道配置和导入工具的兼容清单。不能只在渠道模型表
+		// 为空时同步，否则管理员后来补进清单的模型永远不会注册为 channel_model。
+		if err := s.syncInitialChannelModels(&channels[index], channelModelNames(channels[index])); err != nil {
 			return err
-		}
-		if len(items) == 0 {
-			if err := s.syncInitialChannelModels(&channels[index], channelModelNames(channels[index])); err != nil {
-				return err
-			}
 		}
 	}
 	return nil

@@ -14,6 +14,7 @@ import { resourceFileUrl, resourceIdFromStorageKey, syncResourceToArkPrivateAsse
 import { uploadImage } from "@/services/image-storage";
 import { imageMetadata } from "@/lib/canvas/canvas-generation-task-sync";
 import { isCanvasImageSourceNode } from "@/lib/canvas/canvas-image-source";
+import { canvasNodeImageSource } from "@/lib/canvas/canvas-node-image-source";
 import { getCachedResourceBlob } from "@/services/resource-blob-cache";
 import copyToClipboard from "copy-to-clipboard";
 import { nanoid } from "nanoid";
@@ -924,6 +925,8 @@ function InfiniteCanvasPage() {
         imageEditPreset,
         layerDecompositionNodeId,
         textEditNodeId,
+        setTextLayerNodeId,
+        textLayerNodeId,
         mergeSelectedVideos,
         mergeVideosByIds,
         mergeVideoProgress,
@@ -948,6 +951,8 @@ function InfiniteCanvasPage() {
         setLayerDecompositionNodeId,
         setTextEditNodeId,
         openTextEditNode,
+        openTextLayerEditor,
+        saveTextLayers,
         openAnnotationEditNode,
         detectImageText,
         editTextImageNode,
@@ -3030,12 +3035,20 @@ function InfiniteCanvasPage() {
                             onUpload={(node) => handleUploadRequest(node.id)}
                             onDownload={downloadNodeImage}
                             onSaveAsset={(node) => void saveNodeAsset(node)}
-                            onAnnotate={(node) => setAnnotationNodeId(node.id)}
+                            onAnnotate={(node) => {
+                                // 底图判据与画布节点一致：只有 storageKey 的云端节点也能标记。
+                                if (!canvasNodeImageSource(node).hasSource) {
+                                    message.warning("图片节点为空，无法标记");
+                                    return;
+                                }
+                                setAnnotationNodeId(node.id);
+                            }}
                             onAnnotationEdit={openAnnotationEditNode}
                             onMaskEdit={(node) => setMaskEditNodeId(node.id)}
                             onRemoveBackground={openBackgroundRemoval}
                             onLayerDecomposition={openLayerDecomposition}
                             onTextEdit={openTextEditNode}
+                            onTextLayers={openTextLayerEditor}
                             onEmotion={(node) => {
                                 setDialogNodeId(null);
                                 setEmotionNodeId((current) => (current === node.id ? null : node.id));
@@ -3356,6 +3369,7 @@ function InfiniteCanvasPage() {
                             imageEditNode={imageEditNode}
                             layerDecompositionNode={layerDecompositionNodeId ? nodeById.get(layerDecompositionNodeId) || null : null}
                             textEditNode={textEditNodeId ? nodeById.get(textEditNodeId) || null : null}
+                            textLayerNode={textLayerNodeId ? nodeById.get(textLayerNodeId) || null : null}
                             imageEditPreset={imageEditPreset}
                             upscaleNode={upscaleNode}
                             onCloseCrop={() => setCropNodeId(null)}
@@ -3365,6 +3379,7 @@ function InfiniteCanvasPage() {
                             onCloseImageEdit={() => { setImageEditNodeId(null); setImageEditPreset(null); }}
                             onCloseLayerDecomposition={() => setLayerDecompositionNodeId(null)}
                             onCloseTextEdit={() => setTextEditNodeId(null)}
+                            onCloseTextLayers={() => setTextLayerNodeId(null)}
                             onCloseUpscale={() => setUpscaleNodeId(null)}
                             onCrop={(node, crop) => void cropImageNode(node, crop)}
                             onAnnotate={(node, dataUrl) => void saveAnnotatedImageNode(node, dataUrl)}
@@ -3377,6 +3392,11 @@ function InfiniteCanvasPage() {
                                 return node ? detectImageText(node) : Promise.reject(new Error("图片节点已不存在"));
                             }}
                             onTextEdit={(node, payload) => void editTextImageNode(node, payload)}
+                            onDetectTextLayers={() => {
+                                const node = textLayerNodeId ? nodeById.get(textLayerNodeId) : null;
+                                return node ? detectImageText(node) : Promise.reject(new Error("图片节点已不存在"));
+                            }}
+                            onSaveTextLayers={(node, layers) => saveTextLayers(node, layers)}
                             onUpscale={(node, params) => void upscaleImageNode(node, params)}
                             config={effectiveConfig}
                         />

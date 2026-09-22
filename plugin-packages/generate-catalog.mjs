@@ -178,7 +178,7 @@ add({
   create: jsonCreate("/v1beta/models/{{model}}:generateContent", {
     contents: map(filter(ref("request.messages"), "message", ne(ref("message.role"), "system")), "message", {
       role: conditional(eq(ref("message.role"), "assistant"), "model", "user"),
-      parts: [{ text: ref("message.content") }]
+      parts: ref("message.geminiParts")
     }),
     systemInstruction: conditional(ref("request.instructions"), { parts: [{ text: ref("request.instructions") }] }),
     generationConfig: omit(ref("request.providerOptions.gemini-generate-content.generationConfig")),

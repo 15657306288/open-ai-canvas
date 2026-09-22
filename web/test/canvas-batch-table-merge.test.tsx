@@ -31,10 +31,15 @@ for (const mode of ["light", "dark"] as const) {
         expect(editable).toContain("画面细节");
         expect(editable).toContain("已编辑内容");
         expect(editable).toContain("创建视频脚本");
+        expect(editable).toContain("批量填充");
+        expect(editable).toContain('aria-label="选择全部任务行"');
+        expect(editable).toContain('aria-label="选择任务 1"');
         const readOnly = render(true);
         expect(readOnly).not.toContain('aria-label="减少一组参考图"');
         for (const textarea of readOnly.match(/<textarea\b[^>]*>/g) || []) expect(textarea).toContain('readOnly=""');
         expect(readOnly).not.toContain("创建视频脚本");
+        expect(readOnly).not.toContain("批量填充");
+        expect(readOnly).not.toContain('aria-label="选择任务 1"');
         expect(readOnly).toContain("已编辑内容");
     });
 }

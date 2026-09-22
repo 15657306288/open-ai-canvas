@@ -453,7 +453,11 @@ func (s *Service) PublicSystemChannels() ([]PublicModelChannel, error) {
 	}
 	result := make([]PublicModelChannel, 0, len(channels))
 	for _, channel := range channels {
-		items, itemErr := s.repo.ChannelModels(channel.ID, false)
+		// 公开目录必须知道该渠道是否已经有渠道模型注册记录。
+		// 只读取启用项会让“全部停用/未定价”的记录看起来像不存在，
+		// publicChannel 随后回退到旧 ModelsJSON，最终把未注册模型暴露给前端。
+		// 管理员仍可在模型管理页看到这些待配置记录；用户侧只发布已启用模型。
+		items, itemErr := s.repo.ChannelModels(channel.ID, true)
 		if itemErr != nil {
 			return nil, itemErr
 		}
@@ -950,8 +954,10 @@ func publicChannel(channel model.ModelChannel, admin bool, channelModels []model
 			modelCosts = append(modelCosts, PublicChannelModelPrice{Model: item.ModelKey, DisplayName: item.DisplayName, ChannelLabel: item.ChannelLabel, Description: item.Description, Icon: item.Icon, Capability: item.Capability, Protocol: item.Protocol, BillingMode: item.BillingMode, UnitPriceMicrocredits: item.UnitPriceMicrocredits, InputTokenPriceMicrocredits: item.InputTokenPriceMicrocredits, OutputTokenPriceMicrocredits: item.OutputTokenPriceMicrocredits, CachedTokenPriceMicrocredits: item.CachedTokenPriceMicrocredits, CapabilityConfig: capabilityConfig})
 		}
 	}
-	if len(models) == 0 {
-		_ = json.Unmarshal([]byte(channel.ModelsJSON), &models)
+	// ModelsJSON 只是没有任何 channel_models 记录时的旧数据兼容回退。
+	// 一旦同步器已经创建了待配置记录，就不能再把未启用/未定价模型冒充成可用模型。
+	if len(channelModels) == 0 {
+		models = model.ParseChannelModelNames(channel.ModelsJSON)
 	}
 	apiKey := ""
 	baseURL := channel.BaseURL

@@ -62,6 +62,40 @@ func TestNormalizeChannelModelContractRequiresJiMengSecret(t *testing.T) {
 	}
 }
 
+func TestEnsureSystemChannelModelsRegistersModelsAddedToCompatibilityList(t *testing.T) {
+	svc, db := newChannelModelTestService(t)
+	channel := model.ModelChannel{ID: "channel-sync", Scope: model.ChannelScopeSystem, Enabled: true, Name: "平台服务", ModelsJSON: `["gemini-3.8-flash","gpt-6-astra"]`}
+	if err := db.Create(&channel).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.ChannelModel{ID: "model-existing", ChannelID: channel.ID, ModelKey: "gemini-3.8-flash", DisplayName: "Gemini", Enabled: true, PriceVersion: 1}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.EnsureSystemChannelModels(); err != nil {
+		t.Fatalf("EnsureSystemChannelModels() error = %v", err)
+	}
+	items, err := svc.repo.ChannelModels(channel.ID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("registered model count = %d, want 2", len(items))
+	}
+	var found bool
+	for _, item := range items {
+		if item.ModelKey == "gpt-6-astra" {
+			found = true
+			if item.Enabled {
+				t.Fatal("newly registered compatibility-list model must remain disabled until priced")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("gpt-6-astra was not registered")
+	}
+}
+
 func TestSaveAdminChannelModelPersistsAndPublishesIcon(t *testing.T) {
 	svc, db := newChannelModelTestService(t)
 	admin := &model.User{ID: "admin", Role: model.UserRoleAdmin}

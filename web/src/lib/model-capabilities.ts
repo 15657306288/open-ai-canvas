@@ -109,6 +109,45 @@ export const STANDARD_IMAGE_SIZE_VALUES = [
     "1024x1536",
 ] as const;
 
+const DEFAULT_TEXT_REFERENCE_MAX_IMAGES = 16;
+const DEFAULT_TEXT_REFERENCE_MAX_IMAGE_BYTES = 30 * 1024 * 1024;
+const DEFAULT_TEXT_REFERENCE_MAX_VIDEOS = 3;
+const DEFAULT_TEXT_REFERENCE_MAX_VIDEO_BYTES = 200 * 1024 * 1024;
+
+type MultimodalTextReferenceProfile = {
+    images: boolean;
+    videos: boolean;
+    maxImages: number;
+    maxImageBytes: number;
+    maxVideos: number;
+    maxVideoBytes: number;
+};
+
+function multimodalTextReferenceProfile(protocol?: ModelProtocol, model = ""): MultimodalTextReferenceProfile {
+    const value = model.trim().toLowerCase();
+    const protocolValue = String(protocol || "").trim().toLowerCase();
+    const profile: MultimodalTextReferenceProfile = { images: false, videos: false, maxImages: 0, maxImageBytes: 0, maxVideos: 0, maxVideoBytes: 0 };
+    if (value.includes("gemini") || protocolValue.includes("gemini")) {
+        profile.images = true;
+        profile.videos = true;
+    } else if (value.includes("gpt")) {
+        profile.images = true;
+    } else if (value.includes("claude") || protocolValue.includes("claude")) {
+        profile.images = true;
+    } else if (value.includes("deepseek") && (value.includes("vl") || value.includes("vision") || value.includes("multimodal"))) {
+        profile.images = true;
+    }
+    if (profile.images) {
+        profile.maxImages = DEFAULT_TEXT_REFERENCE_MAX_IMAGES;
+        profile.maxImageBytes = DEFAULT_TEXT_REFERENCE_MAX_IMAGE_BYTES;
+    }
+    if (profile.videos) {
+        profile.maxVideos = DEFAULT_TEXT_REFERENCE_MAX_VIDEOS;
+        profile.maxVideoBytes = DEFAULT_TEXT_REFERENCE_MAX_VIDEO_BYTES;
+    }
+    return profile;
+}
+
 export function normalizeCapabilityString(value: string) {
     const normalized = value.trim();
     return normalized.startsWith("string:") ? normalized.slice("string:".length) : normalized;
@@ -295,12 +334,18 @@ export function defaultImageCapabilityConfig(protocol?: ModelProtocol, model = "
 }
 
 export function defaultModelCapabilityConfig(protocol?: ModelProtocol, model = ""): ModelCapabilityConfig {
+    const textProfile = multimodalTextReferenceProfile(protocol, model);
     const text: TextCapabilityConfig = {
         streaming: true,
         contextWindowTokens: 128_000,
         maxOutputTokens: 16_384,
-        // 文本模型的视觉能力必须由管理员明确开启，不能根据模型名猜测。
-        references: { promptMaxChars: 32000, maxImages: 0, maxImageBytes: 0, maxVideos: 0, maxVideoBytes: 0 },
+        references: {
+            promptMaxChars: 32000,
+            maxImages: textProfile.maxImages,
+            maxImageBytes: textProfile.maxImageBytes,
+            maxVideos: textProfile.maxVideos,
+            maxVideoBytes: textProfile.maxVideoBytes,
+        },
     };
     const video: VideoCapabilityConfig = {
         references: {
@@ -411,7 +456,20 @@ export function modelCapabilityConfigFor(config: { channels: Array<{ id: string;
     const fallback = defaultModelCapabilityConfig(cost?.protocol, modelName);
     if (!cost?.capabilityConfig) return fallback;
     const capabilityConfig = normalizeModelCapabilityConfig(cost.capabilityConfig);
-    const text = capabilityConfig.text ? { ...fallback.text!, ...capabilityConfig.text, references: { ...fallback.text!.references, ...capabilityConfig.text.references } } : fallback.text;
+    const mergedText = capabilityConfig.text ? { ...fallback.text!, ...capabilityConfig.text, references: { ...fallback.text!.references, ...capabilityConfig.text.references } } : fallback.text;
+    const textProfile = multimodalTextReferenceProfile(cost?.protocol, modelName);
+    const text = mergedText && ((textProfile.images && mergedText.references.maxImages === 0) || (textProfile.videos && mergedText.references.maxVideos === 0))
+        ? {
+              ...mergedText,
+              references: {
+                  ...mergedText.references,
+                  maxImages: textProfile.images && mergedText.references.maxImages === 0 ? textProfile.maxImages : mergedText.references.maxImages,
+                  maxImageBytes: textProfile.images && mergedText.references.maxImageBytes === 0 ? textProfile.maxImageBytes : mergedText.references.maxImageBytes,
+                  maxVideos: textProfile.videos && mergedText.references.maxVideos === 0 ? textProfile.maxVideos : mergedText.references.maxVideos,
+                  maxVideoBytes: textProfile.videos && mergedText.references.maxVideoBytes === 0 ? textProfile.maxVideoBytes : mergedText.references.maxVideoBytes,
+              },
+          }
+        : mergedText;
     const video = capabilityConfig.video ? { ...fallback.video!, ...capabilityConfig.video, references: { ...fallback.video!.references, ...capabilityConfig.video.references } } : fallback.video;
     const configuredImage = capabilityConfig.image;
     const image = configuredImage
