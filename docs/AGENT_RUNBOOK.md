@@ -267,6 +267,8 @@ git status --short
 
 ### 云端同步流程（源码构建部署）
 
+- 状态：流程来自 2026-09-22 的备份恢复步骤，并在本地用干跑（假 docker/curl）验证覆盖、迁移等待、健康检查与自清理；真实服务器的同步结果以当次交付说明为准。
+
 - 云端用源码构建：部署目录里是仓库源码 + `.env` + `docker-compose.server.yml` + `docker-compose.build.yml`，镜像标签固定为 `open-ai-canvas-backend:server` / `open-ai-canvas-web:server`（同备份目录 `configs/` 的记录一致）。
 - 已验证的更新路线：
   1. 把改动同步到部署目录（差额压缩包或 Git 检出任一），只覆盖源码；不得动 `data/`、`.env`、`backups/`。
