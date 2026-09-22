@@ -884,7 +884,9 @@ function ReferenceThumbnail({ node, label, theme, readOnly, rowId, columnIndex, 
                 data-batch-reference-cell
                 data-row-id={rowId}
                 data-column-index={columnIndex}
-                className="group relative box-border grid shrink-0 place-items-center overflow-hidden rounded-lg border outline-none transition-[transform,box-shadow,border-color,opacity] duration-150 ease-out"
+                // 行容器上也有 group，未命名的 group-hover 会跨格生效，鼠标在行内任意位置就会点亮整行缩略图的遮罩与图标；
+                // 这里改用命名 group，让悬停样式只作用于指针下的那一格。
+                className="group/cell relative box-border grid shrink-0 place-items-center overflow-hidden rounded-lg border outline-none transition-[transform,box-shadow,border-color,opacity] duration-150 ease-out"
                 style={{ width: REFERENCE_THUMB_SIZE, height: REFERENCE_THUMB_SIZE, borderColor: isDropTarget || filled ? (isDropTarget ? theme.accent.primary : theme.node.stroke) : "transparent", opacity: isDraggingCell ? 0.35 : 1, boxShadow: isDropTarget || focused ? `0 0 0 2px ${theme.accent.primary}` : undefined, transform: isDropTarget ? "scale(1.08)" : undefined }}
                 onFocus={() => setFocused(true)}
                 onBlur={() => setFocused(false)}
@@ -916,14 +918,14 @@ function ReferenceThumbnail({ node, label, theme, readOnly, rowId, columnIndex, 
             >
                 {/* 图片必须绝对定位铺满方格：作为 grid item 时 h-full 会退化成按原始宽高比排版，比格子还高，只能被裁掉一截。 */}
                 {filled ? <CachedResourceImage eager draggable={false} src={node.metadata?.previewContent || node.metadata?.content} storageKey={node.metadata?.storageKey} alt={node.title || "参考图"} className="absolute inset-0 size-full object-cover" fallback={fallback} /> : fallback}
-                {filled && !readOnly ? <span className="pointer-events-none absolute inset-0 grid place-items-center bg-black/45 text-[9px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100">点击替换</span> : null}
+                {filled && !readOnly ? <span className="pointer-events-none absolute inset-0 grid place-items-center bg-black/45 text-[9px] font-medium text-white opacity-0 transition-opacity group-hover/cell:opacity-100">点击替换</span> : null}
                 {/* 复制和清空都放进格子内部，跟格同高，不会在某一格下面另起一行把行高撞高。 */}
                 {filled && !readOnly ? (
                     <span
                         role="button"
                         aria-label={`复制${label}`}
                         tabIndex={-1}
-                        className="absolute left-0.5 top-0.5 grid size-4 place-items-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                        className="absolute left-0.5 top-0.5 grid size-4 place-items-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover/cell:opacity-100"
                         onPointerDown={(event) => event.stopPropagation()}
                         onClick={(event) => {
                             event.stopPropagation();
@@ -940,7 +942,7 @@ function ReferenceThumbnail({ node, label, theme, readOnly, rowId, columnIndex, 
                         role="button"
                         aria-label={`清空${label}`}
                         tabIndex={-1}
-                        className="absolute right-0.5 top-0.5 grid size-4 place-items-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                        className="absolute right-0.5 top-0.5 grid size-4 place-items-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover/cell:opacity-100"
                         onPointerDown={(event) => event.stopPropagation()}
                         onClick={(event) => { event.stopPropagation(); event.preventDefault(); onRemove(); }}
                     >
