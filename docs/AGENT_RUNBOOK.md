@@ -267,7 +267,7 @@ git status --short
 
 ### 云端同步流程（源码构建部署）
 
-- 状态：流程来自 2026-09-22 的备份恢复步骤，并在本地用干跑（假 docker/curl）验证覆盖、迁移等待、健康检查与自清理；真实服务器的同步结果以当次交付说明为准。
+- 状态：2026-09-22 已在真实服务器完成一次增量同步（158 个文件、镜像重建、数据库迁移、容器重启、`/api/health` 与 schema 38 核对、同步包自清理全部通过）；流程本身仍用干跑（假 docker/curl）在本地先验证覆盖、迁移等待、健康检查与自清理。
 
 - 云端用源码构建：部署目录里是仓库源码 + `.env` + `docker-compose.server.yml` + `docker-compose.build.yml`，镜像标签固定为 `open-ai-canvas-backend:server` / `open-ai-canvas-web:server`（同备份目录 `configs/` 的记录一致）。
 - 已验证的更新路线：
@@ -276,7 +276,8 @@ git status --short
   3. `docker compose -p open-ai-canvas --env-file .env -f docker-compose.server.yml up -d --no-deps migrate`，迁移容器成功后 `up -d --no-deps backend web`。
   4. `curl -fsS http://127.0.0.1:3000/api/health` 要求 `ready=true`，并核对 `schema.current == schema.expected`。
 - 必须保留的设置：postgres 的 `security_opt: seccomp:unconfined`、web 的 `127.0.0.1:3000:3000` 端口映射（Cloudflare 隧道入口）；不要把新环境直接覆盖到这两项。
-- 磁盘约束：远端磁盘紧张，同步包解包后立即删除，不保留备份压缩包和临时目录；只允许清理悬空镜像层（`docker image prune -f`），不碰数据卷。
+- 磁盘约束：远端磁盘紧张，同步包解包后立即删除，不保留备份压缩包和临时目录；只允许清理悬空镜像层（`docker image prune -f`）与构建缓存（`docker builder prune -f --keep-storage 3GB`），不碰其他项目的数据卷。2026-09-22 实测同步会把构建缓存推到 ~8.9GB，收尾时用 `--keep-storage 3GB` 回收到 ~7.3GB、磁盘使用 27G→25G（可用 23G）。
+- 部署后核验：除了 `docker ps` 与 `/api/health`，还要用 `docker exec open-ai-canvas-web sh -c "grep -rl '<本次改动的前端类名或字符串>' /usr/share/nginx/html/assets | head -3"` 确认当次改动确实进了线上产物；容器健康只能证明服务在跑，不能证明代码是新的。
 - 本记录只写通用流程，不记服务器地址、账号、密钥；一次真实同步的结果（健康检查输出、验收范围、未验证项）写在当次交付说明里。
 
 ### 豆包账号池融合（v1.5.7）
@@ -312,7 +313,14 @@ git status --short
 
 ### 故障记录
 
-暂无已归档的部署故障。部署记录应包含部署入口、前置检查、健康检查结果和回滚触发条件，但不得写入生产密钥或真实地址。
+#### RB-20260922-14 同步脚本“疑似被杀”与 GitHub 式误判（2026-09-22）
+
+- 现象：增量同步跑到 `2/5 重建 backend / web 镜像` 后日志文件 mtime 长时间不变，`pgrep -af 'yingce-cloud-sync'` 的输出里只剩 pgrep 自己，误判脚本被系统杀掉并准备重开同步。
+- 真实原因：脚本从未退出。BuildKit 的 `RUN go build ...` 阶段几分钟内不产生输出，日志不增长；那次 pgrep 结果是被我自己用 `Select-String` 过滤时把脚本行过滤掉了（过滤词只匹配带方括号的脚本日志行），不是进程消失。多等两分钟后同步自己跑到 3/5、4/5、5/5 并正常完成。
+- 正确确认方式：用断言式判断 `pgrep -f 'yingce-cloud-sync.sh' >/dev/null && echo RUNNING || echo stopped`，同时看 `docker compose build` / `docker buildx bake` / `go build` 子进程是否还在；不要只看日志 mtime，也不要在长输出上做不完整过滤后再下结论。
+- 需要避免的操作：不要在 `docker compose build` 还在跑时重开一份同步（两份构建抢 4GB 内存与构建缓存）；不要在构建过程中清理构建缓存或镜像。
+- 预防措施：这台机器只有 4GB 内存，同步脚本已改为顺序构建（先 backend 后 web）并带 `COMPOSE_PARALLEL_LIMIT=1`，构建后先断言两个镜像都存在再继续迁移。
+- 回滚触发条件：迁移容器退出码非 0、3 分钟内 `/api/health` 未返回 `ready=true`、或 schema 未回到 expected；此时保留旧镜像与服务，按部署说明回退。
 
 ## 第三方 API
 
