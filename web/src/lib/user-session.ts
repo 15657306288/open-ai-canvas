@@ -107,6 +107,10 @@ export function systemChannelModelChannels(channels: PublicChannelCatalog[]): Mo
             id: channel.id,
             name: channel.displayName,
             sortOrder: channel.sortOrder,
+            // 可选渠道（豆包 / Dola 账号池）：默认是否进候选列表看目录的 defaultEnabled，用户可自行开关。
+            optional: channel.optional === true,
+            defaultEnabled: channel.defaultEnabled === true,
+            availability: channel.availability,
             // 系统渠道必须走带渠道 ID 的站内代理；/api 只是业务 API 根路径，
             // 不能作为模型请求的运行时 Base URL 传给 channelRequest。
             baseUrl: `/api/${channel.id}`,
@@ -143,6 +147,8 @@ export function systemChannelModelChannels(channels: PublicChannelCatalog[]): Mo
                     icon: model.icon || "",
                     capability: model.capability as ModelCapability,
                     protocol: model.protocol as any,
+                    priceLabel: model.priceLabel,
+                    pricingMode: model.pricingMode,
                     pricePolicy: "channel" as const,
                     billingMode: billingMode as any,
                     unitPriceMicrocredits: unitPrice,

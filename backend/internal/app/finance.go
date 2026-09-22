@@ -446,6 +446,11 @@ func (s *Service) taskBillingOrder(userID string, task *model.Task, input map[st
 	if channelID == "" {
 		channelID = systemChannelIDFromBaseURL(fmt.Sprint(config["baseUrl"]))
 	}
+	// 账号池是内置渠道：凭据与出网成本由平台自己的网页账号承担，没有渠道模型行与价格档，
+	// 所以不产生积分订单（任务、产物与失败切号仍走同一套链路）。
+	if IsAccountPoolChannel(channelID) {
+		return nil, nil
+	}
 	if channelID == "" {
 		return nil, nil
 	}

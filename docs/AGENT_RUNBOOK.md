@@ -265,6 +265,49 @@ git status --short
 
 ## 部署
 
+### 云端同步流程（源码构建部署）
+
+- 云端用源码构建：部署目录里是仓库源码 + `.env` + `docker-compose.server.yml` + `docker-compose.build.yml`，镜像标签固定为 `open-ai-canvas-backend:server` / `open-ai-canvas-web:server`（同备份目录 `configs/` 的记录一致）。
+- 已验证的更新路线：
+  1. 把改动同步到部署目录（差额压缩包或 Git 检出任一），只覆盖源码；不得动 `data/`、`.env`、`backups/`。
+  2. `docker compose -p open-ai-canvas --env-file .env -f docker-compose.server.yml -f docker-compose.build.yml build backend web`。
+  3. `docker compose -p open-ai-canvas --env-file .env -f docker-compose.server.yml up -d --no-deps migrate`，迁移容器成功后 `up -d --no-deps backend web`。
+  4. `curl -fsS http://127.0.0.1:3000/api/health` 要求 `ready=true`，并核对 `schema.current == schema.expected`。
+- 必须保留的设置：postgres 的 `security_opt: seccomp:unconfined`、web 的 `127.0.0.1:3000:3000` 端口映射（Cloudflare 隧道入口）；不要把新环境直接覆盖到这两项。
+- 磁盘约束：远端磁盘紧张，同步包解包后立即删除，不保留备份压缩包和临时目录；只允许清理悬空镜像层（`docker image prune -f`），不碰数据卷。
+- 本记录只写通用流程，不记服务器地址、账号、密钥；一次真实同步的结果（健康检查输出、验收范围、未验证项）写在当次交付说明里。
+
+### 豆包账号池融合（v1.5.7）
+
+- 云端保持 schema 37 历史链路，豆包能力使用独立 schema 38 迁移；禁止把 1.57 的 schema 25 整体回灌。
+- 迁移范围仅为 `doubao_accounts`、`doubao_pool_meta`、`network_proxies`。1.57 的账号池表没有 `user_id`，因此归属是全局池；导入工具会核对账号绑定的代理是否存在，不会猜测用户归属。
+- 生产导入前先备份 PostgreSQL，并在部署环境执行：
+
+  ```powershell
+  $env:SQLITE_SOURCE_PATH='F:\录播素材\1.57\影策极致精简版\data\open_ai_canvas.db'
+  $env:DATABASE_URL='<postgres-dsn>'
+  go run ./cmd/migrate-doubao-sqlite-postgres
+  ```
+
+- 本次只做代码、迁移和导入工具接入，没有连接或修改生产数据库；没有新增故障记录。生产验收还需登录、账号池、代理连通性、图片生成、视频生成和失败切号实测。
+
+### 模型目录与多模态能力同步（v1.5.7）
+
+- 日期：2026-09-21
+- 状态：有效；本地代码已验证，生产部署待执行。
+- 问题现象：模型名称出现在旧渠道 `ModelsJSON` 兼容清单或界面列表中，但没有同步成 `channel_models`，或旧能力 JSON 把 Gemini、GPT、Claude、DeepSeek 视觉模型保存成 0 张参考图，导致创作页提示未配置图片/视频输入能力。
+- 根本原因：旧启动逻辑只在渠道模型表为空时同步；模型目录与能力配置没有版本化增量补全。模型注册、上游协议和价格配置是三个独立层，不能把“名称出现”当成“可执行模型”。
+- 已验证成功的正确路线：启动时先运行 `EnsureSystemChannelModels`，将兼容清单中缺失名称增量登记；再运行 `EnsureOfficialModelCatalog`，只为已知模型补全协议、能力和默认参考图限制，不覆盖已有密钥、价格、启用状态或自定义能力配置；旧多模态能力在读路径和任务创建前规范化修复。
+- 可直接复制执行的命令：
+
+  ```bash
+  cd backend
+  go test ./internal/app -run 'Test(ModelListEntriesAreRegisteredAndKnownMultimodalModelsAreEnriched|EnsureOfficialModelCatalogIsAdditiveAndIdempotent|EnsureSystemChannelModelsRegistersModelsAddedToCompatibilityList|KnownMultimodalTextModelFamiliesDefaultToReferenceMedia|NormalizeLegacyMultimodalTextCapabilityRepairsReferenceLimits)$' -count=1
+  ```
+
+- 需要避免的操作：不要把未确认的 `mj-8.2` 直接猜成 `openai-image` 或其他 Midjourney 协议；不要自动启用未定价模型；不要把本地目录同步测试写成生产 PostgreSQL 已完成。
+- 文档/配置同步：`backend/internal/app/official_model_catalog.json`、启动同步入口、前后端能力推断和回归测试；生产仍需部署后检查 `/api/model-catalog`、价格档与真实生成链路。
+
 ### 故障记录
 
 暂无已归档的部署故障。部署记录应包含部署入口、前置检查、健康检查结果和回滚触发条件，但不得写入生产密钥或真实地址。

@@ -24,14 +24,14 @@ func fail(c *gin.Context, status int, err error) {
 	if err != nil && strings.TrimSpace(err.Error()) != "" {
 		message = err.Error()
 	}
-	writeFailure(c, status, status, service.ReasonForStatus(status), message)
+	writeFailure(c, status, status, service.ReasonForStatus(status), message, false)
 }
 
 func failService(c *gin.Context, err error) {
 	var cooldown *service.EmailCodeCooldownError
 	if errors.As(err, &cooldown) {
 		c.Header("Retry-After", strconv.Itoa(cooldown.Seconds))
-		writeFailure(c, http.StatusTooManyRequests, service.CodeRateLimited, service.ReasonRateLimited, cooldown.Error())
+		writeFailure(c, http.StatusTooManyRequests, service.CodeRateLimited, service.ReasonRateLimited, cooldown.Error(), true)
 		return
 	}
 	var modelErr *service.ModelError
@@ -67,7 +67,7 @@ func writeAppError(c *gin.Context, appErr *service.AppError) {
 		}
 		logHandlerError(c, appErr.Status, diagnosticErr)
 	}
-	writeFailure(c, appErr.Status, code, reason, message)
+	writeFailure(c, appErr.Status, code, reason, message, appErr.Retryable)
 }
 
 // failInternal 保留真实 HTTP 状态，但绝不把未分类错误原文写入响应。
@@ -76,13 +76,18 @@ func failInternal(c *gin.Context, status int, err error) {
 		status = http.StatusInternalServerError
 	}
 	logHandlerError(c, status, err)
-	writeFailure(c, status, status, service.ReasonForStatus(status), safeInternalErrorMessage(status))
+	writeFailure(c, status, status, service.ReasonForStatus(status), safeInternalErrorMessage(status), false)
 }
 
-func writeFailure(c *gin.Context, status int, code int, reason service.ErrorReason, message string) {
+// writeFailure 是唯一的失败响应出口。retryable 为 true 时前端可安全复用同一幂等键重试，
+// 例如上传命中「同一素材正在上传」（409）。字段只在为 true 时输出，保持旧客户端向后兼容。
+func writeFailure(c *gin.Context, status int, code int, reason service.ErrorReason, message string, retryable bool) {
 	body := gin.H{"code": code, "data": nil, "msg": message}
 	if reason != "" {
 		body["reason"] = reason
+	}
+	if retryable {
+		body["retryable"] = true
 	}
 	c.JSON(status, body)
 }

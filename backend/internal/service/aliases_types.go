@@ -344,6 +344,16 @@ type (
 	VideoReferenceConfig                   = app.VideoReferenceConfig
 	VoiceProfileSummary                    = app.VoiceProfileSummary
 	WalletSummary                          = app.WalletSummary
+	DoubaoUpsertRequest                    = app.DoubaoUpsertRequest
+	DoubaoBulkImportRequest                = app.DoubaoBulkImportRequest
+	DoubaoUpdateRequest                    = app.DoubaoUpdateRequest
+	DoubaoBatchRequest                     = app.DoubaoBatchRequest
+	DoubaoMarkFailedRequest                = app.DoubaoMarkFailedRequest
+	DoubaoGenerateImageRequest             = app.DoubaoGenerateImageRequest
+	DoubaoGenerateLayersRequest            = app.DoubaoGenerateLayersRequest
+	DoubaoGenerateVideoRequest             = app.DoubaoGenerateVideoRequest
+	NetworkProxyUpsertRequest              = app.NetworkProxyUpsertRequest
+	NetworkProxyAssignRequest              = app.NetworkProxyAssignRequest
 	WorkflowField                          = app.WorkflowField
 )
 

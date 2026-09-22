@@ -10,6 +10,7 @@ import { defaultConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-
 import { useUserStore } from "@/stores/use-user-store";
 import { ChannelSettingsPane, channelValidationError, focusInvalidChannelField, isChannelReady } from "./channel-settings-pane";
 import { ModelDefaultGrid } from "./model-default-grid";
+import { OptionalChannelsPane } from "./optional-channels-pane";
 import { PromptPreferencesPane } from "./prompt-preferences-pane";
 import DiagnosticsPanel from "./diagnostics-panel";
 import AgentMemoryPane from "./agent-memory-pane";
@@ -118,6 +119,9 @@ export default function SettingsPage() {
                 </div>
                 <div className="settings-section">
                     <ModelDefaultGrid config={effectiveConfig} onChange={(key, model) => updateConfig(key, model)} />
+                </div>
+                <div className="mt-5">
+                    <OptionalChannelsPane />
                 </div>
             </SettingsPane>
         ),

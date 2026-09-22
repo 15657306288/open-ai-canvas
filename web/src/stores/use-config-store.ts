@@ -8,7 +8,7 @@ import { modelProtocolCapability, normalizeModelProtocol, type ModelProtocol } f
 import { normalizeVideoDuration, normalizeVideoResolution } from "@/lib/video-generation-options";
 import { workflowFieldRole, workflowFieldSafeToOverride, workflowVideoFieldsFromJson, type ModelCapabilityConfig } from "@/lib/model-capabilities";
 import { useUserStore } from "@/stores/use-user-store";
-import type { CapabilitySpec, PublicLogicalModelPriceTier } from "@/services/api/logical-models";
+import type { CapabilitySpec, PublicChannelAvailability, PublicLogicalModelPriceTier } from "@/services/api/logical-models";
 
 export type ApiCallFormat = "openai" | "gemini" | "claude";
 export type ChannelInterfaceType = ModelProtocol;
@@ -342,6 +342,10 @@ export type WorkflowGraphPreview = {
 export const PUBLIC_MODEL_CATALOG_ID = "managed";
 
 export type ModelChannel = {
+    // 可选渠道（账号池等）：目录里存在，用户开启后才进入候选列表。
+    optional?: boolean;
+    defaultEnabled?: boolean;
+    availability?: PublicChannelAvailability;
     id: string;
     name: string;
     sortOrder?: number;
@@ -368,6 +372,9 @@ export type ModelChannel = {
         capability: ModelCapability;
         protocol?: ModelProtocol;
         pricePolicy?: "channel" | "unified";
+        // 可选渠道自带的计费文案（如「账号池 · 不扣费」），非平台积分计费模型用它替代价格数字。
+        priceLabel?: string;
+        pricingMode?: string;
         billingMode: "fixed_request" | "per_second" | "token";
         unitPriceMicrocredits: number;
         inputTokenPriceMicrocredits?: number;
@@ -388,6 +395,8 @@ export type AiConfig = {
     apiKey: string;
     apiFormat: ApiCallFormat;
     channels: ModelChannel[];
+    /** 用户对可选渠道（账号池）的显式开关：channelId → 是否启用；缺省视为关闭。 */
+    enabledOptionalChannels: Record<string, boolean>;
     runningHub: RunningHubConfig;
     /** 仅用于单次生成任务路由，不属于全局渠道启用状态。 */
     taskWorkflowProvider?: "model" | "runninghub";
@@ -432,6 +441,7 @@ export const defaultConfig: AiConfig = {
     apiFormat: "openai",
     // 创作端模型目录只能来自后台公开逻辑模型和用户自定义渠道，不能内置供应商模型。
     channels: [],
+    enabledOptionalChannels: {},
     runningHub: { enabled: false, baseUrl: "https://www.runninghub.cn", apiKey: "", walletApiKey: "", uploadApiKey: "", useWallet: false, capability: "image", selectedKind: "workflow", workflowId: "", workflows: [] },
     taskWorkflowProvider: "model",
     model: "",
@@ -466,6 +476,7 @@ type ConfigStore = {
     updateConfig: <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => void;
     replaceConfig: (config: AiConfig) => void;
     mergeSystemChannels: (channels: ModelChannel[]) => void;
+    setOptionalChannelEnabled: (channelId: string, enabled: boolean) => void;
     isAiConfigReady: (config: AiConfig, model: string) => boolean;
 };
 
@@ -568,7 +579,7 @@ export function filterModelsByCapability(models: string[], capability?: ModelCap
 export function selectableModelsByCapability(config: AiConfig, capability?: ModelCapability) {
     // 选项目录只从当前有效渠道重建，不能信任旧快照里残留的 config.models。
     // 这样旧版本内置模型、未绑定渠道的裸模型不会再次进入创作端。
-    const models = modelOptionsFromChannels(config.channels);
+    const models = modelOptionsFromChannels(selectableModelChannels(config));
     if (!capability) return models;
     return filterModelsByCapability(models, capability, config.channels);
 }
@@ -577,6 +588,58 @@ export function configuredModelMatchesCapability(config: AiConfig, model: string
     const normalized = normalizeModelOptionValue(model, config.channels);
     if (!normalized) return false;
     return selectableModelsByCapability(config, capability).includes(normalized);
+}
+
+function normalizeChannelAvailability(value: unknown): PublicChannelAvailability | undefined {
+    if (!value || typeof value !== "object") return undefined;
+    const raw = value as Partial<PublicChannelAvailability>;
+    const state = raw.state === "ready" || raw.state === "empty" || raw.state === "error" ? raw.state : undefined;
+    if (!state) return undefined;
+    const accountCount = (input: unknown) => (typeof input === "number" && Number.isFinite(input) && input > 0 ? Math.floor(input) : 0);
+    const detail = typeof raw.detail === "string" ? raw.detail.trim() : "";
+    return { state, readyAccounts: accountCount(raw.readyAccounts), totalAccounts: accountCount(raw.totalAccounts), ...(detail ? { detail } : {}) };
+}
+
+// 老快照没有这两个字段（或形状不对）时兜底为空：不影响既有渠道，也不会把开关误读为已开启。
+function normalizeEnabledOptionalChannels(value: unknown): Record<string, boolean> {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+    const entries = Object.entries(value as Record<string, unknown>)
+        .map(([id, enabled]) => [id.trim(), enabled === true] as const)
+        .filter(([id]) => Boolean(id));
+    return Object.fromEntries(entries);
+}
+
+/**
+ * 可选渠道（账号池）的可见性：用户的显式开关优先；没动过开关时跟随目录发布的 defaultEnabled。
+ * 平台把账号池渠道的 defaultEnabled 设为 true（默认暴露给用户），用户仍可在设置里自己关掉；
+ * 平台想收回默认暴露时只改后端目录字段即可，不需要前端重新发版。
+ */
+export function isOptionalChannelEnabled(config: AiConfig, channel: ModelChannel) {
+    if (!channel.optional) return true;
+    const explicit = config.enabledOptionalChannels?.[channel.id];
+    if (typeof explicit === "boolean") return explicit;
+    return channel.defaultEnabled === true;
+}
+
+export function optionalChannelsForConfig(config: AiConfig) {
+    return config.channels.filter((channel) => channel.optional);
+}
+
+// 统一的候选渠道过滤点：模型目录、下拉框、画布节点都从这里取渠道，避免多处各写一遍。
+export function selectableModelChannels(config: AiConfig) {
+    return config.channels.filter((channel) => channel.enabled !== false && isOptionalChannelEnabled(config, channel));
+}
+
+/**
+ * 提交前检查：可选渠道未开启，或账号池当前没有可用账号时，返回可直接展示给用户的原因。
+ * 空字符串表示可以提交。放在既有配置/能力校验旁边调用，不改变其他渠道的语义。
+ */
+export function optionalChannelSubmitError(config: AiConfig, model: string, channelId = "") {
+    const channel = (channelId ? config.channels.find((item) => item.id === channelId) : undefined) || resolveModelChannel(config, model);
+    if (!channel.optional) return "";
+    if (!isOptionalChannelEnabled(config, channel)) return `${channel.name}是可选渠道，请先在设置 → 模型选择中开启后再使用`;
+    if (channel.availability?.state === "empty") return `${channel.name}当前没有可用账号，请先在账号页添加或恢复账号后再试`;
+    return "";
 }
 
 function isAiConfigReady(config: AiConfig, model: string) {
@@ -613,6 +676,13 @@ export const useConfigStore = create<ConfigStore>()(
                     );
                     const userChannels = state.config.channels.filter((channel) => channel.scope !== "system");
                     return normalizeConfigSnapshot({ config: { ...state.config, channels: [...systemChannels, ...userChannels] } });
+                }),
+            setOptionalChannelEnabled: (channelId, enabled) =>
+                set((state) => {
+                    const id = channelId.trim();
+                    if (!id) return state;
+                    // 可选渠道开关只影响候选列表，不能动渠道本身或已保存的自定义渠道。
+                    return normalizeConfigSnapshot({ config: { ...state.config, enabledOptionalChannels: { ...state.config.enabledOptionalChannels, [id]: enabled } } });
                 }),
             isAiConfigReady: (config, model) => isAiConfigReady(config, model),
         }),
@@ -655,6 +725,7 @@ export function normalizeConfigSnapshot(snapshot: ConfigStoreSnapshot | undefine
     const config = {
         ...defaultConfig,
         ...persistedConfig,
+        enabledOptionalChannels: normalizeEnabledOptionalChannels(persistedConfig.enabledOptionalChannels),
         taskWorkflowProvider: "model" as const,
         runningHub: {
             ...defaultConfig.runningHub,
@@ -668,7 +739,8 @@ export function normalizeConfigSnapshot(snapshot: ConfigStoreSnapshot | undefine
     const hasPersistedChannels = Array.isArray(persistedConfig.channels);
     if (!hasPersistedChannels) config.channels = [];
     const channels = normalizeChannels(config, !hasPersistedChannels);
-    const models = modelOptionsFromChannels(channels);
+    // 未开启的可选渠道（账号池）保留在配置里供设置页切换，但不进候选模型列表。
+    const models = modelOptionsFromChannels(selectableModelChannels({ ...config, channels }));
     const imageModels = filterModelsByCapability(models, "image", channels);
     const videoModels = filterModelsByCapability(models, "video", channels);
     const textModels = filterModelsByCapability(models, "text", channels);
@@ -740,6 +812,9 @@ export function createModelChannel(channel?: Partial<ModelChannel>): ModelChanne
         interfaceType,
         models: uniqueRawModels(channel?.models || []),
         scope: channel?.scope === "system" ? "system" : "user",
+        optional: channel?.optional === true,
+        defaultEnabled: channel?.defaultEnabled === true,
+        availability: normalizeChannelAvailability(channel?.availability),
         enabled: channel?.enabled !== false,
         hasApiKey: channel?.hasApiKey,
         hasSecretKey: channel?.hasSecretKey,
@@ -798,6 +873,12 @@ export function modelOptionsFromChannels(channels: ModelChannel[]) {
                 .map((model) => encodeChannelModel(channel.id, model)),
         ),
     );
+}
+
+/** 可选渠道（账号池）自带的计费文案：不按平台积分数字展示，缺省用固定说法。 */
+export function modelPricingLabel(cost: { pricingMode?: string; priceLabel?: string } | undefined) {
+    if (!cost) return "";
+    return cost.priceLabel?.trim() || (cost.pricingMode === "pool" ? "账号池 · 不扣费" : "");
 }
 
 export function hasSystemModelPrice(channel: ModelChannel, model: string) {

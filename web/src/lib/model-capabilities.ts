@@ -130,7 +130,7 @@ function multimodalTextReferenceProfile(protocol?: ModelProtocol, model = ""): M
     if (value.includes("gemini") || protocolValue.includes("gemini")) {
         profile.images = true;
         profile.videos = true;
-    } else if (value.includes("gpt")) {
+    } else if (value.includes("gpt") || value.includes("doubao") || value.includes("豆包")) {
         profile.images = true;
     } else if (value.includes("claude") || protocolValue.includes("claude")) {
         profile.images = true;
@@ -329,6 +329,17 @@ export function defaultImageCapabilityConfig(protocol?: ModelProtocol, model = "
         image.responseFormat = { supported: true };
         image.outputFormat = { supported: false };
         image.maxOutputs = 1;
+    }
+    if (protocol === "doubao-pool") {
+        // 豆包 / Dola 账号池：走网页 samantha 协议（文生图 content_type=2009 + 参考图 attachments），
+        // 没有蒙版端点，也不输出透明通道；图层拆分由后端在同一任务里按层各发一次图生图，
+        // 所以 maxOutputs 与后端 doubaoPoolMaxLayers（6）对齐，不能沿用 OpenAI 的 15。
+        image.references.maskSupported = false;
+        image.quality.supported = false;
+        image.transparentBackground = { supported: false, default: false };
+        image.responseFormat = { supported: false };
+        image.outputFormat = { supported: false };
+        image.maxOutputs = 6;
     }
     return image;
 }

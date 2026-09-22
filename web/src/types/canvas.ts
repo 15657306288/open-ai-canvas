@@ -178,6 +178,8 @@ export type CanvasBatchRow = {
     textNodeIds?: string[];
     prompt: string;
     outputNodeId?: string;
+    /** 每行可产出多张结果（生成张数 > 1）；outputNodeId 始终保留为首个结果，兼容旧数据。 */
+    outputNodeIds?: string[];
     /** AI-generated cell content keyed by column id (for aiGenerated tables). */
     cells?: Record<string, string>;
 };
@@ -203,6 +205,11 @@ export type CanvasBatchTableData = {
     rows: CanvasBatchRow[];
     /** When true, columns are AI-generated with dynamic headers. */
     aiGenerated?: boolean;
+    /**
+     * 用户手动挪格子、补参考图或批量填写后置位：行与格子已经是人工结果，
+     * 连线变化时不再按端口重建行（否则刷新会把格子错位到别的行）。
+     */
+    manualRows?: boolean;
 };
 
 export type CanvasSkillSnapshot = {

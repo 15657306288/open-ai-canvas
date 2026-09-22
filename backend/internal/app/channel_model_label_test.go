@@ -51,10 +51,21 @@ func TestChannelModelLabelSaveAndCatalogPreserveChannelIdentity(t *testing.T) {
 		}
 	}
 	catalog, err := svc.ModelCatalog(nil)
-	if err != nil || len(catalog.Channels) != 2 {
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 目录里还合成着内置账号池渠道（无渠道模型行、不参与本用例），这里只核对落库的系统渠道。
+	persisted := make([]PublicChannelCatalog, 0, len(catalog.Channels))
+	for _, channel := range catalog.Channels {
+		if IsAccountPoolChannel(channel.ID) {
+			continue
+		}
+		persisted = append(persisted, channel)
+	}
+	if len(persisted) != 2 {
 		t.Fatalf("catalog: %#v, %v", catalog, err)
 	}
-	for _, channel := range catalog.Channels {
+	for _, channel := range persisted {
 		if len(channel.Models) == 1 && channel.Models[0].Description != "适合分镜脚本，请先确认输入要求。" {
 			t.Fatal("catalog lost model description")
 		}

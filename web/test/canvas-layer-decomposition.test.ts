@@ -8,6 +8,7 @@ import {
     isDedicatedLayerDecompositionEndpoint,
     LAYER_DECOMPOSITION_HARD_MAX_LAYERS,
     layerDecompositionLayerTitles,
+    layerDecompositionTaskMetadata,
     planLayerDecomposition,
 } from "../src/lib/canvas/canvas-layer-decomposition.ts";
 
@@ -102,4 +103,24 @@ test("节点命名按图层数生成，不使用 1 张图冒充 N 个图层", ()
     assert.deepEqual(layerDecompositionLayerTitles("产品图", 3).map((layer) => layer.title), ["产品图 · 图层 1", "产品图 · 图层 2", "产品图 · 图层 3"]);
     assert.deepEqual(layerDecompositionLayerTitles("", 1), [{ layerIndex: 1, title: "图片 · 图层 1" }]);
     assert.equal(layerDecompositionLayerTitles("产品图", 0).length, 1);
+});
+
+test("图层拆分任务元数据带上层数、层序号与选区", () => {
+    const single = layerDecompositionTaskMetadata({ sourceNodeId: "node-1", layerCount: 3, regions: [[0, 10, 20, 30], [1, 2, 3, 4]] });
+    assert.equal(single.edit, "layer-decomposition");
+    assert.equal(single.layerDecomposition, true);
+    assert.equal(single.layerCount, 3);
+    assert.equal(single.sourceNodeId, "node-1");
+    assert.deepEqual(single.layerRegions, [[0, 10, 20, 30], [1, 2, 3, 4]]);
+    assert.equal("layerIndex" in single, false);
+
+    const perLayer = layerDecompositionTaskMetadata({ sourceNodeId: "node-1", layerCount: 3, layerIndex: 2 });
+    assert.equal(perLayer.layerIndex, 2);
+    assert.equal("layerRegions" in perLayer, false);
+
+    // 非法选区不进元数据：后端宁可退化为无选区提示词，也不要拿半截坐标去算 bbox。
+    const invalid = layerDecompositionTaskMetadata({ layerCount: 0, regions: [[Number.NaN, 1, 2, 3] as unknown as [number, number, number, number]] });
+    assert.equal(invalid.layerCount, 1);
+    assert.equal("layerRegions" in invalid, false);
+    assert.equal("sourceNodeId" in invalid, false);
 });

@@ -179,6 +179,16 @@ func DefaultImageCapabilityConfig(protocol string, modelName string) *ImageCapab
 		image.ResponseFormat.Supported = false
 		image.OutputFormat.Supported = false
 		image.MaxOutputs = 4
+	case model.ChannelInterfaceType(DoubaoPoolInterfaceType):
+		// 豆包 / Dola 账号池走网页协议：没有蒙版端点、不输出透明通道、没有质量档位，
+		// 单次参考图上限与池执行层一致；图层拆分按层逐张生成，输出上限对齐 doubaoPoolMaxLayers。
+		image.References.MaxImages = doubaoPoolMaxRefImages
+		image.References.MaskSupported = false
+		image.Quality.Supported = false
+		image.TransparentBackground.Supported = false
+		image.ResponseFormat.Supported = false
+		image.OutputFormat.Supported = false
+		image.MaxOutputs = doubaoPoolMaxLayers
 	}
 	if model.ChannelInterfaceType(protocol) != model.ChannelInterfaceGrokImage && strings.HasPrefix(strings.ToLower(strings.TrimSpace(modelName)), "grok-imagine-image") {
 		image.References.MaxImages = 0
@@ -285,6 +295,15 @@ func DefaultModelCapabilityConfigForModel(protocol string, modelName string) *Mo
 		video.Watermark = VideoBooleanConfig{Supported: true, Default: false}
 	case model.ChannelInterfaceAgnesVideo:
 		video = applyModelSpecificVideoCapability(video, protocol, modelName)
+	case model.ChannelInterfaceType(DoubaoPoolInterfaceType):
+		// 账号池网页协议：豆包 / Dola 网页端时长档为 4-30 秒，参考图上限与池执行层一致，
+		// 不支持参考视频 / 参考音频，也没有生成音频与水印开关。
+		video.References.MaxImages = doubaoPoolMaxRefImages
+		video.Duration = VideoDurationConfig{Selection: "range", Min: 4, Max: 30, Step: 1, Default: 10}
+		video.Ratios = []string{"16:9", "9:16", "1:1", "4:3", "3:4", "21:9", "adaptive"}
+		video.Resolutions = []string{"480p", "720p", "1080p"}
+		video.GenerateAudio = VideoBooleanConfig{Supported: false, Default: false}
+		video.Watermark = VideoBooleanConfig{Supported: false, Default: false}
 	}
 	return &ModelCapabilityConfig{Version: 1, Text: text, Image: DefaultImageCapabilityConfig(protocol, modelName), Video: video}
 }
@@ -796,6 +815,12 @@ func (s *Service) ValidateTaskCapability(input map[string]any) error {
 	channelID := strings.TrimSpace(taskInput.Config.ChannelID)
 	if channelID == "" {
 		channelID = systemChannelIDFromBaseURL(taskInput.Config.BaseURL)
+	}
+	// 账号池是内置渠道，没有渠道模型行：能力合同取客户端按协议（doubao-pool）生成的能力配置，
+	// 走与「无系统渠道」完全相同的校验路径，池执行层再按自己的上限收敛参考图与层数。
+	// 不这样做的话，池任务会因为查不到渠道模型行而被误报成「当前系统渠道模型未配置或已停用」。
+	if IsAccountPoolChannel(channelID) {
+		channelID = ""
 	}
 	if channelID == "" {
 		if taskInput.Mode == "image" {

@@ -362,6 +362,16 @@ func (s *Service) resolveSystemChannelModelSelection(input map[string]any, taskT
 	channelID := strings.TrimSpace(stringValue(config["channelId"]))
 	modelKey := strings.TrimPrefix(strings.TrimSpace(stringValue(config["model"])), "models/")
 
+	// 豆包账号池是内置渠道，凭据和价格不落 system_channels，走专用准入与失败切号逻辑。
+	if IsAccountPoolChannel(channelID) {
+		next, err := s.resolveDoubaoPoolModelSelection(config, taskType)
+		if err != nil {
+			return input, err
+		}
+		input["config"] = next
+		return input, nil
+	}
+
 	if channelID == "" || modelKey == "" {
 		return input, InvalidModelSelection("必须指定系统渠道和模型")
 	}

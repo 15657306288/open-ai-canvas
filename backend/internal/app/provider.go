@@ -410,6 +410,23 @@ func (s *Service) processCanvasGenerationTask(ctx context.Context, userID string
 			return nil, errors.New("后端任务队列暂不支持该 Gemini 调用格式，请选择已安装的 Gemini 协议插件")
 		}
 	}
+	// 豆包账号池不依赖渠道表中的 BaseURL/APIKey；凭据由账号池统一取号，
+	// 仍复用任务媒体水合与结果落库链路。
+	if isDoubaoPoolInterface(input.Config.InterfaceType) {
+		if resumedProviderRequestID(ctx) == "" {
+			if err := s.hydrateGenerationMedia(userID, &input, providerMediaHydrationPolicy{}); err != nil {
+				return nil, err
+			}
+		}
+		switch input.Mode {
+		case "image":
+			return s.runDoubaoPoolImageTask(ctx, input)
+		case "video":
+			return s.runDoubaoPoolVideoTask(ctx, input)
+		default:
+			return nil, fmt.Errorf("豆包账号池不支持生成模式：%s", input.Mode)
+		}
+	}
 	if strings.TrimSpace(input.Config.BaseURL) == "" || strings.TrimSpace(input.Config.APIKey) == "" || strings.TrimSpace(input.Config.Model) == "" {
 		return nil, errors.New("后端生成任务缺少 Base URL、API Key 或模型名")
 	}

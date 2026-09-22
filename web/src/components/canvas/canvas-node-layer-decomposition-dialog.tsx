@@ -52,6 +52,9 @@ export function CanvasNodeLayerDecompositionDialog({
     const dedicatedEndpoint = isDedicatedLayerDecompositionEndpoint(resolveModelRequestConfig(generationConfig, selectedModel).interfaceType, selectedModel);
     const layerCap = layerDecompositionCap({ dedicatedEndpoint, maxOutputs: imageProfile?.maxOutputs });
     const plan = planLayerDecomposition({ requestedLayers: layerCount, regionCount: regions.length, maxOutputs: imageProfile?.maxOutputs, dedicatedEndpoint, transparentBackground: imageProfile?.transparentBackground.supported });
+    // 专用接口虽然一次返回多层，但豆包账号池这类上游不输出 alpha 通道；
+    // planLayerDecomposition 只在通用模型路径提示透明度，这里需要单独说明。
+    const opaqueDedicatedLayers = dedicatedEndpoint && !imageProfile?.transparentBackground.supported;
 
     useEffect(() => {
         if (!open) return;
@@ -146,9 +149,10 @@ export function CanvasNodeLayerDecompositionDialog({
                             <span className="text-xs opacity-60">上限 {plan.cap} 层{dedicatedEndpoint ? "（当前模型单次返回上限）" : "（单次拆分上限）"}</span>
                         </div>
                     </div>
-                    {plan.notices.length ? (
+                    {plan.notices.length || opaqueDedicatedLayers ? (
                         <div className="space-y-1 rounded-lg bg-amber-400/10 p-2 text-xs leading-5 text-amber-700 dark:text-amber-300">
                             {plan.notices.map((notice) => <p key={notice}>{notice}</p>)}
+                            {opaqueDedicatedLayers ? <p key="opaque-layers">当前模型不输出透明通道：拆出的图层是不透明图片；需要透明底请改用支持透明背景的模型。</p> : null}
                         </div>
                     ) : null}
                     <div className="space-y-2">

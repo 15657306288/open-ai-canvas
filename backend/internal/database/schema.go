@@ -112,6 +112,9 @@ func Models() []any {
 		&model.TaskTextDelta{},
 		&model.TaskLog{},
 		&model.Result{},
+		&model.DoubaoAccount{},
+		&model.DoubaoPoolMeta{},
+		&model.NetworkProxy{},
 	}
 }
 

@@ -44,6 +44,7 @@ export type CanvasNodeAssetResult = {
 const pendingAssetSyncs = new Map<string, Promise<CanvasNodeAssetResult>>();
 const DEFAULT_RATE_LIMIT_RETRY_MS = 60_000;
 const MAX_RATE_LIMIT_RETRY_MS = 5 * 60_000;
+const DEFAULT_TRANSIENT_RETRY_MS = 1_000;
 
 type CanvasAssetSyncRetryOptions = {
     signal?: AbortSignal;
@@ -69,7 +70,10 @@ function waitForCanvasAssetSyncRetry(delayMs: number, signal?: AbortSignal) {
     });
 }
 
-export async function retryCanvasAssetSyncAfterRateLimit<T>(operation: () => Promise<T>, options: CanvasAssetSyncRetryOptions = {}): Promise<T> {
+// 资产入库与 429 之外还要覆盖网关 5xx（含 Cloudflare 520）和断网：这些是临时故障，
+// 丢掉一次入库请求会让用户看到「生成结果已保留，但项目资产同步失败」，但结果其实已经生成好了。
+// 只重试瞬时失败，鉴权/越权/参数错误等永久失败直接抛出。
+export async function retryCanvasAssetSyncOnTransientFailure<T>(operation: () => Promise<T>, options: CanvasAssetSyncRetryOptions = {}): Promise<T> {
     const maxRetries = Math.max(0, options.maxRetries ?? 2);
     const wait = options.wait ?? waitForCanvasAssetSyncRetry;
     for (let attempt = 0; ; attempt += 1) {
@@ -77,11 +81,28 @@ export async function retryCanvasAssetSyncAfterRateLimit<T>(operation: () => Pro
         try {
             return await operation();
         } catch (error) {
-            if (!(error instanceof ApiError) || error.status !== 429 || attempt >= maxRetries) throw error;
-            const delayMs = Math.min(MAX_RATE_LIMIT_RETRY_MS, Math.max(0, error.retryAfterMs ?? DEFAULT_RATE_LIMIT_RETRY_MS));
-            await wait(delayMs, options.signal);
+            if (attempt >= maxRetries || !isTransientCanvasAssetSyncError(error)) throw error;
+            await wait(canvasAssetSyncRetryDelay(error, attempt), options.signal);
         }
     }
+}
+
+// 瞬时失败的判定复用 request() 已经算好的 ApiError.retryable（408/425/429/5xx），
+// 不在这里另立一套响应码规则，避免两处漂移。额外两类：
+//   - 429 限流（retryable 也为 true，但退避要用 Retry-After）；
+//   - status 缺失：请求根本没到达服务端（断网、DNS、CORS 预检失败），retryable 为 false 却最该重试。
+function isTransientCanvasAssetSyncError(error: unknown) {
+    if (!(error instanceof ApiError)) return false;
+    if (error.status === 429 || error.status === undefined) return true;
+    return error.retryable;
+}
+
+function canvasAssetSyncRetryDelay(error: unknown, attempt: number) {
+    // 限流要尊重服务端给的 Retry-After（默认退到分钟级）；其它瞬时故障用短指数退避。
+    if (error instanceof ApiError && error.status === 429) {
+        return Math.min(MAX_RATE_LIMIT_RETRY_MS, Math.max(0, error.retryAfterMs ?? DEFAULT_RATE_LIMIT_RETRY_MS));
+    }
+    return Math.min(MAX_RATE_LIMIT_RETRY_MS, DEFAULT_TRANSIENT_RETRY_MS * 2 ** attempt);
 }
 
 export function ensureCanvasNodeAsset(options: EnsureCanvasNodeAssetOptions) {

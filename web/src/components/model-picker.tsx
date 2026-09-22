@@ -8,7 +8,7 @@ import { formatPriceRange, modelQuoteDescription, modelQuoteRequest, normalizeTi
 import { compatibleModelInGroup, configuredModelDisplayName, modelCompatibilityError, resolveCompatibleModel, type ModelRequirements } from "@/lib/model-selection";
 import { groupModelsForPicker, isDirectSystemModel, modelChannelLabel } from "@/lib/model-picker-groups";
 import { cn } from "@/lib/utils";
-import { modelDisplayName, modelIcon, modelOptionName, resolveModelChannel, selectableModelsByCapability, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
+import { modelDisplayName, modelIcon, modelOptionName, modelPricingLabel, resolveModelChannel, selectableModelsByCapability, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
 import { ModelLogo } from "@/components/model-logo";
@@ -339,6 +339,7 @@ function ModelLabel({
     const meta = modelMenuMeta(model, capability);
     const channel = resolveModelChannel(config, model);
     const logicalCost = channel.modelCosts?.find((item) => item.model === modelOptionName(model));
+    const poolPriceLabel = modelPricingLabel(logicalCost);
     const logicalSpec = logicalCost?.logicalCapabilitySpec;
     const videoProfile = capability === "video" ? modelCapabilityConfigFor(config, model).video : undefined;
     const capabilitySummary =
@@ -356,7 +357,7 @@ function ModelLabel({
                     {capabilitySummary}
                 </span>
             </span>
-            {showPrice ? (
+            {showPrice || poolPriceLabel ? (
                 <span className="ml-auto shrink-0 pl-2">
                     <ModelPrice price={modelMenuPrice(config, model, capability, !requirements, requirements)} />
                 </span>
@@ -437,6 +438,9 @@ function modelMenuPrice(config: AiConfig, model: string, capability?: ModelCapab
     const channel = resolveModelChannel(config, model);
     const cost = channel.modelCosts?.find((item) => item.model === modelOptionName(model));
     if (!cost) return channel.scope === "system" ? null : undefined;
+    // 账号池等可选渠道自带计费文案（不消耗平台额度），不按积分数字展示。
+    const poolPriceLabel = modelPricingLabel(cost);
+    if (poolPriceLabel) return { kind: "estimate", label: poolPriceLabel, title: `${channel.name}：由平台账号池履约，不消耗平台额度；高峰期可能排队，失败会自动换号` };
     if (cost.pricePolicy === "channel") {
         const tiers = cost.logicalPriceTiers || [];
         if (!tiers.length) return null;

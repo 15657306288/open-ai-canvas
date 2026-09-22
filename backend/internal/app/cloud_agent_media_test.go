@@ -488,8 +488,14 @@ func TestCloudAgentModelListFiltersActualReferences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog.(map[string]any)["models"].([]map[string]any)) != 0 {
-		t.Fatal("no-match query fell back to incompatible models")
+	// 账号池是目录里合成的内置可选渠道：视频模型参考图上限 4 张，两张参考图对它是有效组合，
+	// 不属于本用例「系统渠道能力不匹配时不允许兜底」的范围。
+	for _, item := range catalog.(map[string]any)["models"].([]map[string]any) {
+		selection, _ := item["selection"].(map[string]any)
+		if IsAccountPoolChannel(stringValue(selection["channelId"])) {
+			continue
+		}
+		t.Fatalf("no-match query fell back to incompatible models: %+v", item)
 	}
 }
 

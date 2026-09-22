@@ -26,11 +26,27 @@ type ModelCatalogResponse struct {
 
 // PublicChannelCatalog 公开的渠道目录信息（脱敏）
 type PublicChannelCatalog struct {
-	ID          string               `json:"id"`
-	Name        string               `json:"name"`
-	DisplayName string               `json:"displayName"`
-	SortOrder   int                  `json:"sortOrder"`
-	Models      []PublicChannelModel `json:"models"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	DisplayName string `json:"displayName"`
+	SortOrder   int    `json:"sortOrder"`
+	// Optional / DefaultEnabled 标记「内置可选渠道」：目录里始终存在，是否默认进入用户候选列表
+	// 由 DefaultEnabled 决定，用户还能在模型设置里自行关掉（账号池渠道就是这一类）。
+	// 普通渠道不下发这两个字段。
+	Optional       bool                       `json:"optional,omitempty"`
+	DefaultEnabled bool                       `json:"defaultEnabled,omitempty"`
+	Availability   *PublicChannelAvailability `json:"availability,omitempty"`
+	Models         []PublicChannelModel       `json:"models"`
+}
+
+// PublicChannelAvailability 是可选渠道（内置账号池）的实时可用性快照。
+// 它是读展示路径的辅助信息：前端据此显示「暂无可用账号」并阻止提交，而不是让用户白等一次必然失败的生成。
+// State 取值 ready（有可用账号）/ empty（池里没有可用账号）/ error（读取池状态失败）。
+type PublicChannelAvailability struct {
+	State         string `json:"state"`
+	ReadyAccounts int    `json:"readyAccounts"`
+	TotalAccounts int    `json:"totalAccounts"`
+	Detail        string `json:"detail,omitempty"`
 }
 
 // PublicChannelModel 公开的渠道模型信息（脱敏）
@@ -76,6 +92,9 @@ func (s *Service) ModelCatalog(intent *ModelRequestIntent) (*ModelCatalogRespons
 	}
 	response.Source = ModelCatalogSourceSystem
 	response.Channels = append(response.Channels, channels...)
+	// 账号池是内置渠道（凭据来自池服务，刻意不落 system_channels），目录读模型在这里合成：
+	// 它们带 optional + defaultEnabled=true：默认对用户暴露，用户可自行关掉。
+	response.Channels = append(response.Channels, s.accountPoolChannelCatalog(intent)...)
 	return response, nil
 }
 

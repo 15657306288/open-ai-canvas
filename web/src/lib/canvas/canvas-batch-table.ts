@@ -10,6 +10,8 @@ export const BATCH_REFERENCE_HANDLE_TOP = 102;
 export const BATCH_REFERENCE_HANDLE_GAP = 40;
 export const MIN_BATCH_REFERENCE_COLUMNS = 1;
 export const MAX_BATCH_REFERENCE_COLUMNS = 10;
+export const MAX_BATCH_TEXT_COLUMNS = 4;
+export const BATCH_TEXT_HANDLE_PREFIX = "batch-text:";
 const LEGACY_BATCH_TABLE_WIDTH = 900;
 
 export type BatchReferenceFillMode = "sequential" | "cycle" | "same";
@@ -49,6 +51,19 @@ export function batchTextColumns(table?: CanvasBatchTableData) {
     return table?.textColumns || [];
 }
 
+export function batchTextHandleId(columnId: string) {
+    return `${BATCH_TEXT_HANDLE_PREFIX}${columnId}`;
+}
+
+export function batchTextColumnId(handleId?: string) {
+    return handleId?.startsWith(BATCH_TEXT_HANDLE_PREFIX) ? handleId.slice(BATCH_TEXT_HANDLE_PREFIX.length) : undefined;
+}
+
+/** 文字端口排在参考图端口下方，中间留出新增参考图按钮的位置。 */
+export function batchTextHandleTop(referenceCount: number) {
+    return BATCH_REFERENCE_HANDLE_TOP + (referenceCount + 1) * BATCH_REFERENCE_HANDLE_GAP + 24;
+}
+
 export function batchTextInputColumns(node: CanvasNodeData, connections: CanvasConnection[]) {
     return batchTextColumns(node.metadata?.batchTable).map((column) =>
         Array.from(new Set(connections.filter((connection) => connection.toNodeId === node.id && connection.toHandleId === `batch-text:${column.id}` && connection.relation !== "batch-output").map((connection) => connection.fromNodeId))),
@@ -63,8 +78,18 @@ export function batchReferenceColumnId(handleId?: string) {
     return handleId?.startsWith(BATCH_REFERENCE_HANDLE_PREFIX) ? handleId.slice(BATCH_REFERENCE_HANDLE_PREFIX.length) : undefined;
 }
 
+export function batchTextHandleY(node: CanvasNodeData, handleId?: string) {
+    if (node.type !== "batch-table") return undefined;
+    const columnId = batchTextColumnId(handleId);
+    const columns = batchTextColumns(node.metadata?.batchTable);
+    const index = columnId ? columns.findIndex((column) => column.id === columnId) : -1;
+    if (index < 0) return undefined;
+    return node.position.y + batchTextHandleTop(batchReferenceColumns(node.metadata?.batchTable).length) + index * BATCH_REFERENCE_HANDLE_GAP;
+}
 export function batchReferenceHandleY(node: CanvasNodeData, handleId?: string) {
     if (node.type !== "batch-table") return undefined;
+    const textY = batchTextHandleY(node, handleId);
+    if (textY !== undefined) return textY;
     const columnId = batchReferenceColumnId(handleId);
     const columns = batchReferenceColumns(node.metadata?.batchTable);
     const index = columnId ? columns.findIndex((column) => column.id === columnId) : 0;
@@ -74,17 +99,17 @@ export function batchReferenceHandleY(node: CanvasNodeData, handleId?: string) {
 
 export function batchReferenceHandleAtY(node: CanvasNodeData, worldY: number, hitRadius = 18) {
     if (node.type !== "batch-table") return undefined;
-    const columns = batchReferenceColumns(node.metadata?.batchTable);
-    let nearestIndex = -1;
-    let nearestDistance = Number.POSITIVE_INFINITY;
-    columns.forEach((_, index) => {
-        const distance = Math.abs(worldY - (node.position.y + BATCH_REFERENCE_HANDLE_TOP + index * BATCH_REFERENCE_HANDLE_GAP));
-        if (distance < nearestDistance) {
-            nearestDistance = distance;
-            nearestIndex = index;
-        }
-    });
-    return nearestIndex >= 0 && nearestDistance <= hitRadius ? batchReferenceHandleId(columns[nearestIndex].id) : undefined;
+    const referenceColumns = batchReferenceColumns(node.metadata?.batchTable);
+    const textColumns = batchTextColumns(node.metadata?.batchTable);
+    const handles = [
+        ...referenceColumns.map((column, index) => ({ id: batchReferenceHandleId(column.id), y: BATCH_REFERENCE_HANDLE_TOP + index * BATCH_REFERENCE_HANDLE_GAP })),
+        ...textColumns.map((column, index) => ({ id: batchTextHandleId(column.id), y: batchTextHandleTop(referenceColumns.length) + index * BATCH_REFERENCE_HANDLE_GAP })),
+    ];
+    const nearest = handles.reduce<{ id: string; distance: number } | null>((current, handle) => {
+        const distance = Math.abs(worldY - (node.position.y + handle.y));
+        return !current || distance < current.distance ? { id: handle.id, distance } : current;
+    }, null);
+    return nearest && nearest.distance <= hitRadius ? nearest.id : undefined;
 }
 
 export function removeLastBatchReferenceColumn(table: CanvasBatchTableData): CanvasBatchTableData | null {
@@ -160,13 +185,29 @@ export function fillBatchReferenceColumn(table: CanvasBatchTableData, sourceNode
         const inputNodeIds = Array.from({ length: columnCount }, (_, index) => row.inputNodeIds[index] || "");
         inputNodeIds[targetColumnIndex] = sourceNodeId;
         changed = true;
-        return { ...row, inputNodeIds, outputNodeId: undefined };
+        // 参考图换掉以后旧结果不再对应当前行，清空结果引用让它回到“待生成”。
+        return { ...row, inputNodeIds, outputNodeId: undefined, outputNodeIds: undefined };
     });
     return changed ? { ...table, rows } : table;
 }
 
 export function batchPromptForRow(table: CanvasBatchTableData, row: CanvasBatchRow) {
     return table.globalPrompt?.trim() || row.prompt;
+}
+
+/** 一行的全部结果节点；旧数据只有 outputNodeId，按单张结果处理。 */
+export function batchRowOutputNodeIds(row: CanvasBatchRow) {
+    const ids = (row.outputNodeIds || []).filter(Boolean);
+    if (ids.length) return ids;
+    return row.outputNodeId ? [row.outputNodeId] : [];
+}
+
+export function batchRowOutputNodes(row: CanvasBatchRow, nodes: Map<string, CanvasNodeData>) {
+    return batchRowOutputNodeIds(row).map((nodeId) => nodes.get(nodeId)).filter((node): node is CanvasNodeData => Boolean(node));
+}
+
+export function batchRowHasResult(row: CanvasBatchRow, nodes: Map<string, CanvasNodeData>) {
+    return batchRowOutputNodes(row, nodes).some((node) => Boolean(node.metadata?.content || node.metadata?.storageKey));
 }
 
 export function batchRowReady(row: CanvasBatchRow, table: CanvasBatchTableData, nodes: Map<string, CanvasNodeData>) {
@@ -187,9 +228,9 @@ export function batchGenerationRows(source: CanvasNodeData, nodes: CanvasNodeDat
     const requested = requestedRowIds ? new Set(requestedRowIds) : null;
     return table.rows.filter((row) => {
         if ((requested && !requested.has(row.id)) || !batchRowReady(row, table, byId)) return false;
-        const output = byId.get(row.outputNodeId || "");
-        if (output && active.has(output.id)) return false;
-        return Boolean(requested) || !Boolean(output?.metadata?.content || output?.metadata?.storageKey);
+        if (batchRowOutputNodes(row, byId).some((output) => active.has(output.id))) return false;
+        // 批量提交只处理还没有结果的行；显式指定行号时才允许重新生成已有结果。
+        return Boolean(requested) || !batchRowHasResult(row, byId);
     });
 }
 
@@ -253,6 +294,7 @@ export function createBatchRowsFromColumns(operation: CanvasBatchOperation, colu
             ...createBatchRow(operation, inputNodeIds),
             ...(previous ? { id: previous.id, enabled: previous.enabled, prompt: previous.prompt, cells: previous.cells, textNodeIds: previous.textNodeIds } : {}),
             ...(inputsUnchanged && previous?.outputNodeId ? { outputNodeId: previous.outputNodeId } : {}),
+            ...(inputsUnchanged && previous?.outputNodeIds ? { outputNodeIds: previous.outputNodeIds } : {}),
             inputNodeIds,
         };
     });

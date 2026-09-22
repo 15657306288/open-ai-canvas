@@ -170,7 +170,7 @@ function hasPriceTierForImageSelection(tiers: ReturnType<typeof imageModelPriceT
 	});
 }
 
-function OptionPill({ selected, disabled = false, theme, onClick, children }: { selected: boolean; disabled?: boolean; theme: CanvasTheme; onClick: () => void; children: ReactNode }) {
+export function OptionPill({ selected, disabled = false, theme, onClick, children }: { selected: boolean; disabled?: boolean; theme: CanvasTheme; onClick: () => void; children: ReactNode }) {
     return (
         <button
             type="button"
@@ -185,7 +185,7 @@ function OptionPill({ selected, disabled = false, theme, onClick, children }: { 
     );
 }
 
-function CountInput({ value, quickCount, max, theme, onChange }: { value: number; quickCount: number; max: number; theme: CanvasTheme; onChange: (value: number | null) => void }) {
+export function CountInput({ value, quickCount, max, theme, onChange }: { value: number; quickCount: number; max: number; theme: CanvasTheme; onChange: (value: number | null) => void }) {
     const commit = (input: HTMLInputElement) => {
         const next = Math.max(1, Math.min(max, Math.floor(Number(input.value) || 1)));
         input.value = String(next);

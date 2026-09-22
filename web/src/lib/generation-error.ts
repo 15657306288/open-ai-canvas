@@ -129,6 +129,11 @@ function resourceStorageFailureMessage(value: string) {
     if (!value) return "";
     if (/\bUserDisable\b/i.test(value)) return "对象存储账号已停用，请检查或更换对象存储配置。";
     if (/(?:参考(?:图片|媒体)上传失败|OSS 上传失败|对象存储|腾讯云 COS|七牛云)/i.test(value)) {
+        // 网关/网络瞬时故障（Cloudflare 520 家族、502/503/504、超时）不是对象存储配置问题。
+        // 若仍提示「请检查对象存储配置」，会把用户引向错误方向，也可能误导其重配密钥。
+        if (/(?:云端网关|网关|HTTP\s*5\d{2}|\b52[0-6]\b|\b50[234]\b|暂时不可用|超时|timed?\s*out|network error|failed to fetch)/i.test(value)) {
+            return "参考素材上传时云端网关暂时不可用，请稍后重试。";
+        }
         return "参考素材上传到对象存储失败，请检查对象存储配置后重试。";
     }
     return "";

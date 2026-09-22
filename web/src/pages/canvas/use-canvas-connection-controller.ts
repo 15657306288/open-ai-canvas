@@ -200,7 +200,6 @@ export function useCanvasConnectionController({
         else message.success(`已连接 ${plan.connected.length} 个节点${suffix}`);
         return plan;
     }, [config, connectionsRef, message, nodesRef, setConnections, setContextMenu, setNodes]);
-
     const connectNodes = useCallback((current: ConnectionHandle, targetNodeId: string, targetHandleId?: string, targetAnchorRatio?: number) => {
         if (current.nodeId === targetNodeId) return;
         const connection = normalizeConnection(current.nodeId, targetNodeId, nodesRef.current, current.handleType);
@@ -227,6 +226,11 @@ export function useCanvasConnectionController({
         }
         setContextMenu(null);
     }, [config, connectionsRef, message, nodesRef, setConnections, setContextMenu, setNodes]);
+
+    /** 从已有素材直接连到目标端口（画布素材拖进批量创作表格子时用，不经过拖线会话）。 */
+    const connectNodesFromSource = useCallback((sourceNodeId: string, targetNodeId: string, targetHandleId?: string) => {
+        connectNodes({ nodeId: sourceNodeId, handleType: "source" }, targetNodeId, targetHandleId);
+    }, [connectNodes]);
 
     const createConnectedNode = useCallback(async (type: CanvasNodeType.Image | CanvasNodeType.Text | CanvasNodeType.Script | CanvasNodeType.BatchTable | CanvasNodeType.Video | CanvasNodeType.Audio | CanvasNodeType.Drawing | CanvasNodeType.Config | CanvasNodeType.MediaConversion, pending: PendingConnectionCreate, workflowProvider?: "runninghub") => {
         const nodeType = type;
@@ -825,6 +829,7 @@ export function useCanvasConnectionController({
         handleConnectStart,
         handleConnectDrop,
         handleBatchConnectionTargetClick,
+        connectNodesFromSource,
         batchConnectionPreview,
         beginBatchConnectionMode,
         startBatchConnection,

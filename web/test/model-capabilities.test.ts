@@ -47,3 +47,17 @@ test("raising the video default leaves text and image limits untouched", () => {
     assert.equal(profile.text!.references.promptMaxChars, 32000);
     assert.equal(profile.image!.references.promptMaxChars, 32000);
 });
+
+// 豆包 / Dola 账号池：上游是网页 samantha 协议（参考图 attachments），没有蒙版端点、不输出透明通道；
+// 图层拆分由后端在同一任务里逐层图生图，层数上限必须与后端 doubaoPoolMaxLayers 对齐。
+test("doubao account pool image profile matches upstream limits", () => {
+    const profile = defaultModelCapabilityConfig("doubao-pool", "doubao-seedream-layer-decomposition");
+    assert.equal(profile.image!.maxOutputs, 6);
+    assert.equal(profile.image!.transparentBackground.supported, false);
+    assert.equal(profile.image!.references.maskSupported, false);
+    assert.equal(profile.image!.quality.supported, false);
+
+    // 官方 Ark Seedream 是另一条渠道（API key），不能被账号池口径覆盖。
+    const ark = defaultModelCapabilityConfig("volcengine-ark-image", "doubao-seedream-4-0-250828");
+    assert.equal(ark.image!.maxOutputs, 15);
+});

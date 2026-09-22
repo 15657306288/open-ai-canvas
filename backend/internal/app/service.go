@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -12,6 +11,7 @@ import (
 
 	"infinite-canvas/backend/internal/auth"
 	"infinite-canvas/backend/internal/canvas"
+	"infinite-canvas/backend/internal/doubao"
 	"infinite-canvas/backend/internal/kernel"
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/payment"
@@ -72,6 +72,10 @@ type Service struct {
 	prompts                  *prompts.Service
 	auth                     *auth.Service
 	canvas                   *canvas.Service
+	doubaoMu                 sync.Mutex
+	doubaoPoolSvc            *doubao.Service
+	doubaoQrSvcs             map[string]*doubao.QRLoginManager
+	providerLiveAccounts     sync.Map
 }
 
 const taskWorkerConcurrency = 3
@@ -172,9 +176,7 @@ func (s *Service) runWorkerTask(fn func()) bool {
 }
 
 func channelModelNames(channel model.ModelChannel) []string {
-	models := []string{}
-	_ = json.Unmarshal([]byte(channel.ModelsJSON), &models)
-	return uniqueNonEmpty(models)
+	return uniqueNonEmpty(model.ParseChannelModelNames(channel.ModelsJSON))
 }
 
 func (s *Service) Tasks(userID string, limit int) ([]TaskSummary, error) {

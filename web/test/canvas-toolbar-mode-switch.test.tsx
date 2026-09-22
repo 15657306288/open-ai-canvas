@@ -98,22 +98,21 @@ describe("canvas toolbar mode switch", () => {
         expect(defaultToolbarPrefs("main").hidden).toEqual([]);
     });
 
-    test("hides rarely used arrange tools from the selection toolbar by default", () => {
+    test("keeps only the five selection actions in the default toolbar", () => {
         const prefs = defaultToolbarPrefs("selection");
-        expect(prefs.hidden).toEqual(expect.arrayContaining([
-            "selection-arrange-row",
-            "selection-arrange-column",
-            "selection-arrange-grid",
-            "selection-arrange-flow",
-            "selection-create-reference-group",
-        ]));
+        expect(prefs.hidden).toEqual([]);
 
         const entries = resolveToolbarEntries("selection", createMainContext(), null);
-        expect(entries.some((entry) => entry.id === "selection-align-left")).toBe(true);
-        expect(entries.some((entry) => entry.id === "selection-distribute-x")).toBe(true);
-        expect(entries.some((entry) => entry.id === "selection-batch-connect")).toBe(true);
-        expect(entries.some((entry) => entry.id === "selection-arrange-grid")).toBe(false);
-        expect(entries.some((entry) => entry.id === "selection-create-reference-group")).toBe(false);
+        expect(entries.filter((entry) => entry.id.startsWith("selection-")).map((entry) => entry.id)).toEqual([
+            "selection-download",
+            "selection-auto-arrange",
+            "selection-create-group",
+            "selection-send-to-agent",
+            "selection-save-template",
+        ]);
+        for (const legacyId of ["selection-align-left", "selection-distribute-x", "selection-batch-connect", "selection-arrange-grid", "selection-create-reference-group", "selection-merge-videos"]) {
+            expect(entries.some((entry) => entry.id === legacyId)).toBe(false);
+        }
     });
 
     test("renders the pill switch with an active circular thumb", () => {

@@ -44,7 +44,7 @@ type CanvasNodeProps = {
     batchRecovering?: boolean;
     batchPrimary?: boolean;
     batchMotion?: { x: number; y: number; index: number };
-    onMouseDown: (event: React.MouseEvent, nodeId: string) => void;
+    onMouseDown: (event: React.MouseEvent, nodeId: string, options?: { dragDisabled?: boolean }) => void;
     onHoverStart: (nodeId: string) => void;
     onHoverEnd: (nodeId: string) => void;
     onConnectStart: (event: React.PointerEvent, nodeId: string, handleType: "source" | "target", handleId?: string, anchorRatio?: number) => void;
@@ -318,7 +318,13 @@ export const CanvasNode = React.memo(function CanvasNode({
                     "--connection-tilt-y": `${connectionTilt?.rotateY || 0}deg`,
                     transformOrigin: connectionTilt?.origin,
                 } as React.CSSProperties}
-                onMouseDown={(event) => onMouseDown(event, data.id)}
+                onMouseDown={(event) => {
+                    // 节点内部自管理的交互区（表格、输入框、标记 data-canvas-no-drag 的区域）只做选中，
+                    // 不启动节点拖动，否则在表格里选文字、拖缩略图都会把整个节点带着一起动。
+                    const target = event.target instanceof Element ? event.target : null;
+                    const dragDisabled = Boolean(target?.closest(NODE_DRAG_LOCK_SELECTOR));
+                    onMouseDown(event, data.id, dragDisabled ? { dragDisabled: true } : undefined);
+                }}
                 onDoubleClick={(event) => {
                     if (isBatchRoot) {
                         event.stopPropagation();
@@ -625,6 +631,8 @@ function ResizeHandle({ corner, onMouseDown }: { corner: ResizeCorner; onMouseDo
 }
 
 const NODE_EXTERNAL_HEADER_MIN_SCALE = 0.35;
+/** 命中这些元素时按“想操作内容”处理：只选中节点，不进入拖动。 */
+const NODE_DRAG_LOCK_SELECTOR = "[data-canvas-no-drag],input,textarea,select,button,[contenteditable='true']";
 
 function formatMediaDimensionLabel(node: CanvasNodeData, hasVisualMediaContent: boolean) {
     const width = node.metadata?.naturalWidth;

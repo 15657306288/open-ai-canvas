@@ -56,6 +56,11 @@ func TestMigrateSchemaRecordsAndValidatesVersion(t *testing.T) {
 	if !db.Migrator().HasColumn(&model.BannerAnnouncement{}, "notice_type") {
 		t.Fatal("schema migration v22 did not create banner announcements notice_type")
 	}
+	for _, table := range []any{&model.DoubaoAccount{}, &model.DoubaoPoolMeta{}, &model.NetworkProxy{}} {
+		if !db.Migrator().HasTable(table) {
+			t.Fatalf("schema migration v38 did not create %T", table)
+		}
+	}
 	if err := MigrateSchema(db); err != nil {
 		t.Fatalf("migration should be idempotent: %v", err)
 	}

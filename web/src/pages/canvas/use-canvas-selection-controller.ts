@@ -5,7 +5,14 @@ import { calculateNodeAlignment, createNodeAlignmentContext, sameStringSet, type
 import { applyFrameDrop, buildCanvasFrameDropIndex, findFrameDropTargetFromIndex, getFrameChildIds, isFrameNode } from "@/lib/canvas/canvas-frame";
 import { applyCanvasSelectionStrategy, canvasSelectionHitsBounds, createCanvasSelectionBounds, createCanvasSelectionSpatialIndexCache, resolveCanvasSelectionHitMode, resolveCanvasSelectionPreviewDelta, resolveCanvasSelectionStrategy } from "@/lib/canvas/canvas-selection";
 import { canvasNodeBounds } from "@/lib/canvas/canvas-spatial-index";
+import { dispatchBatchReferenceCellDrop, dispatchBatchReferenceCellHover, findBatchReferenceCellAtPoint, toBatchReferenceCellRect, type BatchReferenceCellRef } from "@/lib/canvas/canvas-batch-table-drop";
 import type { CanvasNodeData, Position, SelectionBox, ViewportTransform } from "@/types/canvas";
+
+/** 可以拖进批量创作表参考图格子的素材：单张有图的图片节点。 */
+function batchTableCellDropSource(node: CanvasNodeData | undefined) {
+    if (!node || node.type !== "image" || node.metadata?.locked) return undefined;
+    return node.metadata?.content || node.metadata?.storageKey ? node : undefined;
+}
 
 type UseCanvasSelectionControllerOptions = {
     containerRef: RefObject<HTMLDivElement | null>;
@@ -90,6 +97,10 @@ export function useCanvasSelectionController({
     const dragRef = useRef<DragState>({ ...EMPTY_DRAG_STATE });
     const frameDropIndexRef = useRef(buildCanvasFrameDropIndex([]));
     const draggedNodesRef = useRef<CanvasNodeData[]>([]);
+    // 拖动单个画布素材时可以放进批量创作表的参考图格子：记录候选节点、当前悬停格与指针屏幕坐标。
+    const cellDropNodeIdRef = useRef<string | null>(null);
+    const cellDropTargetRef = useRef<BatchReferenceCellRef | null>(null);
+    const pendingNodeDragScreenRef = useRef({ x: 0, y: 0 });
     const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
     const [frameDropTargetId, setFrameDropTargetId] = useState<string | null>(null);
     const [isNodeDragging, setIsNodeDragging] = useState(false);
@@ -147,7 +158,7 @@ export function useCanvasSelectionController({
         setSelectedConnectionId(null);
     }, [cancelPendingConnectionCreate, nodesRef, onCanvasSelectionStart, screenToCanvas, selectedNodeIdsRef, setSelectedConnectionId]);
 
-    const handleNodeMouseDown = useCallback((event: ReactMouseEvent | ReactPointerEvent, nodeId: string) => {
+    const handleNodeMouseDown = useCallback((event: ReactMouseEvent | ReactPointerEvent, nodeId: string, options?: { dragDisabled?: boolean }) => {
         event.stopPropagation();
         if (event.button !== 0) return;
         if (onBatchConnectionTarget?.(event, nodeId)) return;
@@ -185,6 +196,12 @@ export function useCanvasSelectionController({
             return;
         }
 
+        // 在表格、输入框这类“只想操作内容”的区域按下时只更新选中，不进拖动状态。
+        if (options?.dragDisabled) {
+            dragRef.current = { ...EMPTY_DRAG_STATE, openPanelOnClick: false };
+            return;
+        }
+
         const draggedNodeIds = currentNodes.filter((node) => nextSelected.has(node.id) && !node.metadata?.locked && !(node.parentId && nextSelected.has(node.parentId))).map((node) => node.id);
         const dragIds = new Set(nextSelected);
         currentNodes.forEach((node) => {
@@ -199,6 +216,10 @@ export function useCanvasSelectionController({
 
         frameDropIndexRef.current = buildCanvasFrameDropIndex(currentNodes);
         draggedNodesRef.current = currentNodes.filter((node) => dragIds.has(node.id) && !node.metadata?.locked);
+        // 只有单个图片素材能放进表格格子：多选拖动还是普通的移动操作。
+        cellDropNodeIdRef.current = draggedNodeIds.length === 1 ? batchTableCellDropSource(currentNodes.find((node) => node.id === draggedNodeIds[0]))?.id || null : null;
+        cellDropTargetRef.current = null;
+        pendingNodeDragScreenRef.current = { x: event.clientX, y: event.clientY };
         const draggedRenderNodeIds = initialSelectedNodes.map((item) => item.id);
         const draggedRenderNodeIdSet = new Set(draggedRenderNodeIds);
         dragRef.current = { isDraggingNode: true, hasMoved: false, openPanelOnClick: !isMultiSelectClick, startX: event.clientX, startY: event.clientY, draggedNodeIds, draggedRenderNodeIds, draggedRenderNodeIdSet, initialSelectedNodes };
@@ -234,19 +255,39 @@ export function useCanvasSelectionController({
         setIsNodeDragging(false);
         setDragPreview(null);
         setAlignmentGuides({});
+        // 落在批量创作表的参考图格子上：素材留在原位不动，改由表格把素材放进那一格并连线。
+        const dropNodeId = cellDropNodeIdRef.current;
+        const cellDropHit = dropNodeId && dragRef.current.hasMoved && clientX != null && clientY != null ? findBatchReferenceCellAtPoint(clientX, clientY) : null;
+        if (cellDropTargetRef.current) dispatchBatchReferenceCellHover(null);
+        cellDropTargetRef.current = null;
+        cellDropNodeIdRef.current = null;
         if (dragRef.current.hasMoved) {
-            const draggedNodeIds = new Set(dragRef.current.draggedNodeIds);
-            const positioned = clientX == null || clientY == null ? nodesRef.current : nodesRef.current.map((node) => {
-                const initial = initialById.get(node.id);
-                return initial ? { ...node, position: { x: initial.x + dx, y: initial.y + dy } } : node;
-            });
-            const targetId = findFrameDropTargetFromIndex(frameDropIndexRef.current, draggedNodesRef.current, draggedNodeIds, { x: dx, y: dy });
-            const target = targetId ? positioned.find((node) => node.id === targetId) : undefined;
-            const linkedFolder = target?.metadata?.folder?.assetFolderId ? target : undefined;
-            // 素材库文件夹只建立归档关系，不把画布节点变成其本地子节点。
-            setNodes(linkedFolder ? positioned : applyFrameDrop(positioned, draggedNodeIds, targetId));
-            if (linkedFolder) onLinkedFolderDrop?.(linkedFolder, positioned.filter((node) => draggedNodeIds.has(node.id)));
-            if (clickedNodeId) onNodeDragEnd?.(clickedNodeId);
+            if (cellDropHit && dropNodeId) {
+                const sourceNode = nodesRef.current.find((node) => node.id === dropNodeId);
+                const sourceElement = containerRef.current?.querySelector<HTMLElement>(`[data-node-id="${dropNodeId}"]`);
+                dispatchBatchReferenceCellDrop({
+                    nodeId: dropNodeId,
+                    rowId: cellDropHit.rowId,
+                    columnIndex: cellDropHit.columnIndex,
+                    imageSrc: sourceNode?.metadata?.previewContent || sourceNode?.metadata?.content,
+                    fromRect: sourceElement ? toBatchReferenceCellRect(sourceElement) : undefined,
+                    toRect: toBatchReferenceCellRect(cellDropHit.element),
+                });
+                if (clickedNodeId) onNodeDragEnd?.(clickedNodeId);
+            } else {
+                const draggedNodeIds = new Set(dragRef.current.draggedNodeIds);
+                const positioned = clientX == null || clientY == null ? nodesRef.current : nodesRef.current.map((node) => {
+                    const initial = initialById.get(node.id);
+                    return initial ? { ...node, position: { x: initial.x + dx, y: initial.y + dy } } : node;
+                });
+                const targetId = findFrameDropTargetFromIndex(frameDropIndexRef.current, draggedNodesRef.current, draggedNodeIds, { x: dx, y: dy });
+                const target = targetId ? positioned.find((node) => node.id === targetId) : undefined;
+                const linkedFolder = target?.metadata?.folder?.assetFolderId ? target : undefined;
+                // 素材库文件夹只建立归档关系，不把画布节点变成其本地子节点。
+                setNodes(linkedFolder ? positioned : applyFrameDrop(positioned, draggedNodeIds, targetId));
+                if (linkedFolder) onLinkedFolderDrop?.(linkedFolder, positioned.filter((node) => draggedNodeIds.has(node.id)));
+                if (clickedNodeId) onNodeDragEnd?.(clickedNodeId);
+            }
         }
         setFrameDropTargetId(null);
         alignmentContextRef.current = null;
@@ -256,12 +297,13 @@ export function useCanvasSelectionController({
             const clickedNode = nodesRef.current.find((node) => node.id === clickedNodeId);
             if (clickedNode) onNodeClick(clickedNode);
         }
-    }, [historyPausedRef, nodesRef, onLinkedFolderDrop, onNodeClick, onNodeDragEnd, setNodes, viewportRef]);
+    }, [containerRef, historyPausedRef, nodesRef, onLinkedFolderDrop, onNodeClick, onNodeDragEnd, setNodes, viewportRef]);
 
     const handleNodeDragMove = useCallback((event: MouseEvent | PointerEvent) => {
         if (!dragRef.current.isDraggingNode) return;
         const currentViewport = viewportRef.current;
         pendingNodeDragRef.current = { x: (event.clientX - dragRef.current.startX) / currentViewport.k, y: (event.clientY - dragRef.current.startY) / currentViewport.k };
+        pendingNodeDragScreenRef.current = { x: event.clientX, y: event.clientY };
         if (Math.abs(event.clientX - dragRef.current.startX) > 3 || Math.abs(event.clientY - dragRef.current.startY) > 3) dragRef.current.hasMoved = true;
         if (dragFrameRef.current) return;
         dragFrameRef.current = requestAnimationFrame(() => {
@@ -273,6 +315,17 @@ export function useCanvasSelectionController({
                 lastFrameDropCheckRef.current = now;
                 const draggedNodeIds = new Set(dragRef.current.draggedNodeIds);
                 setFrameDropTargetId(findFrameDropTargetFromIndex(frameDropIndexRef.current, draggedNodesRef.current, draggedNodeIds, latest));
+                // 表格格子也在这轮节流里判定：指针下方是哪一格就高亮哪一格。
+                if (cellDropNodeIdRef.current) {
+                    const screen = pendingNodeDragScreenRef.current;
+                    const hit = findBatchReferenceCellAtPoint(screen.x, screen.y);
+                    const next = hit ? { rowId: hit.rowId, columnIndex: hit.columnIndex } : null;
+                    const previous = cellDropTargetRef.current;
+                    if (previous?.rowId !== next?.rowId || previous?.columnIndex !== next?.columnIndex) {
+                        cellDropTargetRef.current = next;
+                        dispatchBatchReferenceCellHover(next);
+                    }
+                }
             }
             applyCanvasNodeDragPreview(containerRef.current, {
                 x: latest.x,

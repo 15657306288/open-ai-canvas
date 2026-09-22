@@ -7,7 +7,7 @@ import { grokImagePromptLimitError } from "@/lib/grok-image-prompt-limit";
 import { resolveGenerationWorkflowExecution, type GenerationWorkflowExecution } from "@/lib/generation-workflow-execution";
 import { isArkPlanBaseUrl } from "@/lib/seedance-video";
 import { resolveVideoOperation } from "@/lib/model-selection";
-import { logicalModelIDForConfig, modelDisplayName, modelOptionName, resolveModelChannel, resolveModelRequestConfig, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
+import { logicalModelIDForConfig, modelDisplayName, modelOptionName, optionalChannelSubmitError, resolveModelChannel, resolveModelRequestConfig, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 import { buildBackendToolRequests, type ResponseFunctionTool, type ResponseInputMessage, type ToolChoice, type ToolResponseResult } from "@/services/api/image";
@@ -218,6 +218,9 @@ function assertBackendRuntimeConfigured(config: AiConfig, mode: BackendGeneratio
     if (resolveGenerationWorkflowExecution(config, mode)) return;
     const capabilityMismatch = systemChannelCapabilityMismatch(config, mode);
     if (capabilityMismatch) throw new Error(capabilityMismatch);
+    // 可选渠道（账号池）：未开启或没有可用账号时给出可执行提示，任务不提交。
+    const optionalChannelError = optionalChannelSubmitError(config, config.model, resolveModelRequestConfig(config, config.model).channelId);
+    if (optionalChannelError) throw new Error(optionalChannelError);
     if (logicalModelIDForConfig(config)) return;
     const requestConfig = resolveModelRequestConfig(config, config.model);
     if (!requestConfig.channelId && !requestConfig.interfaceType) throw new Error("当前模型未选择可用请求协议，请先在模型设置中选择协议插件");

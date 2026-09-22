@@ -7,6 +7,12 @@ export type BackendEnvelope<T> = {
     data: T;
     msg: string;
     reason?: string;
+    /**
+     * 后端显式声明的重试语义。缺省时按 HTTP 状态推断，显式 false 优先于推断。
+     * 典型场景：上传幂等键命中「同一素材正在上传」返回 409——它其实是并发重试，
+     * 稍后用同一幂等键重试就能拿到已就绪的资源，不该被当成终态失败。
+     */
+    retryable?: boolean;
 };
 
 /**
@@ -51,7 +57,8 @@ export async function request<T>(promise: Promise<{ data: BackendEnvelope<T>; st
                 status: response.status,
                 code: response.data.code,
                 reason: response.data.reason,
-                retryable: isRetryableStatus(response.status) || isRetryableStatus(response.data.code),
+                // 后端显式声明优先：只有它知道 409 是「同一素材正在上传」这种可重试冲突。
+                retryable: response.data.retryable ?? (isRetryableStatus(response.status) || isRetryableStatus(response.data.code)),
                 retryAfterMs: retryAfterMilliseconds(response.headers),
             });
         }
@@ -75,7 +82,7 @@ function unwrapTransportError(error: unknown): never {
             status,
             code,
             reason: error.response?.data?.reason,
-            retryable: isRetryableStatus(status) || isRetryableStatus(code),
+            retryable: error.response?.data?.retryable ?? (isRetryableStatus(status) || isRetryableStatus(code)),
             retryAfterMs: retryAfterMilliseconds(error.response?.headers),
             cause: error,
         });
@@ -85,12 +92,26 @@ function unwrapTransportError(error: unknown): never {
 
 function transportFailureMessage(status?: number, fallback?: string) {
     switch (status) {
+        case 408:
+            return "请求超时，请稍后重试";
+        case 500:
+            return "服务处理失败，请稍后重试";
         case 502:
             return "后端服务暂时不可用，请稍后重试";
         case 503:
             return "服务暂时不可用，请稍后重试";
         case 504:
             return "服务响应超时，请稍后重试";
+        // Cloudflare 家族的网关错误：520/521/522/523/524/525/526 都是边缘节点拿不到有效的源站响应。
+        // 不翻译的话，浏览器只能拿到 axios 的英文 "Request failed with status code 520"。
+        case 520:
+        case 521:
+        case 522:
+        case 523:
+        case 524:
+        case 525:
+        case 526:
+            return `云端网关暂时不可用（HTTP ${status}），请稍后重试`;
         default:
             return fallback || "请求失败";
     }

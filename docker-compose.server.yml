@@ -1,6 +1,11 @@
 services:
   postgres:
     container_name: open-ai-canvas-postgres
+    # 部分云主机内核在默认 seccomp 配置下会拦下 postgres 需要的系统调用，
+    # 表现为 “could not write to file postmaster.pid: Operation not permitted” 无法启动。
+    # 这台服务器必需保留；重新创建 postgres 容器时不要删掉这一项。
+    security_opt:
+      - seccomp:unconfined
     image: postgres:17-alpine
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-open_ai_canvas}
@@ -87,6 +92,8 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
+      # 3000 是 Cloudflare 隧道（cloudflared-config.yml）的入口，删掉会导致外网 502。
+      - "127.0.0.1:3000:3000"
       - "127.0.0.1:5173:3000"
     depends_on:
       backend:

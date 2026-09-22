@@ -1,5 +1,6 @@
 const workspaceRouteLoaders = {
     assets: () => import("@/pages/assets"),
+    accounts: () => import("@/pages/accounts"),
     canvas: () => import("@/pages/canvas"),
     create: () => import("@/pages/create"),
     projects: () => import("@/pages/projects"),
@@ -7,6 +8,7 @@ const workspaceRouteLoaders = {
 };
 
 export const loadAssetsPage = workspaceRouteLoaders.assets;
+export const loadAccountsPage = workspaceRouteLoaders.accounts;
 export const loadCanvasPage = workspaceRouteLoaders.canvas;
 export const loadCanvasProjectPage = () => import("@/pages/canvas/project");
 export const loadCreatePage = workspaceRouteLoaders.create;

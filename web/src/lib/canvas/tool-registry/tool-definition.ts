@@ -65,6 +65,9 @@ export type ToolbarHandlers = {
     // 多选工具栏
     onAlign: (mode: CanvasAlignmentMode) => void;
     onArrange: (mode: "row" | "column" | "grid" | "flow") => void;
+    /** 多选工具栏——下载与自动整理 */
+    onDownloadSelection?: () => void;
+    onAutoArrange?: () => void;
     onCreateStoryboard: () => void;
     onCreateReferenceGroup: () => void;
     onBatchConnect: () => void;

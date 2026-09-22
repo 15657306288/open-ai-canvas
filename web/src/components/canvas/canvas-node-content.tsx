@@ -31,6 +31,7 @@ import { useCanvasNodeActions } from "./canvas-node-action-context";
 import { CanvasSubtitleOverlay } from "./canvas-subtitle-overlay";
 import { CanvasTextLayerStage } from "./canvas-text-layer-stage";
 import { CanvasFileUploadContent } from "./canvas-file-upload-content";
+import { modelDisplayName, useConfigStore } from "@/stores/use-config-store";
 import { MarkdownNodeContent } from "./nodes/markdown-node";
 import { ChartNodeContent } from "./nodes/chart-node";
 import { CompareNodeContent } from "./nodes/compare-node";
@@ -182,7 +183,12 @@ function DrawingContent({ node, theme, drawingProjectId }: CanvasNodeContentProp
 }
 
 function LoadingContent({ node, theme, onOpenTaskDetails }: Pick<CanvasNodeContentProps, "node" | "theme" | "onOpenTaskDetails">) {
+    const config = useConfigStore((state) => state.config);
     const taskId = node.metadata?.taskId;
+    const modelLabel = (() => { const raw = node.metadata?.model; if (!raw) return ""; try { return modelDisplayName(config, raw); } catch { return ""; } })();
+    const sizeLabel = formatGenerationSizeLabel(node.metadata?.size, node.metadata?.quality);
+    const refCount = Array.isArray(node.metadata?.references) ? (node.metadata.references as unknown[]).length : 0;
+    const hasPrompt = Boolean(node.metadata?.prompt);
     const displayTask = {
         provider: node.metadata?.taskProvider,
         status: (node.metadata?.taskStatus || "running") as GenerationTask["status"],
@@ -196,31 +202,56 @@ function LoadingContent({ node, theme, onOpenTaskDetails }: Pick<CanvasNodeConte
     const statusLabel = taskId ? generationTaskStatusLabel(displayTask) : "等待任务状态";
     const stageLabel = taskId ? generationTaskStageLabel(displayTask) : "正在创建任务";
     const elapsed = useTaskElapsed(node.metadata?.taskCreatedAt);
+    const showHeader = Boolean(node.title || modelLabel || sizeLabel);
     return (
-        <div className="flex h-full w-full flex-col items-center justify-center gap-2.5 px-5 text-center" style={{ color: theme.node.activeStroke }}>
-            {submissionUncertain ? <AlertCircle className="size-10" /> : <div className="size-10 animate-spin rounded-full border-2" style={{ borderColor: theme.node.stroke, borderTopColor: theme.node.activeStroke }} />}
-            <span className="text-[var(--fs-tiny)] font-semibold">{stageLabel}</span>
-            {taskId ? (
-                <div className="flex w-full max-w-[210px] flex-col items-center gap-1.5">
-                    <div className="max-w-full truncate text-[var(--fs-label)] font-medium" style={{ color: theme.node.text }}>
-                        {statusLabel}
-                        {progress !== null ? ` · ${progress}%` : ""}
-                    </div>
-                    {progress !== null ? (
-                        <div className="h-1.5 w-full overflow-hidden rounded-full" style={{ background: theme.node.stroke }}>
-                            <div className="h-full rounded-full transition-[width]" style={{ width: `${progress}%`, background: theme.node.activeStroke }} />
-                        </div>
-                    ) : null}
-                    <div className="max-w-full truncate text-[var(--fs-tiny)] tabular-nums" style={{ color: theme.node.muted }}>
-                        <Clock3 className="mr-1 inline size-3" />{elapsed} · {shortTaskId(taskId)}
-                    </div>
-                    <div className="mt-0.5 flex items-center gap-1.5">
-                        <button type="button" className="inline-flex h-7 items-center gap-1 rounded-[var(--r-sm)] px-2 text-[var(--fs-tiny)] font-medium transition-colors" style={{ background: theme.toolbar.itemHover, color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onOpenTaskDetails?.(node); }}><FileText className="size-3" />详情</button>
-                    </div>
+        <div className="flex h-full w-full flex-col justify-between gap-2 p-3 text-left" style={{ color: theme.node.text }}>
+            {showHeader ? <div className="min-w-0">
+                {node.title ? <div className="flex items-center gap-1.5">
+                    <ImageIcon className="size-3.5 shrink-0" style={{ color: theme.accent.primary }} />
+                    <span className="truncate text-xs font-semibold">{node.title}</span>
+                </div> : null}
+                {modelLabel || sizeLabel ? <div className="mt-1 flex flex-wrap items-center gap-1 text-[10px] leading-4" style={{ color: theme.node.muted }}>
+                    {modelLabel ? <span className="rounded px-1.5 py-0.5 font-medium" style={{ background: theme.toolbar.itemHover }}>{modelLabel}</span> : null}
+                    {sizeLabel ? <span className="rounded px-1.5 py-0.5" style={{ background: theme.toolbar.itemHover }}>{sizeLabel}</span> : null}
+                </div> : null}
+            </div> : null}
+            <div className="flex flex-col items-center gap-2">
+                {submissionUncertain ? <AlertCircle className="size-8" style={{ color: theme.accent.danger }} /> : <div className="size-8 animate-spin rounded-full border-2" style={{ borderColor: theme.node.stroke, borderTopColor: theme.node.activeStroke }} />}
+                <span className="text-[11px] font-medium" style={{ color: theme.node.activeStroke }}>{stageLabel}</span>
+                {progress !== null ? <div className="h-1 w-full max-w-[160px] overflow-hidden rounded-full" style={{ background: theme.node.stroke }}><div className="h-full rounded-full transition-[width]" style={{ width: `${progress}%`, background: theme.node.activeStroke }} /></div> : null}
+            </div>
+            <div className="flex items-center justify-between text-[10px] leading-4" style={{ color: theme.node.muted }}>
+                <div className="flex items-center gap-2">
+                    {hasPrompt ? <span className="inline-flex items-center gap-1"><span className="inline-block size-1.5 rounded-full" style={{ background: theme.accent.primary }} />提示词 1 个</span> : null}
+                    {refCount > 0 ? <span className="inline-flex items-center gap-1"><span className="inline-block size-1.5 rounded-full" style={{ background: theme.accent.primary }} />参考图 {refCount} 张</span> : null}
                 </div>
-            ) : null}
+                {taskId ? <div className="flex items-center gap-1.5">
+                    <span className="tabular-nums"><Clock3 className="mr-0.5 inline size-3" />{elapsed}</span>
+                    <button type="button" className="inline-flex h-6 items-center gap-1 rounded-[var(--r-sm)] px-1.5 font-medium transition-colors" style={{ background: theme.toolbar.itemHover, color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onOpenTaskDetails?.(node); }}><FileText className="size-3" />详情</button>
+                </div> : null}
+            </div>
         </div>
     );
+}
+
+function formatGenerationSizeLabel(size?: string, quality?: string): string {
+    const parts: string[] = [];
+    if (quality) {
+        const q = quality === "high" ? "高" : quality === "medium" ? "中" : quality === "low" ? "低" : quality === "auto" ? "自动" : quality.toUpperCase();
+        if (q !== "自动") parts.push(q);
+    }
+    if (size && size !== "auto") {
+        if (/^\d+:\d+$/.test(size)) { parts.push(size); }
+        else {
+            const m = size.match(/^(\d+)x(\d+)$/);
+            if (m) {
+                const w = Number(m[1]); const h = Number(m[2]);
+                const g = (a: number, b: number): number => (b === 0 ? a : g(b, a % b));
+                if (w > 0 && h > 0) { parts.push(`${w / g(w, h)}:${h / g(w, h)}`); } else { parts.push(size); }
+            } else { parts.push(size); }
+}
+    }
+    return parts.join(" · ");
 }
 
 function useTaskElapsed(createdAt?: string) {

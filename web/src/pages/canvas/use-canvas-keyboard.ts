@@ -183,6 +183,8 @@ export function useCanvasKeyboard({
                 return;
             }
             if (event.key === "Delete" || event.key === "Backspace") {
+                // 批量表格的格子 / 格子右键菜单自己处理删除（清空这一格），别顺着快捷键删掉整个节点。
+                if (target?.closest("[data-batch-reference-cell], [data-canvas-cell-group], [data-canvas-cell-menu]")) return;
                 if (selectedNodeIdsRef.current.size) deleteNodes(new Set(selectedNodeIdsRef.current));
                 else if (selectedConnectionId) deleteConnection(selectedConnectionId);
             }

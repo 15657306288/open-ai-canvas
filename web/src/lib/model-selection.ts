@@ -1,7 +1,7 @@
 import { defaultImageCapabilityConfig, modelCapabilityConfigFor, normalizeImageValue, normalizeVideoValue, STANDARD_IMAGE_SIZE_VALUES, videoDurationAllowed, type ImageCapabilityConfig } from "@/lib/model-capabilities";
 import { videoResolutionComparisonKey } from "@/lib/video-generation-options";
 import { imageSizePresets } from "@/lib/image-size-presets";
-import { modelOptionName, resolveModelChannel, selectableModelsByCapability, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
+import { isOptionalChannelEnabled, modelOptionName, resolveModelChannel, selectableModelsByCapability, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
 
 export type ModelInputSummary = {
     textCount: number;
@@ -52,11 +52,16 @@ export function configuredModelDisplayName(config: AiConfig, value: string) {
 }
 
 export function modelCompatibilityError(config: AiConfig, model: string, requirements?: ModelRequirements) {
+    const channel = resolveModelChannel(config, model);
+    // 可选渠道（账号池）：未开启或没有可用账号时，下拉框标为不可用，提交也会被拦住。
+    if (channel.optional) {
+        if (!isOptionalChannelEnabled(config, channel)) return `请先在设置中开启${channel.name}`;
+        if (channel.availability?.state === "empty") return `${channel.name}暂无可用账号`;
+    }
     const capability = requirements?.capability;
     if (!capability) return "";
     const input = requirements?.input;
     const visualInputCount = input ? input.imageCount + input.characterCount : 0;
-    const channel = resolveModelChannel(config, model);
     const logicalCost = channel.modelCosts?.find((item) => item.model === modelOptionName(model));
     const logicalSpecs = logicalCost?.logicalCapabilityProfiles?.length ? logicalCost.logicalCapabilityProfiles : logicalCost?.logicalCapabilitySpec ? [logicalCost.logicalCapabilitySpec] : [];
     if (logicalSpecs.length) {

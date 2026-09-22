@@ -56,6 +56,11 @@ func New(db *gorm.DB) *Repository {
 	return &Repository{db: db}
 }
 
+// DB exposes the repository connection to bounded domain adapters that need
+// to use GORM directly (for example the imported Doubao account-pool service).
+// Callers must keep such access inside their own domain boundary.
+func (r *Repository) DB() *gorm.DB { return r.db }
+
 func (r *Repository) WithContext(ctx context.Context) *Repository {
 	return &Repository{db: r.db.WithContext(ctx)}
 }

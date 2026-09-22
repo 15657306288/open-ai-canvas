@@ -155,12 +155,24 @@ export type ModelQuoteRequest = {
 
 export type ModelCatalogSource = "system";
 
+/** 可选渠道（如豆包 / Dola 账号池）的实时可用状态；普通渠道不带该字段。 */
+export type PublicChannelAvailability = {
+    state: "ready" | "empty" | "error";
+    readyAccounts: number;
+    totalAccounts: number;
+    detail?: string;
+};
+
 export type PublicChannelCatalog = {
     id: string;
     name: string;
     displayName: string;
     sortOrder?: number;
     models: PublicChannelModel[];
+    // 可选渠道：目录里始终存在；是否默认进候选列表由 defaultEnabled 决定，用户可自行开关。
+    optional?: boolean;
+    defaultEnabled?: boolean;
+    availability?: PublicChannelAvailability;
 };
 
 export type PublicChannelModel = {

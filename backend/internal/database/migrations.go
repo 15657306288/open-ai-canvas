@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 37
+const CurrentSchemaVersion int64 = 38
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -114,6 +114,9 @@ var schemaMigrations = []migration{
 	{version: 36, name: "canvas_media_grants", checksum: "sha256:canvas-media-grants-v32-20260920", apply: migrateCanvasMediaGrants},
 	{version: 37, name: "canvas_template_library", checksum: "sha256:canvas-template-library-v28-20260919", apply: func(tx *gorm.DB) error {
 		return tx.AutoMigrate(&model.CanvasTemplate{}, &model.CanvasTemplateVersion{})
+	}},
+	{version: 38, name: "doubao_account_pool_and_network_proxy", checksum: "sha256:doubao-account-pool-network-proxy-v38-20260921", apply: func(tx *gorm.DB) error {
+		return tx.AutoMigrate(&model.DoubaoAccount{}, &model.DoubaoPoolMeta{}, &model.NetworkProxy{})
 	}},
 }
 

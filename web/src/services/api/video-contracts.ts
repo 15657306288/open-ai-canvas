@@ -46,5 +46,5 @@ export type RequestOptions = {
 };
 
 export type VideoGenerationResult = { blob?: Blob; url?: string; mimeType?: string };
-export type VideoGenerationTask = { id: string; provider: "openai" | "agnes" | "seedance" | "video-generations" | "gemini-veo" | "novita" | "minimax"; model: string };
+export type VideoGenerationTask = { id: string; provider: "openai" | "agnes" | "seedance" | "video-generations" | "gemini-veo" | "novita" | "minimax" | "doubao-pool"; model: string };
 export type VideoGenerationTaskState = { status: "pending" } | { status: "completed"; result: VideoGenerationResult } | { status: "failed"; error: string };

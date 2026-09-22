@@ -8,6 +8,9 @@ import {
     batchReferenceHandleAtY,
     batchReferenceHandleId,
     batchReferenceMentionToken,
+    batchRowHasResult,
+    batchRowOutputNodeIds,
+    batchRowOutputNodes,
     createBatchRowsFromColumns,
     createBatchRowsFromInputs,
     createInheritedBatchRow,
@@ -98,6 +101,38 @@ describe("batch creation table", () => {
     test("uses stable prompt mention tokens for positional references", () => {
         expect(batchReferenceMentionToken(0)).toBe("@参考图1");
         expect(batchReferenceMentionToken(1)).toBe("@参考图2");
+    });
+
+    test("a row with several results counts as finished and stays out of bulk submission", () => {
+        const input = createCanvasNode(CanvasNodeType.Image, { x: 0, y: 0 }, { storageKey: "input" });
+        const first = createCanvasNode(CanvasNodeType.Image, { x: 0, y: 0 }, { storageKey: "first" });
+        const second = { ...createCanvasNode(CanvasNodeType.Image, { x: 0, y: 0 }), id: "second-output" };
+        const row = { id: "row", enabled: true, inputNodeIds: [input.id], prompt: "create", outputNodeId: first.id, outputNodeIds: [first.id, second.id] };
+        const table = { operation: "creative" as const, concurrency: 1, rows: [row] };
+        const source = createCanvasNode(CanvasNodeType.BatchTable, { x: 0, y: 0 }, { batchTable: table });
+        const nodes = [source, input, first, second];
+        const byId = new Map(nodes.map((node) => [node.id, node]));
+
+        expect(batchRowOutputNodeIds(row)).toEqual([first.id, second.id]);
+        expect(batchRowOutputNodes(row, byId)).toEqual([first, second]);
+        expect(batchRowHasResult(row, byId)).toBe(true);
+        expect(batchGenerationRows(source, nodes)).toEqual([]);
+        expect(batchGenerationRows(source, nodes, [row.id])).toEqual([row]);
+
+        // 任何一张结果正在生成时，整行都不再重复提交。
+        source.metadata!.generationBatches = [{ id: "batch", projectId: "project", sourceNodeId: source.id, mode: "batch_image", status: "running", createdAt: "", updatedAt: "", items: [{ id: "item", rowId: row.id, nodeId: second.id, retryCount: 0, status: "running" }] }];
+        expect(batchGenerationRows(source, nodes, [row.id])).toEqual([]);
+    });
+
+    test("legacy rows that only store one result keep resolving their output node", () => {
+        const output = createCanvasNode(CanvasNodeType.Image, { x: 0, y: 0 }, { storageKey: "out" });
+        const row = { id: "row", enabled: true, inputNodeIds: ["in"], prompt: "x", outputNodeId: output.id };
+        const byId = new Map([[output.id, output]]);
+
+        expect(batchRowOutputNodeIds(row)).toEqual([output.id]);
+        expect(batchRowOutputNodes(row, byId)).toEqual([output]);
+        expect(batchRowHasResult(row, byId)).toBe(true);
+        expect(batchRowHasResult({ ...row, outputNodeId: undefined }, byId)).toBe(false);
     });
 
     test("new canvas node has durable batch defaults", () => {
@@ -202,7 +237,7 @@ describe("batch creation table", () => {
                 { id: "reference-2", label: "参考图 2" },
             ],
             rows: [
-                { id: "row-1", enabled: true, inputNodeIds: ["a", "old-1"], prompt: "one", outputNodeId: "old-output" },
+                { id: "row-1", enabled: true, inputNodeIds: ["a", "old-1"], prompt: "one", outputNodeId: "old-output", outputNodeIds: ["old-output", "old-output-2"] },
                 { id: "row-2", enabled: true, inputNodeIds: ["b", "old-2"], prompt: "two" },
                 { id: "row-3", enabled: true, inputNodeIds: ["c", "old-3"], prompt: "three" },
             ],
@@ -217,6 +252,7 @@ describe("batch creation table", () => {
             ["c", "source-2"],
         ]);
         expect(next.rows[0].outputNodeId).toBeUndefined();
+        expect(next.rows[0].outputNodeIds).toBeUndefined();
     });
 
     test("bulk fill supports cycling and filling empty slots only", () => {

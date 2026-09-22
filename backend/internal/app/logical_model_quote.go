@@ -39,6 +39,12 @@ func (s *Service) QuoteChannelModel(req ChannelModelQuoteRequest) (*LogicalModel
 	if err != nil {
 		return nil, err
 	}
+	// 账号池是内置渠道：没有渠道模型行与价格档，报价与 taskBillingOrder 同一口径——不产生积分订单。
+	// 准入校验已在上面跑完（未登记模型 / 能力不匹配 / 跨池模型键仍会报错），这里只是不再发一次
+	// 注定失败的业务查询；创作端改用目录里的 priceLabel（账号池 · 不扣费）展示。
+	if IsAccountPoolChannel(req.ChannelID) {
+		return nil, nil
+	}
 	config = input["config"].(map[string]any)
 	estimate := estimateTaskBillingTokens(input, req.Intent.Capability)
 	intent := ModelRequestIntentFromTaskInput(input, "canvas_"+req.Intent.Capability, req.Intent.Operation)

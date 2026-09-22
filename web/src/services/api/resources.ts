@@ -1,3 +1,4 @@
+import { createClientId } from "@/lib/client-id";
 import { getActiveUserScope } from "@/lib/user-scope";
 import { http, apiBaseURL, ApiError } from "@/services/api/request";
 import type { OSSConnectionTestInput, OSSConnectionTestResult, OSSProvider, S3Preset } from "@/lib/oss-settings";
@@ -140,38 +141,83 @@ export function isResourceUrl(url?: string) {
 const CHUNK_UPLOAD_THRESHOLD = 50 << 20;
 const CHUNK_UPLOAD_RETRIES = 2;
 
+/**
+ * 直传重试策略。只覆盖传输层瞬时故障（5xx 网关错误、408/425/429、断网）。
+ * 重试必须复用同一幂等键：请求超时或网关 520 时源站可能已经写完了，
+ * 换一个键重试就会在对象存储里留下第二个副本。
+ */
+export type ResourceUploadRetryPolicy = {
+    maxAttempts?: number;
+    baseDelayMs?: number;
+    wait?: (delayMs: number) => Promise<void>;
+};
+
+const DEFAULT_UPLOAD_MAX_ATTEMPTS = 3;
+const DEFAULT_UPLOAD_RETRY_BASE_DELAY_MS = 400;
+const MAX_UPLOAD_RETRY_DELAY_MS = 8_000;
+
+function waitForUploadRetry(delayMs: number) {
+    return new Promise<void>((resolve) => {
+        globalThis.setTimeout(resolve, delayMs);
+    });
+}
+
 export async function uploadResourceFile(
     file: Blob,
     kind: "image" | "video" | "audio" | "file",
     meta?: ResourceUploadMeta,
     onProgress?: (uploadedBytes: number, totalBytes: number) => void,
+    options?: { retry?: ResourceUploadRetryPolicy },
 ): Promise<RemoteResource> {
     const name = meta?.fileName || (file instanceof File ? file.name : `${kind}.${extensionFromMime(file.type, kind)}`);
-    // 分片与 multipart 两条路径的失败都要归一成 ResourceUploadError，
-    // 否则调用方只能靠文案猜测该重试还是该报错。
-    try {
-        if (file.size > CHUNK_UPLOAD_THRESHOLD) {
-            const resource = await uploadFileInChunks(file, name, kind, meta, onProgress);
-            resourceCache.set(resourceCacheKey(resource.id), resource);
-            return resource;
+    // 调用方没给幂等键时在这里补一个：整条重试链必须命中同一资源行，
+    // 否则「响应丢失后重试」会变成在对象存储里创建第二个对象。
+    // 后端会把它 SHA-256 摘要后落库（唯一索引是 (user_id, upload_key)），所以无需再拼用户 scope。
+    const idempotencyKey = meta?.idempotencyKey?.trim() || `upload:${createClientId()}`;
+    const attemptMeta: ResourceUploadMeta = { ...meta, idempotencyKey };
+    const policy = options?.retry;
+    const maxAttempts = Math.max(1, policy?.maxAttempts ?? DEFAULT_UPLOAD_MAX_ATTEMPTS);
+    const wait = policy?.wait ?? waitForUploadRetry;
+    for (let attempt = 0; ; attempt += 1) {
+        try {
+            return await uploadResourceFileOnce(file, name, kind, attemptMeta, onProgress);
+        } catch (error) {
+            // 分片与 multipart 两条路径的失败都要归一成 ResourceUploadError，
+            // 否则调用方只能靠文案猜测该重试还是该报错。
+            const normalized = normalizeUploadError(error);
+            if (normalized.permanent || attempt >= maxAttempts - 1) throw normalized;
+            const delayMs = Math.min(MAX_UPLOAD_RETRY_DELAY_MS, (policy?.baseDelayMs ?? DEFAULT_UPLOAD_RETRY_BASE_DELAY_MS) * 2 ** attempt);
+            await wait(delayMs);
         }
-        const formData = new FormData();
-        formData.append("kind", kind);
-        formData.append("file", file, name);
-        if (meta?.width) formData.append("width", String(Math.round(meta.width)));
-        if (meta?.height) formData.append("height", String(Math.round(meta.height)));
-        if (meta?.durationMs) formData.append("durationMs", String(Math.round(meta.durationMs)));
-        const data = await http.post<{ resource: RemoteResource }>("/resources", formData, {
-            ...uploadRequestConfig(meta?.idempotencyKey),
-            onUploadProgress: onProgress ? ({ loaded, total }) => {
-                if (total && total > 0) onProgress(Math.min(file.size, file.size * loaded / total), file.size);
-            } : undefined,
-        });
-        resourceCache.set(resourceCacheKey(data.resource.id), data.resource);
-        return data.resource;
-    } catch (error) {
-        throw normalizeUploadError(error);
     }
+}
+
+async function uploadResourceFileOnce(
+    file: Blob,
+    name: string,
+    kind: "image" | "video" | "audio" | "file",
+    meta: ResourceUploadMeta,
+    onProgress?: (uploadedBytes: number, totalBytes: number) => void,
+) {
+    if (file.size > CHUNK_UPLOAD_THRESHOLD) {
+        const resource = await uploadFileInChunks(file, name, kind, meta, onProgress);
+        resourceCache.set(resourceCacheKey(resource.id), resource);
+        return resource;
+    }
+    const formData = new FormData();
+    formData.append("kind", kind);
+    formData.append("file", file, name);
+    if (meta.width) formData.append("width", String(Math.round(meta.width)));
+    if (meta.height) formData.append("height", String(Math.round(meta.height)));
+    if (meta.durationMs) formData.append("durationMs", String(Math.round(meta.durationMs)));
+    const data = await http.post<{ resource: RemoteResource }>("/resources", formData, {
+        ...uploadRequestConfig(meta.idempotencyKey),
+        onUploadProgress: onProgress ? ({ loaded, total }) => {
+            if (total && total > 0) onProgress(Math.min(file.size, file.size * loaded / total), file.size);
+        } : undefined,
+    });
+    resourceCache.set(resourceCacheKey(data.resource.id), data.resource);
+    return data.resource;
 }
 
 // 分片上传：POST 开始会话 → 逐片 PUT 原始二进制（每片 8MB）→ POST 合并落库。
@@ -182,10 +228,12 @@ async function uploadFileInChunks(file: Blob, name: string, kind: "image" | "vid
         try {
             return await runChunkedUpload(file, name, kind, meta, onProgress);
         } catch (error) {
-            if (attempt === CHUNK_UPLOAD_RETRIES - 1) throw error;
+            // 会话重开只对瞬时失败有意义；永久失败（鉴权、越权、超限）再重开也是同样结果。
+            const normalized = normalizeUploadError(error);
+            if (normalized.permanent || attempt === CHUNK_UPLOAD_RETRIES - 1) throw normalized;
         }
     }
-    throw new Error("上传失败");
+    throw new ResourceUploadError("上传失败", { permanent: false });
 }
 
 async function runChunkedUpload(file: Blob, name: string, kind: "image" | "video" | "audio" | "file", meta: ResourceUploadMeta | undefined, onProgress?: (uploadedBytes: number, totalBytes: number) => void) {
@@ -218,6 +266,11 @@ function normalizeUploadError(error: unknown): ResourceUploadError {
     if (error instanceof ApiError) {
         const status = error.status;
         const permanent = status !== undefined && !error.retryable;
+        // 幂等键命中「同一素材正在上传」时后端返回 409：这是并发重试而不是终态失败，
+        // 稍后用同一幂等键重试就能拿到已就绪的资源。旧后端不带 retryable 字段时靠文案兜底。
+        if (status === 409 && /正在上传/.test(error.message)) {
+            return new ResourceUploadError(error.message || "相同素材正在上传，请稍后重试", { status, permanent: false, cause: error });
+        }
         // 即使误超 50MB multipart 上限（后端 http.MaxBytesError），也给出可读中文而非英文裸错。
         if (status === 400 && /body too large|MaxBytes/i.test(error.message)) {
             return new ResourceUploadError("文件过大，请使用小于 50MB 的文件或稍后重试", { status, permanent: true, cause: error });

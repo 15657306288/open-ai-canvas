@@ -89,7 +89,18 @@ func TestCreditCostSnapshotPersistsWithoutChangingSalesOrPublicResponses(t *test
 		t.Fatal(err)
 	}
 	catalog, err = svc.ModelCatalog(nil)
-	if err != nil || catalog.Source != ModelCatalogSourceSystem || len(catalog.Channels) != 1 {
+	if err != nil || catalog.Source != ModelCatalogSourceSystem {
+		t.Fatalf("catalog depends on logical models: %#v %v", catalog, err)
+	}
+	// 账号池渠道由目录合成、不查逻辑模型表；这里只核对落库的系统渠道数量不受影响。
+	persisted := 0
+	for _, channel := range catalog.Channels {
+		if IsAccountPoolChannel(channel.ID) {
+			continue
+		}
+		persisted++
+	}
+	if persisted != 1 {
 		t.Fatalf("catalog depends on logical models: %#v %v", catalog, err)
 	}
 }

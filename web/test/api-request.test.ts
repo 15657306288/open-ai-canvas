@@ -43,6 +43,31 @@ describe("backend API request error semantics", () => {
         expect(thrown).toMatchObject({ status: 502, message: "后端服务暂时不可用，请稍后重试", retryable: true });
     });
 
+    test("translates a Cloudflare 520 gateway error instead of leaking the English axios text", async () => {
+        const axiosError = {
+            isAxiosError: true,
+            message: "Request failed with status code 520",
+            response: { status: 520, data: "", headers: {} },
+        };
+        const thrown = await request(Promise.reject(axiosError)).catch((error) => error);
+
+        expect(thrown).toBeInstanceOf(ApiError);
+        expect(thrown).toMatchObject({ status: 520, retryable: true });
+        expect(thrown.message).toContain("云端网关");
+        expect(thrown.message).not.toContain("Request failed with status code");
+    });
+
+    test("backend-declared retryable overrides the status inference", async () => {
+        // 上传幂等键命中「同一素材正在上传」：409 本身不可重试，但后端显式声明 retryable。
+        const thrown = await request(Promise.resolve({
+            data: { code: 409, data: null, msg: "相同素材正在上传，请稍后重试", retryable: true },
+            status: 409,
+        })).catch((error) => error);
+
+        expect(thrown).toBeInstanceOf(ApiError);
+        expect(thrown).toMatchObject({ status: 409, code: 409, retryable: true, message: "相同素材正在上传，请稍后重试" });
+    });
+
     test("http.get unwraps the same backend envelope", async () => {
         const original = apiClient.request;
         apiClient.request = (async () => ({

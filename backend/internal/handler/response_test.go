@@ -18,6 +18,8 @@ type failureEnvelope struct {
 	Code   int    `json:"code"`
 	Msg    string `json:"msg"`
 	Reason string `json:"reason"`
+	// Retryable 只在后端显式声明可重试时出现；缺省为 false，旧客户端不受影响。
+	Retryable bool `json:"retryable"`
 }
 
 func TestFailServiceRegistrationCooldown(t *testing.T) {
@@ -62,6 +64,24 @@ func TestFailServiceQuotaExceeded(t *testing.T) {
 	response := decodeFailureEnvelope(t, recorder)
 	if recorder.Code != http.StatusForbidden || response.Code != service.CodeQuotaExceeded || response.Reason != string(service.ReasonQuotaExceeded) {
 		t.Fatalf("quota response = status %d, body %#v", recorder.Code, response)
+	}
+	if response.Retryable || strings.Contains(recorder.Body.String(), "retryable") {
+		t.Fatalf("permanent failure must not advertise retryable: %s", recorder.Body.String())
+	}
+}
+
+// 上传幂等键命中「同一素材正在上传」时后端返回 409 + Retryable，
+// 前端要靠这个机器可读字段判断是并发重试而不是终态失败。
+func TestFailServicePublishesRetryableAppError(t *testing.T) {
+	recorder, context := responseTestContext()
+	err := service.NewAppError(http.StatusConflict, "相同素材正在上传，请稍后重试")
+	err.Retryable = true
+
+	failService(context, err)
+
+	response := decodeFailureEnvelope(t, recorder)
+	if recorder.Code != http.StatusConflict || response.Msg != err.Message || !response.Retryable {
+		t.Fatalf("retryable response contract lost: status %d body %#v", recorder.Code, response)
 	}
 }
 
