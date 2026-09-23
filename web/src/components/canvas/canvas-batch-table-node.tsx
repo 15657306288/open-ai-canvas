@@ -19,6 +19,7 @@ import {
     batchReferenceMentionToken,
     batchRowHasResult,
     batchRowOutputNodes,
+    batchRowOutputNodeIds,
     batchTextColumns,
     batchTextHandleId,
     batchTextHandleTop,
@@ -95,10 +96,26 @@ export function CanvasBatchTableNodeContent({ node, nodes, connections, batch, t
     const canvasImageIds = useMemo(() => canvasImageNodes.map((item) => item.id), [canvasImageNodes]);
     const activeRowIds = useMemo(() => new Set((batch?.items || []).filter((item) => ["waiting", "submitting", "queued", "running"].includes(item.status)).map((item) => item.rowId)), [batch?.items]);
     const completed = table.rows.filter((row) => batchRowHasResult(row, nodeById)).length;
-    // 右上角按钮按“所有就绪行”判断，只要还有可提交的行就不禁用；没有未完成行时转为“重新生成”。
-    const readyRowCount = table.rows.filter((row) => rowReady(row, table, nodeById) && !activeRowIds.has(row.id)).length;
+    // 右上角按钮按“所有就绪行”判断，只要还有可提交的行就不禁用。
+    // 只要就绪行都已经跑过一次（画布上留有结果节点），就切换成“再生成一次”，
+    // 不再要求它们必须有成功结果——否则生成失败时会一直停在“生成未完成项”，无法重试。
+    const readyRowIds = useMemo(() => table.rows.filter((row) => rowReady(row, table, nodeById) && !activeRowIds.has(row.id)).map((row) => row.id), [activeRowIds, nodeById, table]);
+    const readyRowCount = readyRowIds.length;
     const unfinishedReadyCount = table.rows.filter((row) => rowReady(row, table, nodeById) && !activeRowIds.has(row.id) && !batchRowHasResult(row, nodeById)).length;
-    const regenerateAll = readyRowCount > 0 && unfinishedReadyCount === 0;
+    // 跑过一次的行：行记录里还指向结果节点，或者画布上还残留着这行的历史产出（例如换了参考图后旧结果被作废）。
+    const attemptedRowIds = useMemo(() => {
+        const ids = new Set<string>();
+        nodes.forEach((item) => {
+            const metadata = item.metadata;
+            if (metadata?.batchSourceNodeId === node.id && metadata.batchRowId) ids.add(metadata.batchRowId);
+        });
+        return ids;
+    }, [node.id, nodes]);
+    const freshReadyCount = readyRowIds.filter((rowId) => {
+        const row = table.rows.find((item) => item.id === rowId);
+        return !row || (batchRowOutputNodeIds(row).length === 0 && !attemptedRowIds.has(rowId));
+    }).length;
+    const regenerateAll = readyRowCount > 0 && freshReadyCount === 0;
     const gridTemplateColumns = `88px repeat(${referenceColumns.length}, 88px) ${textColumns.length ? `repeat(${textColumns.length}, minmax(168px, 0.75fr)) ` : ""}minmax(280px, 1fr) 88px 80px`;
     const subtleSurface = `color-mix(in srgb, ${theme.node.text} 4%, transparent)`;
     const inputSurface = theme.node.panel;
@@ -421,9 +438,9 @@ export function CanvasBatchTableNodeContent({ node, nodes, connections, batch, t
                             </Tooltip>
                             <Button size="small" type="text" icon={<Plus className="size-3.5" />} onClick={onAddRow}>添加任务</Button>
                             {table.contentKind === "storyboard" && onCreateStoryboard ? <Button size="small" icon={<Film className="size-3.5" />} onClick={onCreateStoryboard}>创建视频脚本</Button> : null}
-                            <Tooltip title={regenerateAll ? "所有就绪行都已有结果，将按当前设置重新生成" : "只提交还没有结果的任务"}>
-                                <Button size="small" type={regenerateAll ? "default" : "primary"} icon={<Play className="size-3.5" />} disabled={!readyRowCount} onClick={() => onGenerate()}>
-                                    {regenerateAll ? `重新生成 · ${readyRowCount}` : `生成未完成项${unfinishedReadyCount ? ` · ${unfinishedReadyCount}` : ""}`}
+                            <Tooltip title={regenerateAll ? "就绪任务都已跑过一次，将按当前设置整组再生成一次" : "只提交还没有生成过的任务"}>
+                                <Button size="small" type={regenerateAll ? "default" : "primary"} icon={<Play className="size-3.5" />} disabled={!readyRowCount} onClick={() => onGenerate(regenerateAll ? readyRowIds : undefined)}>
+                                    {regenerateAll ? `再生成一次 · ${readyRowCount}` : `生成未完成项${unfinishedReadyCount ? ` · ${unfinishedReadyCount}` : ""}`}
                                 </Button>
                             </Tooltip>
                         </div>
