@@ -268,6 +268,8 @@ git status --short
 ### 云端同步流程（源码构建部署）
 
 - 状态：2026-09-22 已在真实服务器完成一次增量同步（158 个文件、镜像重建、数据库迁移、容器重启、`/api/health` 与 schema 38 核对、同步包自清理全部通过）；流程本身仍用干跑（假 docker/curl）在本地先验证覆盖、迁移等待、健康检查与自清理。
+- 状态（增量）：2026-09-23 又完成一次单文件增量同步（`web/src/components/canvas/canvas-batch-table-node.tsx`），只重建 web 镜像，未重编后端；迁移容器 `exit=0`、`/api/health` `ready=true`、schema 38/38、同步脚本自删除、部署目录无新增备份包。前端产物核对：新文案「再生成一次」已进 `assets`，旧文案「重新生成 · 」已不可命中。
+- 只改了前端源码时，把第 2 步的构建目标缩到 `web`：这台机器内存只有 4GB 且同时在跑别的项目，顺带重编 Go 后端既拖时间也容易在内存压力下被杀。后端 / 迁移有改动时才把 `backend` 加回来。
 
 - 云端用源码构建：部署目录里是仓库源码 + `.env` + `docker-compose.server.yml` + `docker-compose.build.yml`，镜像标签固定为 `open-ai-canvas-backend:server` / `open-ai-canvas-web:server`（同备份目录 `configs/` 的记录一致）。
 - 已验证的更新路线：
@@ -277,6 +279,7 @@ git status --short
   4. `curl -fsS http://127.0.0.1:3000/api/health` 要求 `ready=true`，并核对 `schema.current == schema.expected`。
 - 必须保留的设置：postgres 的 `security_opt: seccomp:unconfined`、web 的 `127.0.0.1:3000:3000` 端口映射（Cloudflare 隧道入口）；不要把新环境直接覆盖到这两项。
 - 磁盘约束：远端磁盘紧张，同步包解包后立即删除，不保留备份压缩包和临时目录；只允许清理悬空镜像层（`docker image prune -f`）与构建缓存（`docker builder prune -f --keep-storage 3GB`），不碰其他项目的数据卷。2026-09-22 实测同步会把构建缓存推到 ~8.9GB，收尾时用 `--keep-storage 3GB` 回收到 ~7.3GB、磁盘使用 27G→25G（可用 23G）。
+- 收尾回收的实测口径（2026-09-23）：`docker builder prune -f --keep-storage 3GB` 会提示 `Flag --keep-storage has been deprecated ... changed to reserved-space`，仍能执行；如果 `docker system df` 里的 Build Cache 可回收量接近 0B，说明那些层已被现有镜像共享，不是漏清。这次单文件同步后磁盘 25G→28G 使用、可用 20G，悬空镜像层与构建缓存均回收到 0B，属于正常值，不要为了压低数字去动其他项目的卷或镜像。
 - 部署后核验：除了 `docker ps` 与 `/api/health`，还要用 `docker exec open-ai-canvas-web sh -c "grep -rl '<本次改动的前端类名或字符串>' /usr/share/nginx/html/assets | head -3"` 确认当次改动确实进了线上产物；容器健康只能证明服务在跑，不能证明代码是新的。
 - 本记录只写通用流程，不记服务器地址、账号、密钥；一次真实同步的结果（健康检查输出、验收范围、未验证项）写在当次交付说明里。
 
@@ -312,6 +315,13 @@ git status --short
 - 文档/配置同步：`backend/internal/app/official_model_catalog.json`、启动同步入口、前后端能力推断和回归测试；生产仍需部署后检查 `/api/model-catalog`、价格档与真实生成链路。
 
 ### 故障记录
+
+#### RB-20260923-15 `pgrep -f` 自匹配导致同步进程误判（2026-09-23）
+
+- 现象：部署前的“有没有上一份同步在跑”预检返回 `RUNNING`，但 `ps -eo pid,etime,cmd` 里既没有同步脚本，也没有任何 docker/compose/go/vite 子进程。
+- 真实原因：通过 SSH 一行式执行 `pgrep -f 'yingce-cloud-sync.sh'` 时，远端 shell 自己的命令行里就带着这个字符串，`pgrep -f` 匹配全命令行，于是匹配到了检查命令自己，永远返回 `RUNNING`。这不是脚本在跑，也不是上次没退干净。
+- 正确确认方式：把模式写成不会匹配自身的正则，例如 `pgrep -f 'yingce-cloud-sync[.]sh' >/dev/null && echo RUNNING || echo stopped`；字符类 `[.]` 仍然匹配真正的脚本进程命令行，但检查命令自己那行含有 `[`，不再被当成命中。需要进一步确证时用 `ps -eo pid,etime,cmd | grep -F 'yingce-cloud-sync' | grep -v grep`。
+- 需要避免的操作：不要因为预检报 `RUNNING` 就直接重开同步，也不要为了“清干净”去杀进程；先用 `ps` 列表确认，再决定是等待还是重跑。
 
 #### RB-20260922-14 同步脚本“疑似被杀”与 GitHub 式误判（2026-09-22）
 
