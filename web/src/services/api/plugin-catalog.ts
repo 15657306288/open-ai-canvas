@@ -1,4 +1,4 @@
-import { apiClient, request } from "@/services/api/request";
+import { http } from "@/services/api/request";
 import type { ModelProtocolDefinition, ProtocolCapability } from "@/lib/model-protocols";
 
 type PluginProviderCatalogItem = {
@@ -25,7 +25,7 @@ type PluginProviderCatalogItem = {
 };
 
 export async function fetchPluginProviderCatalog(scope: string, capability?: ProtocolCapability) {
-    const result = await request<{ providers: PluginProviderCatalogItem[] }>(apiClient.get("/plugins/catalog", { params: { scope, capability } }));
+    const result = await http.get<{ providers: PluginProviderCatalogItem[] }>("/plugins/catalog", { params: { scope, capability } });
     return result.providers.filter((item) => item.enabled && !item.unavailableReason).map(toProviderDefinition);
 }
 

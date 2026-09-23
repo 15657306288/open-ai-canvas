@@ -1,10 +1,24 @@
 import { expect, test } from "bun:test";
 
-import { defaultConfig } from "../src/stores/use-config-store";
+import { createModelChannel, defaultConfig, encodeChannelModel } from "../src/stores/use-config-store";
 import { submitBackendGenerationTask, type GenerationTaskDependencies } from "../src/services/api/generation-task";
 import type { GenerationTask } from "../src/services/api/task-center";
 import type { ProjectDetail } from "../src/services/api/projects";
 import { buildShotAssetReferenceContext, resolveShotAssetMentionPrompt } from "../src/pages/projects/detail/workflow-shot-references";
+
+function videoTaskConfig() {
+    const channel = createModelChannel({
+        id: "minimax",
+        name: "MiniMax",
+        baseUrl: "https://api.minimaxi.com",
+        apiKey: "test-key",
+        interfaceType: "minimax-video",
+        models: ["MiniMax-H3"],
+        modelCosts: [{ model: "MiniMax-H3", capability: "video", protocol: "minimax-video", billingMode: "fixed_request", unitPriceMicrocredits: 1 }],
+    });
+    const model = encodeChannelModel(channel.id, "MiniMax-H3");
+    return { ...defaultConfig, channels: [channel], model, videoModel: model };
+}
 
 test("production workbench does not silently drop bound voice samples before backend validation", async () => {
     const source = await Bun.file(new URL("../src/pages/projects/detail/workflow-production-workbench.tsx", import.meta.url)).text();
@@ -95,7 +109,7 @@ test("shot generation submits historical character image, current voice and asse
         projectId: "project-1",
         mode: "video",
         prompt,
-        config: { ...defaultConfig, model: "MiniMax-H3", videoModel: "MiniMax-H3" },
+        config: videoTaskConfig(),
         referenceImages: context.referenceImages,
         referenceAudios: context.referenceAudios,
         metadata: { shotId: "shot-1", videoEditOperation: "reference_to_video" },
@@ -138,7 +152,7 @@ test("background generation submission returns after task creation without waiti
         projectId: "project-1",
         mode: "video",
         prompt: "角色表演",
-        config: { ...defaultConfig, model: "MiniMax-H3", videoModel: "MiniMax-H3" },
+        config: videoTaskConfig(),
         metadata: { shotId: "shot-1", videoEditOperation: "reference_to_video" },
     }, dependencies);
 

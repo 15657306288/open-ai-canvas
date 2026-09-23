@@ -1,4 +1,8 @@
-import { Input, InputNumber, Segmented, Select, Switch } from "antd";
+import { ImageSizePresetsEditor } from "./image-size-presets-editor";
+import { imageSizeConfigWithPresets, imageSizePresets } from "@/lib/image-size-presets";
+import { Input, InputNumber, Select } from "antd";
+import { Switch } from "@/components/ui/base/switch";
+import { SegmentedControl } from "@/components/ui/base/segmented-control";
 import type { ReactNode } from "react";
 
 import { defaultImageCapabilityConfig, defaultModelCapabilityConfig, normalizeModelCapabilityConfig, type ImageCapabilityConfig, type ModelCapabilityConfig, type TextCapabilityConfig, type VideoCapabilityConfig } from "@/lib/model-capabilities";
@@ -18,20 +22,8 @@ const operationOptions = [
     { label: "音频生视频", value: "audio_to_video" },
 ];
 
-function formatImageSizeTagLabel(size: string): string {
-    const raw = size.trim();
-    if (raw === "1:1") return "1:1 (方图)";
-    if (raw === "16:9") return "16:9 (横屏)";
-    if (raw === "9:16") return "9:16 (竖屏)";
-    if (raw === "1024x1024") return "1024x1024 (1:1)";
-    if (raw === "2048x2048") return "2048x2048 (2K 方)";
-    if (raw === "3840x2160") return "3840x2160 (4K 横屏)";
-    if (raw === "2160x3840") return "2160x3840 (4K 竖屏)";
-    return raw;
-}
-
-function imageSizeOptions(values: string[]) {
-    return values.map((v) => ({ label: formatImageSizeTagLabel(v), value: v }));
+function ImageSizeHelp() {
+    return <p className="text-[var(--fs-label)] leading-relaxed text-foreground/60">按分辨率配置支持的比例，尺寸自动换算。size 发送像素，aspect_ratio 发送比例；独立分辨率由模型协议适配。实际输出尺寸以上游为准。</p>;
 }
 
 type Props = {
@@ -122,7 +114,7 @@ export function ModelCapabilityEditor({ value, onChange, protocol, capability = 
                         </Field>
                     </ProtocolParameterCard>
                     <ProtocolParameterCard step="02" title="输出时长" description="定义可用秒数及默认时长">
-                        <Segmented
+                        <SegmentedControl
                             block
                             disabled={disabled}
                             value={profile.duration.selection}
@@ -234,7 +226,7 @@ export function ModelCapabilityEditor({ value, onChange, protocol, capability = 
                     </div>
                 </CapabilityBlock>
                 <CapabilityBlock title="输出时长">
-                    <Segmented
+                    <SegmentedControl
                         block
                         disabled={disabled}
                         value={profile.duration.selection}
@@ -358,14 +350,36 @@ export function ModelCapabilityEditor({ value, onChange, protocol, capability = 
 }
 
 function TextCapabilityEditor({ value, onChange, protocol, disabled, section }: Pick<Props, "value" | "onChange" | "protocol" | "disabled" | "section">) {
-    const profile = value?.text || defaultModelCapabilityConfig(protocol).text!;
+    const profile = normalizeModelCapabilityConfig(value || defaultModelCapabilityConfig(protocol)).text!;
+    const update = (patch: Partial<TextCapabilityConfig>) => {
+        onChange?.({ version: 1, text: { ...profile, ...patch } });
+    };
     const updateReferences = (patch: Partial<TextCapabilityConfig["references"]>) => {
-        onChange?.({ version: 1, text: { references: { ...profile.references, ...patch } } });
+        update({ references: { ...profile.references, ...patch } });
     };
 
+    if (section === "protocol") {
+        return (
+            <div className="admin-capability-editor space-y-3 rounded-md bg-muted/20 p-3">
+                <CapabilityGroup title="输出方式" description="控制向上游文本模型请求的响应方式。">
+                    <ParameterField label="SSE 流式输出" description="启用后发送 stream=true，并实时推送文本增量；关闭时等待完整 JSON 响应。" supported={profile.streaming !== false} disabled={Boolean(disabled)} onChange={(streaming) => update({ streaming })} />
+                </CapabilityGroup>
+            </div>
+        );
+    }
+
     if (section === "references") {
+        const contextWindowFields = (
+            <CapabilityGroup title="上下文能力" description="这是上游文本模型的能力合同，决定 Agent 本轮可保留的输入预算；不会改变运行时 checkpoint 的持久化上限。">
+                <div className="grid gap-3 sm:grid-cols-2">
+                    <NumberField label="上下文窗口 Token" value={profile.contextWindowTokens} min={4_096} max={10_000_000} disabled={Boolean(disabled)} onChange={(next) => update({ contextWindowTokens: next || 4_096 })} />
+                    <NumberField label="最大输出 Token" value={profile.maxOutputTokens} min={256} max={1_000_000} disabled={Boolean(disabled)} onChange={(next) => update({ maxOutputTokens: next || 256 })} />
+                </div>
+            </CapabilityGroup>
+        );
         return (
             <div className="admin-capability-reference-editor">
+                {contextWindowFields}
                 <div className="admin-capability-reference-grid is-three">
                     <ReferenceCard title="图片引用" description="文本模型可接收的图片范围">
                         <NumberField label="最大参考图片数" value={profile.references.maxImages} min={0} max={100} disabled={Boolean(disabled)} onChange={(next) => updateReferences({ maxImages: next || 0 })} />
@@ -389,6 +403,12 @@ function TextCapabilityEditor({ value, onChange, protocol, disabled, section }: 
                 <div className="text-sm font-medium">文本理解能力</div>
                 <div className="mt-0.5 text-[var(--fs-tiny)] text-foreground/48">默认不假设支持图片或视频，只有明确配置后相关请求才会进入该模型。</div>
             </div>
+            <CapabilityGroup title="上下文能力" description="这是上游文本模型的能力合同，决定 Agent 本轮可保留的输入预算；不会改变运行时 checkpoint 的持久化上限。">
+                <div className="grid gap-3 sm:grid-cols-2">
+                    <NumberField label="上下文窗口 Token" value={profile.contextWindowTokens} min={4_096} max={10_000_000} disabled={Boolean(disabled)} onChange={(next) => update({ contextWindowTokens: next || 4_096 })} />
+                    <NumberField label="最大输出 Token" value={profile.maxOutputTokens} min={256} max={1_000_000} disabled={Boolean(disabled)} onChange={(next) => update({ maxOutputTokens: next || 256 })} />
+                </div>
+            </CapabilityGroup>
             <CapabilityGroup title="图片" description="文本模型可接收的图片参考范围">
                 <div className="grid gap-3 sm:grid-cols-2">
                     <NumberField label="最大参考图片数" value={profile.references.maxImages} min={0} max={100} disabled={Boolean(disabled)} onChange={(next) => updateReferences({ maxImages: next || 0 })} />
@@ -434,56 +454,39 @@ function ImageCapabilityEditor({ value, onChange, protocol, model, disabled, sec
 
     if (section === "protocol") {
         return (
-            <div className="admin-capability-protocol-editor">
-                <div className="admin-capability-protocol-grid">
-                    <ProtocolParameterCard step="01" title="输出数量" description="设置单次生成图片数量">
-                        <NumberField label="单次生成张数" value={profile.maxOutputs} min={1} disabled={disabled} onChange={(maxOutputs) => update({ maxOutputs: maxOutputs || 1 })} />
-                    </ProtocolParameterCard>
-                    <ProtocolParameterCard step="02" title="尺寸参数" description="定义尺寸字段、支持值与默认值">
-                        <Segmented
-                            block
-                            disabled={disabled}
-                            value={profile.size.parameter}
-                            options={[
-                                { label: "不发送", value: "none" },
-                                { label: "size", value: "size" },
-                                { label: "aspect_ratio", value: "aspect_ratio" },
-                            ]}
-                            onChange={(value) => {
-                                const parameter = value as ImageCapabilityConfig["size"]["parameter"];
-                                updateSize(
-                                    parameter === "none"
-                                        ? { parameter, values: [], default: "auto", allowCustom: false }
-                                        : { parameter, values: profile.size.values.length ? profile.size.values : ["1:1"], default: profile.size.default === "auto" ? "1:1" : profile.size.default },
-                                );
-                            }}
-                        />
+            <div className="admin-capability-protocol-editor admin-image-protocol-editor">
+                <div className="admin-capability-protocol-grid admin-image-protocol-grid">
+                    <ProtocolParameterCard step="01" title="尺寸参数" description="按分辨率配置可用画幅，直接点选或输入比例" className="admin-image-size-card">
+                        <div className="admin-image-size-intro">
+                            <SegmentedControl
+                                block
+                                disabled={disabled}
+                                value={profile.size.parameter}
+                                options={[
+                                    { label: "不发送", value: "none" },
+                                    { label: "size", value: "size" },
+                                    { label: "aspect_ratio", value: "aspect_ratio" },
+                                ]}
+                                onChange={(value) => {
+                                    const parameter = value as ImageCapabilityConfig["size"]["parameter"];
+                                    updateSize(
+                                        parameter === "none"
+                                            ? { parameter, values: [], presets: undefined, default: "auto", allowCustom: false }
+                                            : imageSizeConfigWithPresets({ ...profile, size: { ...profile.size, parameter } }, imageSizePresets(profile)),
+                                    );
+                                }}
+                            />
+                            <ImageSizeHelp />
+                        </div>
                         {profile.size.parameter !== "none" ? (
                             <>
-                                <Field label="支持值">
-                                    <Select
-                                        mode="tags"
-                                        className="admin-capability-tags w-full"
-                                        disabled={disabled}
-                                        value={profile.size.values}
-                                        options={imageSizeOptions(profile.size.values)}
-                                        tokenSeparators={[","]}
-                                        placeholder="例如 1:1、1024x1024"
-                                        onChange={(values) => updateSize({ values, default: values.includes(profile.size.default) || profile.size.allowCustom ? profile.size.default : values[0] || "auto" })}
-                                    />
-                                </Field>
-                                <Field label="默认值">
-                                    <Select
-                                        className="w-full"
-                                        disabled={disabled}
-                                        value={profile.size.default}
-                                        options={profile.size.values.map((item) => ({ label: item, value: item }))}
-                                        onChange={(defaultValue) => updateSize({ default: defaultValue })}
-                                    />
-                                </Field>
+                                <ImageSizePresetsEditor profile={profile} disabled={disabled} onChange={updateSize} />
                                 <ParameterField label="允许自定义" description="允许支持值之外的尺寸" supported={profile.size.allowCustom} disabled={disabled} onChange={(allowCustom) => updateSize({ allowCustom })} />
                             </>
                         ) : null}
+                    </ProtocolParameterCard>
+                    <ProtocolParameterCard step="02" title="输出数量" description="设置单次生成图片数量">
+                        <NumberField label="单次生成张数" value={profile.maxOutputs} min={1} disabled={disabled} onChange={(maxOutputs) => update({ maxOutputs: maxOutputs || 1 })} />
                     </ProtocolParameterCard>
                     <ProtocolParameterCard step="03" title="可选参数" description="控制质量、背景与响应格式">
                         <ParameterField label="图片质量" description="发送 quality 参数" supported={profile.quality.supported} disabled={disabled} onChange={(supported) => updateQuality({ supported })} />
@@ -543,7 +546,8 @@ function ImageCapabilityEditor({ value, onChange, protocol, model, disabled, sec
                     <NumberField label="单次生成张数" value={profile.maxOutputs} min={1} disabled={disabled} onChange={(maxOutputs) => update({ maxOutputs: maxOutputs || 1 })} />
                 </CapabilityBlock>
                 <CapabilityBlock title="尺寸参数">
-                    <Segmented
+                    <ImageSizeHelp />
+                    <SegmentedControl
                         block
                         disabled={disabled}
                         value={profile.size.parameter}
@@ -555,38 +559,14 @@ function ImageCapabilityEditor({ value, onChange, protocol, model, disabled, sec
                         onChange={(value) => {
                             const parameter = value as ImageCapabilityConfig["size"]["parameter"];
                             updateSize(
-                                parameter === "none"
-                                    ? { parameter, values: [], default: "auto", allowCustom: false }
-                                    : { parameter, values: profile.size.values.length ? profile.size.values : ["1:1"], default: profile.size.default === "auto" ? "1:1" : profile.size.default },
+                                parameter === "none" ? { parameter, values: [], presets: undefined, default: "auto", allowCustom: false } : imageSizeConfigWithPresets({ ...profile, size: { ...profile.size, parameter } }, imageSizePresets(profile)),
                             );
                         }}
                     />
                     {profile.size.parameter !== "none" ? (
                         <>
-                            <Field label="支持值">
-                                <Select
-                                    mode="tags"
-                                    className="admin-capability-tags w-full"
-                                    disabled={disabled}
-                                    value={profile.size.values}
-                                    options={imageSizeOptions(profile.size.values)}
-                                    tokenSeparators={[","]}
-                                    placeholder="例如 1:1、1024x1024"
-                                    onChange={(values) => updateSize({ values, default: values.includes(profile.size.default) || profile.size.allowCustom ? profile.size.default : values[0] || "auto" })}
-                                />
-                            </Field>
-                            <div className="grid gap-3 sm:grid-cols-2">
-                                <Field label="默认值">
-                                    <Select
-                                        className="w-full"
-                                        disabled={disabled}
-                                        value={profile.size.default}
-                                        options={profile.size.values.map((item) => ({ label: item, value: item }))}
-                                        onChange={(defaultValue) => updateSize({ default: defaultValue })}
-                                    />
-                                </Field>
-                                <ParameterField label="允许自定义" description="允许用户输入支持值之外的尺寸" supported={profile.size.allowCustom} disabled={disabled} onChange={(allowCustom) => updateSize({ allowCustom })} />
-                            </div>
+                            <ImageSizePresetsEditor profile={profile} disabled={disabled} onChange={updateSize} />
+                            <ParameterField label="允许自定义" description="允许用户输入支持值之外的尺寸" supported={profile.size.allowCustom} disabled={disabled} onChange={(allowCustom) => updateSize({ allowCustom })} />
                         </>
                     ) : null}
                 </CapabilityBlock>
@@ -665,9 +645,9 @@ function ReferenceCard({ title, description, children }: { title: string; descri
     );
 }
 
-function ProtocolParameterCard({ step, title, description, children }: { step: string; title: string; description: string; children: ReactNode }) {
+function ProtocolParameterCard({ step, title, description, children, className = "" }: { step: string; title: string; description: string; children: ReactNode; className?: string }) {
     return (
-        <section className="admin-capability-protocol-card">
+        <section className={`admin-capability-protocol-card ${className}`}>
             <header className="admin-capability-protocol-card-heading">
                 <span>{step}</span>
                 <div>
@@ -708,11 +688,11 @@ function BooleanField({ label, value, disabled, onChange }: { label: string; val
             <div className="flex shrink-0 items-center gap-3">
                 <label className="grid justify-items-center gap-1 text-[var(--fs-tiny)] text-foreground/45">
                     <span>支持</span>
-                    <Switch aria-label={`${label}支持`} size="small" disabled={disabled} checked={value.supported} onChange={(supported) => onChange({ ...value, supported })} />
+                    <Switch aria-label={`${label}支持`} size="sm" disabled={disabled} checked={value.supported} onChange={(supported) => onChange({ ...value, supported })} />
                 </label>
                 <label className="grid justify-items-center gap-1 text-[var(--fs-tiny)] text-foreground/45">
                     <span>默认</span>
-                    <Switch aria-label={`${label}默认值`} size="small" disabled={disabled || !value.supported} checked={value.default} onChange={(defaultValue) => onChange({ ...value, default: defaultValue })} />
+                    <Switch aria-label={`${label}默认值`} size="sm" disabled={disabled || !value.supported} checked={value.default} onChange={(defaultValue) => onChange({ ...value, default: defaultValue })} />
                 </label>
             </div>
         </div>
@@ -728,7 +708,7 @@ function ParameterField({ label, description, supported, disabled, onChange }: {
             </div>
             <label className="grid shrink-0 justify-items-center gap-1 text-[var(--fs-tiny)] text-foreground/45">
                 <span>支持</span>
-                <Switch aria-label={`${label}支持`} size="small" disabled={disabled} checked={supported} onChange={onChange} />
+                <Switch aria-label={`${label}支持`} size="sm" disabled={disabled} checked={supported} onChange={onChange} />
             </label>
         </div>
     );

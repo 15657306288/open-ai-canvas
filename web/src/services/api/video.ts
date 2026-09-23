@@ -9,6 +9,7 @@ import type { RequestOptions, VideoGenerationResult, VideoGenerationTask, VideoG
 import { videoResponseTools } from "./video-response";
 import type { VideoProviderDeps } from "./video-provider-deps";
 import { createAgnesVideoTask, isAgnesConfig, pollAgnesVideoTask } from "./video-provider-agnes";
+import { createDoubaoVideoTask, pollDoubaoVideoTask } from "./video-provider-doubao";
 import { createGeminiVeoTask, pollGeminiVeoTask } from "./video-provider-gemini";
 import { createMiniMaxVideoTask, pollMiniMaxVideoTask } from "./video-provider-minimax";
 import { createVideoGenerationsTask, pollVideoGenerationsTask } from "./video-provider-newapi";
@@ -21,7 +22,8 @@ export type { VideoGenerationResult, VideoGenerationTask, VideoGenerationTaskSta
 
 export async function requestVideoGeneration(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationResult> {
     const task = await createVideoGenerationTask(config, prompt, references, videoReferences, audioReferences, options);
-    const delayMs = task.provider === "agnes" ? 1500 : task.provider === "openai" ? 2500 : 5000;
+    // 账号池视频由后端同步等待上游出片（分钟级），轮询间隔放宽，避免客户端先于后端超时。
+    const delayMs = task.provider === "agnes" ? 1500 : task.provider === "openai" ? 2500 : task.provider === "doubao-pool" ? 10000 : 5000;
     for (let attempt = 0; attempt < 120; attempt += 1) {
         if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
         const state = await pollVideoGenerationTask(config, task, options);
@@ -38,6 +40,8 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
     const requestConfig = resolveModelRequestConfig(config, selectedModel);
     assertVideoConfig(requestConfig, requestConfig.model);
     assertVideoCapability(modelCapabilityConfigFor(config, selectedModel).video!, references, videoReferences, audioReferences, config.videoSeconds);
+    // 账号池视频走渠道专用 provider（后端 /api/doubao-accounts/generate/video），不能落到 OpenAI 视频协议。
+    if (requestConfig.interfaceType === "doubao-pool") return createDoubaoVideoTask(requestConfig, prompt, config.videoSeconds);
     const deps: VideoProviderDeps = { transport: createVideoTransport(requestConfig), response: videoResponseTools };
     if (requestConfig.interfaceType === "newapi-channel-2") return createVideoGenerationsTask(deps, requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
     if (requestConfig.interfaceType === "gemini-veo") return createGeminiVeoTask(deps, requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
@@ -58,6 +62,7 @@ export async function pollVideoGenerationTask(config: AiConfig, task: VideoGener
     if (task.provider === "novita") return pollNovitaVideoTask(deps, requestConfig, task, options);
     if (task.provider === "minimax") return pollMiniMaxVideoTask(deps, requestConfig, task, options);
     if (task.provider === "agnes") return pollAgnesVideoTask(deps, requestConfig, task, options);
+    if (task.provider === "doubao-pool") return pollDoubaoVideoTask(task);
     if (task.provider === "seedance") return pollSeedanceTask(deps, requestConfig, task, options);
     return pollOpenAIVideoTask(deps, task, options);
 }

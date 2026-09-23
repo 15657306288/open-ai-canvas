@@ -12,8 +12,15 @@ type CanvasNodeAssetOptions = {
 };
 
 export function canvasNodeToAsset(node: CanvasNodeData, options: CanvasNodeAssetOptions): NewAsset | null {
-    const content = node.metadata?.content?.trim();
-    if (!content) return null;
+    const content = node.metadata?.content?.trim() || "";
+    const storageKey = node.metadata?.storageKey?.trim() || undefined;
+    const isMedia = node.type === CanvasNodeType.Image || node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio;
+
+    // 文本素材必须直接携带正文；媒体则允许只有持久 storageKey。后者常见于页面重载后：
+    // blob/object URL 已失效，但资源定位符仍可从后端重新换取可访问地址，不能因此丢掉素材记录。
+    if (node.type === CanvasNodeType.Text && !content) return null;
+    if (isMedia && !content && !storageKey) return null;
+    if (!isMedia && node.type !== CanvasNodeType.Text) return null;
     const title = node.metadata?.prompt?.slice(0, 24) || node.title || canvasAssetFallbackTitle(node.type);
     const metadata = {
         source: options.source,
@@ -21,7 +28,7 @@ export function canvasNodeToAsset(node: CanvasNodeData, options: CanvasNodeAsset
         nodeId: node.id,
         taskId: options.taskId || node.metadata?.taskId,
         prompt: node.metadata?.prompt,
-        resourceKey: node.metadata?.storageKey,
+        resourceKey: storageKey,
     };
     const base = {
         title,
@@ -37,13 +44,13 @@ export function canvasNodeToAsset(node: CanvasNodeData, options: CanvasNodeAsset
         return { ...base, kind: "text", data: { content } };
     }
     if (node.type === CanvasNodeType.Image) {
-        const dataUrl = node.metadata?.storageKey ? "" : content;
+        const dataUrl = storageKey ? "" : content;
         return {
             ...base,
             kind: "image",
             data: {
                 dataUrl,
-                storageKey: node.metadata?.storageKey,
+                storageKey,
                 width: node.metadata?.naturalWidth || node.width,
                 height: node.metadata?.naturalHeight || node.height,
                 bytes: node.metadata?.bytes || getDataUrlByteSize(dataUrl),
@@ -57,7 +64,7 @@ export function canvasNodeToAsset(node: CanvasNodeData, options: CanvasNodeAsset
             kind: "video",
             data: {
                 url: content,
-                storageKey: node.metadata?.storageKey,
+                storageKey,
                 width: node.metadata?.naturalWidth || node.width,
                 height: node.metadata?.naturalHeight || node.height,
                 durationMs: node.metadata?.durationMs,
@@ -73,7 +80,7 @@ export function canvasNodeToAsset(node: CanvasNodeData, options: CanvasNodeAsset
             kind: "audio",
             data: {
                 url: content,
-                storageKey: node.metadata?.storageKey,
+                storageKey,
                 durationMs: node.metadata?.durationMs,
                 bytes: node.metadata?.bytes || 0,
                 mimeType: node.metadata?.mimeType || "audio/mpeg",

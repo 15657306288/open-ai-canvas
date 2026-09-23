@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -14,20 +15,73 @@ import (
 )
 
 type failureEnvelope struct {
-	Code int    `json:"code"`
-	Msg  string `json:"msg"`
+	Code   int    `json:"code"`
+	Msg    string `json:"msg"`
+	Reason string `json:"reason"`
+	// Retryable 只在后端显式声明可重试时出现；缺省为 false，旧客户端不受影响。
+	Retryable bool `json:"retryable"`
+}
+
+func TestFailServiceRegistrationCooldown(t *testing.T) {
+	recorder, context := responseTestContext()
+	failService(context, &service.EmailCodeCooldownError{Seconds: 47})
+	response := decodeFailureEnvelope(t, recorder)
+	if recorder.Code != http.StatusTooManyRequests || response.Code != service.CodeRateLimited || response.Reason != string(service.ReasonRateLimited) || recorder.Header().Get("Retry-After") != "47" || !strings.Contains(response.Msg, "47") {
+		t.Fatalf("cooldown response: status=%d header=%s body=%#v", recorder.Code, recorder.Header().Get("Retry-After"), response)
+	}
 }
 
 func TestFailServiceProjectsAppError(t *testing.T) {
 	recorder, context := responseTestContext()
-	err := service.NewAppError(http.StatusTooManyRequests, "请求过于频繁，请稍后重试")
-	err.Code = 42901
+	err := service.RateLimited("请求过于频繁，请稍后重试")
 
 	failService(context, err)
 
 	response := decodeFailureEnvelope(t, recorder)
-	if recorder.Code != http.StatusTooManyRequests || response.Code != 42901 || response.Msg != err.Message {
+	if recorder.Code != http.StatusTooManyRequests || response.Code != service.CodeRateLimited || response.Reason != string(service.ReasonRateLimited) || response.Msg != err.Message {
 		t.Fatalf("response = status %d, body %#v", recorder.Code, response)
+	}
+}
+
+func TestFailServiceProjectsDNSFailureWithoutTransportDetails(t *testing.T) {
+	recorder, context := responseTestContext()
+	err := service.WrapAppError(http.StatusBadGateway, "外部服务域名解析失败，请检查渠道域名和后端 DNS 配置", errors.New("private-sentinel resolver failure"))
+	err.Reason = service.ReasonUpstreamDNSFailed
+	failService(context, &url.Error{Op: "Post", URL: "https://private-sentinel.invalid?token=private-sentinel", Err: err})
+	response := decodeFailureEnvelope(t, recorder)
+	if recorder.Code != http.StatusBadGateway || response.Code != service.CodeBadGateway || response.Reason != string(service.ReasonUpstreamDNSFailed) || response.Msg != err.Message {
+		t.Fatalf("DNS response contract lost: %d %#v", recorder.Code, response)
+	}
+	if strings.Contains(recorder.Body.String(), "private-sentinel") {
+		t.Fatal("raw transport details leaked into HTTP response")
+	}
+}
+
+func TestFailServiceQuotaExceeded(t *testing.T) {
+	recorder, context := responseTestContext()
+	failService(context, service.QuotaExceeded("账号素材数量已达到 100 个上限"))
+
+	response := decodeFailureEnvelope(t, recorder)
+	if recorder.Code != http.StatusForbidden || response.Code != service.CodeQuotaExceeded || response.Reason != string(service.ReasonQuotaExceeded) {
+		t.Fatalf("quota response = status %d, body %#v", recorder.Code, response)
+	}
+	if response.Retryable || strings.Contains(recorder.Body.String(), "retryable") {
+		t.Fatalf("permanent failure must not advertise retryable: %s", recorder.Body.String())
+	}
+}
+
+// 上传幂等键命中「同一素材正在上传」时后端返回 409 + Retryable，
+// 前端要靠这个机器可读字段判断是并发重试而不是终态失败。
+func TestFailServicePublishesRetryableAppError(t *testing.T) {
+	recorder, context := responseTestContext()
+	err := service.NewAppError(http.StatusConflict, "相同素材正在上传，请稍后重试")
+	err.Retryable = true
+
+	failService(context, err)
+
+	response := decodeFailureEnvelope(t, recorder)
+	if recorder.Code != http.StatusConflict || response.Msg != err.Message || !response.Retryable {
+		t.Fatalf("retryable response contract lost: status %d body %#v", recorder.Code, response)
 	}
 }
 
@@ -54,6 +108,40 @@ func TestFailInternalKeepsStatusWithoutLeakingCause(t *testing.T) {
 	}
 	if strings.Contains(recorder.Body.String(), "private-host") {
 		t.Fatalf("internal cause leaked in response: %s", recorder.Body.String())
+	}
+}
+
+func TestParsePaginationQueryUsesDefaultsAndRejectsInvalidValues(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tests := []struct {
+		name      string
+		query     string
+		page      int
+		pageSize  int
+		wantError bool
+	}{
+		{name: "defaults", query: "", page: 1, pageSize: 40},
+		{name: "explicit values", query: "page=3&pageSize=25", page: 3, pageSize: 25},
+		{name: "invalid page", query: "page=abc", wantError: true},
+		{name: "zero page", query: "page=0", wantError: true},
+		{name: "negative page size", query: "pageSize=-1", wantError: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "/api/test?"+tt.query, nil)
+			context, _ := gin.CreateTestContext(httptest.NewRecorder())
+			context.Request = request
+			page, pageSize, err := parsePaginationQuery(context, 40)
+			if (err != nil) != tt.wantError {
+				t.Fatalf("error = %v, wantError = %t", err, tt.wantError)
+			}
+			if tt.wantError {
+				return
+			}
+			if page != tt.page || pageSize != tt.pageSize {
+				t.Fatalf("pagination = (%d, %d), want (%d, %d)", page, pageSize, tt.page, tt.pageSize)
+			}
+		})
 	}
 }
 

@@ -6,12 +6,10 @@ describe("plugin state switches", () => {
     test("uses a page-scoped green and neutral switch palette", () => {
         const styles = readFileSync(resolve(import.meta.dir, "../src/styles/globals.css"), "utf8");
 
-        expect(styles).toContain("--plugin-switch-checked-bg: #15803d;");
-        expect(styles).toContain("--plugin-switch-checked-bg: #16a34a;");
-        expect(styles).toContain("--plugin-switch-off-bg: #d4d4d8;");
-        expect(styles).toContain("--plugin-switch-off-bg: #3f3f46;");
-        expect(styles).toContain(":where(.plugin-state-switch.ant-switch.ant-switch-checked)");
-        expect(styles).toContain(":where(.plugin-state-switch.ant-switch:not(.ant-switch-checked))");
+        expect(styles).toContain("--plugin-switch-checked-bg: var(--control-switch-checked-bg);");
+        expect(styles).toContain("--plugin-switch-off-bg: var(--control-switch-off-bg);");
+        expect(styles).toContain(':where([data-slot="switch"].plugin-state-switch[data-state="on"])');
+        expect(styles).toContain(':where([data-slot="switch"].plugin-state-switch[data-state="off"])');
     });
 
     test("shows explicit state text on both plugin pages", () => {

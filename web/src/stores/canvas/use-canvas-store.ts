@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist, type PersistStorage, type StorageValue } from "zustand/middleware";
 
 import { nanoid } from "nanoid";
+import { sameCanvasContent } from "@/lib/canvas/canvas-content";
 import { DEFAULT_CANVAS_BACKGROUND_MODE, normalizeCanvasAppearance, readCanvasAppearanceDefault, type CanvasAppearance } from "@/lib/canvas/canvas-appearance";
 import { parseCanvasStorageDocument, rebaseCanvasProjects, serializeCanvasStorageDocument, type CanvasStorageDocument } from "@/lib/canvas/canvas-storage-revision";
 import { localForageStorageForScope } from "@/lib/localforage-storage";
@@ -14,6 +15,9 @@ import type { TimelineProject } from "@/types/timeline";
 
 export type CanvasProject = {
     id: string;
+    revision?: number;
+    collaborationEnabled?: boolean;
+    remoteContentHash?: string;
     projectId?: string;
     title: string;
     createdAt: string;
@@ -95,9 +99,15 @@ function runWithBrowserCanvasStorageLock<T>(scope: string, operation: () => Prom
     return operation();
 }
 
+/**
+ * 串行化同一用户作用域的画布持久化，并在一次失败后允许队列继续前进。
+ *
+ * `pending` 必须把当前写入的真实结果返回给调用方；只有前一个 tail 的失败被
+ * 转换成已处理的 void，才不会让一次旧失败永久毒化后续保存队列。
+ */
 export function withCanvasStorePersistenceLock<T>(scope: string, operation: () => Promise<T>, options: CanvasStorageLockOptions = {}): Promise<T> {
     const previous = canvasStorageTails.get(scope) ?? Promise.resolve();
-    const pending = previous.catch(() => undefined).then(() => runWithBrowserCanvasStorageLock(scope, operation, options));
+    const pending = previous.then(() => undefined, () => undefined).then(() => runWithBrowserCanvasStorageLock(scope, operation, options));
     const tail = pending.then(
         () => undefined,
         () => undefined,
@@ -409,7 +419,11 @@ const canvasStorage: PersistStorage<CanvasStore> = {
         clearCanvasSaveTimer(scope);
         const timer = setTimeout(() => {
             if (canvasSaveTimers.get(scope) === timer) canvasSaveTimers.delete(scope);
-            void writeQueuedCanvasPersist(scope, token).catch(() => undefined);
+            void writeQueuedCanvasPersist(scope, token).catch((error) => {
+                // 自动保存无法把异常返回给原始状态更新调用方，但失败队列仍会保留给下一次写入或显式 flush 重试。
+                // 自动保存失败有队列兜底，属可降级场景；在无本地存储的环境（如测试进程）不应升级为错误级日志。
+                console.warn("画布本地持久化失败，已保留待写队列", { scope, error });
+            });
         }, 400);
         canvasSaveTimers.set(scope, timer);
     },
@@ -439,6 +453,7 @@ export const useCanvasStore = create<CanvasStore>()(
                 const appearanceDefault = readCanvasAppearanceDefault();
                 const project: CanvasProject = {
                     id,
+                    revision: 0,
                     projectId,
                     title,
                     createdAt: now,
@@ -460,6 +475,7 @@ export const useCanvasStore = create<CanvasStore>()(
                 const now = new Date().toISOString();
                 const project: CanvasProject = {
                     id: nanoid(),
+                    revision: 0,
                     projectId: source.projectId,
                     title: source.title || "导入画布",
                     createdAt: source.createdAt || now,
@@ -481,20 +497,27 @@ export const useCanvasStore = create<CanvasStore>()(
             openProject: (id) => {
                 return get().projects.find((item) => item.id === id) || null;
             },
-            renameProject: (id, title) =>
-                set((state) => ({
-                    projects: state.projects.map((project) => (project.id === id ? { ...project, title: title.trim() || project.title, updatedAt: new Date().toISOString() } : project)),
-                })),
+            renameProject: (id, title) => set((state) => {
+                const current = state.projects.find((project) => project.id === id);
+                const nextTitle = title.trim() || current?.title;
+                if (!current || current.title === nextTitle) return state;
+                return { projects: state.projects.map((project) => project === current ? { ...project, title: nextTitle!, updatedAt: new Date().toISOString() } : project) };
+            }),
             deleteProjects: (ids) =>
                 set((state) => {
                     const projects = state.projects.filter((project) => !ids.includes(project.id));
                     return { projects };
                 }),
             replaceProjects: (projects) => set({ projects }),
-            updateProject: (id, patch) =>
-                set((state) => ({
-                    projects: state.projects.map((project) => (project.id === id ? { ...project, ...patch, updatedAt: new Date().toISOString() } : project)),
-                })),
+            updateProject: (id, patch) => set((state) => {
+                const current = state.projects.find((project) => project.id === id);
+                if (!current) return state;
+                const next = { ...current, ...patch };
+                const contentChanged = !sameCanvasContent(current, next);
+                if (!contentChanged && samePersistenceValue(current.viewport, next.viewport)) return state;
+                if (contentChanged) next.updatedAt = new Date().toISOString();
+                return { projects: state.projects.map((project) => project === current ? next : project) };
+            }),
         }),
         {
             name: CANVAS_STORE_KEY,

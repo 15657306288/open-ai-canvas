@@ -3,7 +3,6 @@ import { App, Button, Divider, Input } from "antd";
 import { ArrowRight, LockKeyhole, UserRound } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
-import { applyUserSession } from "@/lib/user-session";
 import { getAuthSession, getAuthSettings, linuxDOLoginURL, login } from "@/services/api/auth";
 import { useUserStore } from "@/stores/use-user-store";
 import { LinuxDOIcon } from "./auth-scene";
@@ -31,7 +30,11 @@ export default function LoginPage() {
     useEffect(() => {
         void getAuthSettings()
             .then((settings) => setLinuxdoEnabled(settings.linuxdoEnabled))
-            .catch(() => undefined);
+            .catch((error) => {
+                // 这是登录页的展示配置读取：失败时明确隐藏第三方入口，
+                // 账号密码登录仍可用；不能无痕地把配置读取失败当成成功。
+                console.warn("读取登录方式配置失败，已隐藏第三方登录入口", error);
+            });
         const oauthError = params.get("oauth_error");
         if (oauthError) message.error(oauthError);
     }, [message, params]);
@@ -41,6 +44,7 @@ export default function LoginPage() {
         setSubmitting(true);
         try {
             await login({ username, password });
+            const { applyUserSession } = await import("@/lib/user-session");
             await applyUserSession(await getAuthSession());
             message.success("登录成功");
             navigate(next, { replace: true });

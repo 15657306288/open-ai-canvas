@@ -1,0 +1,43 @@
+---
+title: NewAPI Video Generations Channel 2
+description: Channel 2 视频任务创建、轮询与上游任务同步延迟处理
+---
+
+# NewAPI Video Generations Channel 2
+
+## 请求流程
+
+声明式插件使用以下接口：
+
+- 创建：`POST /v1/video/generations`
+- 查询：`GET /v1/video/generations/{taskId}`
+
+创建响应支持顶层 `id`、`task_id`、`taskId`，以及 `data.id`、`data.task_id`、`data.taskId`。当中转包装 ID 与真实上游任务 ID 同时存在时，按 `data.task_id`、`data.taskId`、顶层 `task_id`、顶层 `taskId`、`data.id`、顶层 `id` 的顺序解析，避免把中转内部记录 ID 用作上游查询 ID。宿主把解析出的值保存为 `provider_request_id`，后续查询始终使用该值，并对路径参数进行 URL 编码。
+
+查询响应进入成功状态后，插件会从 `data.result_url`、`data.video_url`、`data.output_url`、`data.url`、`data.metadata.url` 以及对应的 `data.data.*` 嵌套字段读取视频地址，再回退到兼容的顶层结果字段。只返回成功状态而没有任何结果地址时，宿主仍按协议异常处理，不会创建空资源。
+
+## 上游同步延迟
+
+创建接口返回任务 ID 后，Channel 2 可能在数百毫秒到数秒内仍对查询接口返回结构化的 `400`：
+
+```json
+{"code":"task_not_exist","message":"task_not_exist"}
+```
+
+宿主只在同时满足以下条件时把该响应视为“任务状态尚未同步”：
+
+1. 已经保存非空 Provider Task ID；
+2. HTTP 状态为 `400` 或 `404`；
+3. JSON 的 `code` 或 `message` 精确等于 `task_not_exist`、`task_not_found` 或对应的空格拼写。
+
+该判断属于宿主统一的视频轮询语义，不再按渠道名分支。不符合条件的 400/401/403/422 等参数、鉴权或权限错误仍立即按失败语义处理。
+
+## 轮询与延期
+
+新任务和恢复任务都在首次查询前等待 30 秒，后续统一每 30 秒查询。连续三次 `task_not_exist` 或 404 才结束；中间任何一次正常的 pending/running 响应都会清零连续计数。HTTP 408/409/425/429/5xx、临时网络错误、断流、渠道槽位和短时熔断继续查询原 Provider Task ID，不发送第二次创建请求。
+
+默认视频执行窗口为 60 分钟；管理员已经保存的运行时策略仍按保存值执行。视频真正返回 failed/cancelled/expired 等终态时，仍按供应商失败处理。
+
+## 兼容边界
+
+该容错适用于所有异步视频声明式插件和宿主内置协议。缺少 Provider Task ID 的创建失败、真实参数错误、鉴权错误和非法插件映射不进入重试路径。

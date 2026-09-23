@@ -32,7 +32,7 @@ func RegisterProjectRoutes(r *gin.RouterGroup, svc *service.Service) {
 			return
 		}
 		pageParam, hasPage := c.GetQuery("page")
-		pageSizeParam, hasPageSize := c.GetQuery("page_size")
+		pageSizeParam, hasPageSize := c.GetQuery("pageSize")
 		if !hasPage && !hasPageSize {
 			projects, err := svc.ListProjects(user.ID)
 			if err != nil {
@@ -385,7 +385,7 @@ func RegisterProjectRoutes(r *gin.RouterGroup, svc *service.Service) {
 			fail(c, http.StatusBadRequest, err)
 			return
 		}
-		pageSize, err := parsePositiveQueryInt(c.Query("page_size"), 40)
+		pageSize, err := parsePositiveQueryInt(c.Query("pageSize"), 40)
 		if err != nil {
 			fail(c, http.StatusBadRequest, err)
 			return
@@ -404,7 +404,7 @@ func RegisterProjectRoutes(r *gin.RouterGroup, svc *service.Service) {
 			return
 		}
 		pageParam, hasPage := c.GetQuery("page")
-		pageSizeParam, hasPageSize := c.GetQuery("page_size")
+		pageSizeParam, hasPageSize := c.GetQuery("pageSize")
 		if hasPage || hasPageSize {
 			page, pageErr := parsePositiveQueryInt(pageParam, 1)
 			if pageErr != nil {
@@ -417,10 +417,10 @@ func RegisterProjectRoutes(r *gin.RouterGroup, svc *service.Service) {
 				return
 			}
 			var folderID *string
-			if value, present := c.GetQuery("folder_id"); present {
+			if value, present := c.GetQuery("folderId"); present {
 				folderID = &value
 			}
-			assets, pageErr := svc.ProjectAssetsPage(user.ID, c.Param("id"), page, pageSize, c.Query("category"), c.Query("media_type"), c.Query("status"), folderID, c.Query("q"))
+			assets, pageErr := svc.ProjectAssetsPage(user.ID, c.Param("id"), page, pageSize, c.Query("category"), c.Query("mediaType"), c.Query("status"), folderID, c.Query("q"))
 			if pageErr != nil {
 				failService(c, pageErr)
 				return
@@ -874,12 +874,12 @@ func RegisterProjectRoutes(r *gin.RouterGroup, svc *service.Service) {
 			fail(c, http.StatusBadRequest, err)
 			return
 		}
-		pageSize, err := parsePositiveQueryInt(c.Query("page_size"), 100)
+		pageSize, err := parsePositiveQueryInt(c.Query("pageSize"), 100)
 		if err != nil {
 			fail(c, http.StatusBadRequest, err)
 			return
 		}
-		result, err := svc.ProjectAssetCandidatesPage(user.ID, c.Param("id"), page, pageSize, c.Query("unit_id"), c.Query("status"), c.Query("category"), c.Query("q"))
+		result, err := svc.ProjectAssetCandidatesPage(user.ID, c.Param("id"), page, pageSize, c.Query("unitId"), c.Query("status"), c.Query("category"), c.Query("q"))
 		if err != nil {
 			failService(c, err)
 			return
@@ -907,6 +907,7 @@ func RegisterProjectRoutes(r *gin.RouterGroup, svc *service.Service) {
 	})
 }
 
+// parsePositiveQueryInt 解析列表查询里的正整数。分页和筛选查询名统一用 camelCase：page、pageSize、projectId、folderId、mediaType、unitId。
 func parsePositiveQueryInt(value string, fallback int) (int, error) {
 	if value == "" {
 		return fallback, nil
@@ -916,4 +917,19 @@ func parsePositiveQueryInt(value string, fallback int) (int, error) {
 		return 0, fmt.Errorf("query parameter must be a positive integer")
 	}
 	return parsed, nil
+}
+
+// parsePaginationQuery 统一解析列表分页参数。
+// 缺省值由具体接口声明；显式传入非正整数属于请求错误，不能悄悄变成服务层默认值，
+// 否则客户端的协议问题会被掩盖，分页行为也会随服务层实现变化。
+func parsePaginationQuery(c *gin.Context, fallbackPageSize int) (int, int, error) {
+	page, err := parsePositiveQueryInt(c.Query("page"), 1)
+	if err != nil {
+		return 0, 0, fmt.Errorf("page: %w", err)
+	}
+	pageSize, err := parsePositiveQueryInt(c.Query("pageSize"), fallbackPageSize)
+	if err != nil {
+		return 0, 0, fmt.Errorf("pageSize: %w", err)
+	}
+	return page, pageSize, nil
 }

@@ -4,11 +4,11 @@ import { Copy, Link2, RefreshCw, Share2, Unlink } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { createCanvasShare, deleteCanvasShare, getCanvasShare, type CanvasShareStatus } from "@/services/api/canvas-share";
-import { useThemeStore } from "@/stores/use-theme-store";
+import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
 
 export function CanvasShareModal({ projectId, open, onClose, beforeCreate }: { projectId: string; open: boolean; onClose: () => void; beforeCreate: () => Promise<boolean | void> }) {
     const { message, modal } = App.useApp();
-    const theme = canvasThemes[useThemeStore((state) => state.theme)];
+    const theme = canvasThemes[useActiveTheme()];
     const [share, setShare] = useState<CanvasShareStatus>({ enabled: false });
     const [expiresDays, setExpiresDays] = useState(0);
     const [loading, setLoading] = useState(false);
@@ -18,8 +18,8 @@ export function CanvasShareModal({ projectId, open, onClose, beforeCreate }: { p
     const load = useCallback(async () => {
         setLoading(true);
         try {
-            const result = await getCanvasShare(projectId);
-            setShare(result.share);
+            const shareResult = await getCanvasShare(projectId);
+            setShare(shareResult.share);
         } catch (error) {
             message.error(error instanceof Error ? error.message : "读取分享状态失败");
         } finally {
@@ -32,9 +32,19 @@ export function CanvasShareModal({ projectId, open, onClose, beforeCreate }: { p
     }, [load, open]);
 
     const copy = async (value = shareUrl) => {
-        if (!value) return;
-        await navigator.clipboard.writeText(value);
-        message.success("分享链接已复制");
+        if (!value) return false;
+        try {
+            if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable");
+            await navigator.clipboard.writeText(value);
+            message.success("分享链接已复制");
+            return true;
+        } catch {
+            // The share has already been created. Clipboard permissions may be
+            // unavailable in an embedded or non-secure browser context, so do
+            // not turn a successful server write into a false failure.
+            message.warning("链接已创建，但浏览器未允许自动复制，请从上方输入框手动复制");
+            return false;
+        }
     };
 
     const create = async (rotate = false) => {
@@ -71,7 +81,7 @@ export function CanvasShareModal({ projectId, open, onClose, beforeCreate }: { p
             <Spin spinning={loading}>
                 <div className="border-t pt-5" style={{ borderColor: theme.node.stroke }}>
                     <p className="mb-4 text-sm leading-6" style={{ color: theme.node.muted }}>
-                        获得链接的人无需登录即可查看。访客可拖动画布节点并临时添加节点，但刷新后会恢复，不能修改原画布或执行生成。
+                        链接用于公开预览，访客的操作不会保存到原画布。邀请他人共同编辑，请在「协作」中添加成员。
                     </p>
                     {share.enabled && shareUrl ? (
                         <div className="space-y-4">

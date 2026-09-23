@@ -3,7 +3,8 @@ import { persist, type PersistStorage, type StorageValue } from "zustand/middlew
 
 import { nanoid } from "nanoid";
 import type { AssetCategory } from "@/lib/asset-category";
-import { normalizeAssetRecord, parseAssetStorageDocument, rebaseAssetSnapshot, serializeAssetStorageDocument, type AssetStorageDocument } from "@/lib/asset-storage-revision";
+import { parseAssetRecord } from "@/lib/asset-record";
+import { parseAssetStorageDocumentRecovering, rebaseAssetSnapshot, serializeAssetStorageDocument, type AssetStorageDocument } from "@/lib/asset-storage-revision";
 import { parseCanvasStorageDocument } from "@/lib/canvas/canvas-storage-revision";
 import { localForageStorageForScope } from "@/lib/localforage-storage";
 import { getActiveUserScope } from "@/lib/user-scope";
@@ -12,6 +13,7 @@ import { cleanupUnusedImages, collectImageStorageKeys, resolveImageUrl, uploadIm
 import { cleanupUnusedMedia, collectMediaStorageKeys, resolveMediaUrl } from "@/services/file-storage";
 import { flushGenerationAssetStorageLocks, insertOrReturnGenerationAsset, withGenerationArtifactCommitLock, withGenerationAssetStorageLock } from "@/services/generation-asset-repository";
 import { CANVAS_STORE_KEY, commitPendingCanvasStorePersistenceLocked, pendingCanvasStorePersistence, withCanvasStorePersistenceLock } from "@/stores/canvas/use-canvas-store";
+import { readAllCanvasSyncDrafts } from "@/services/canvas-sync-drafts";
 
 export type AssetKind = "text" | "image" | "video" | "audio" | "model" | "entity";
 export type { AssetCategory } from "@/lib/asset-category";
@@ -43,6 +45,8 @@ type AssetBase<T extends AssetKind> = {
     primaryVersionId?: string;
     source?: string;
     note?: string;
+    arkAssetId?: string;
+    portraitCertified?: boolean;
     createdAt: string;
     updatedAt: string;
     metadata?: Record<string, unknown>;
@@ -108,7 +112,16 @@ async function commitPendingAssetStorePersistenceLocked(scope: string) {
         const queued = queuedAssetPersists.get(scope);
         if (!queued) return committed;
 
-        const durable = parseAssetStorageDocument(await storage.getItem(queued.name), queued.baseAssets);
+        // 读取旧版本时允许隔离历史坏记录；真正写回前，queued.assets 已经由 persistAssetState 严格校验。
+        // 这样既不会用伪造默认值掩盖坏数据，也不会让一条旧记录阻断整库的后续写入。
+        const recovery = parseAssetStorageDocumentRecovering(await storage.getItem(queued.name), queued.baseAssets);
+        if (recovery.invalid.length) {
+            console.warn("素材本地缓存包含无法恢复的历史记录，写回时将隔离这些记录", {
+                scope,
+                invalid: recovery.invalid,
+            });
+        }
+        const durable = recovery.document;
         const rebased = rebaseAssetSnapshot({
             document: durable,
             baseAssets: queued.baseAssets,
@@ -135,18 +148,33 @@ async function writeQueuedAssetPersist(scope: string, _token: number) {
 }
 
 async function readPersistedAssetDocumentForScope(scope: string) {
-    return parseAssetStorageDocument(await localForageStorageForScope(scope).getItem(ASSET_STORE_KEY));
+    const recovery = parseAssetStorageDocumentRecovering(await localForageStorageForScope(scope).getItem(ASSET_STORE_KEY));
+    if (recovery.invalid.length) {
+        console.warn("素材本地缓存包含无法恢复的历史记录，已隔离并保留其诊断信息", {
+            scope,
+            invalid: recovery.invalid,
+        });
+    }
+    return recovery.document;
 }
 
+/**
+ * 登记一个素材写操作，供登出、切换账号和页面卸载前统一冲刷。
+ *
+ * 这里不能直接对 finally 返回的 Promise 放任不管：原操作失败时，finally 派生的
+ * Promise 也会拒绝并产生未处理拒绝。用 then 的成功/失败分支做同一个清理动作，
+ * 既保留原 Promise 给调用方观察真实错误，也不会制造第二条未处理错误链。
+ */
 function trackAssetOperation<T>(operation: Promise<T>) {
     assetOperations.add(operation);
-    void operation.finally(() => assetOperations.delete(operation)).catch(() => undefined);
+    const cleanup = () => assetOperations.delete(operation);
+    void operation.then(cleanup, cleanup);
     return operation;
 }
 
 function persistAssetState(name: string, value: StorageValue<AssetStore>) {
     const scope = getActiveUserScope();
-    const nextAssets = value.state.assets.map(normalizeAssetRecord);
+    const nextAssets = value.state.assets.map(parseAssetRecord);
     const queued = queuedAssetPersists.get(scope);
     const observed = observedAssetPersists.get(scope);
     const baseAssets = assetMemoryStates.get(scope)?.assets ?? observed?.assets ?? [];
@@ -215,7 +243,14 @@ const assetStorage: PersistStorage<AssetStore> = {
             observedAssetPersists.set(scope, { assets: [], revision: 0 });
             return null;
         }
-        const document = parseAssetStorageDocument(value);
+        const recovery = parseAssetStorageDocumentRecovering(value);
+        if (recovery.invalid.length) {
+            console.warn("素材本地缓存包含无法恢复的历史记录，已隔离并保留其诊断信息", {
+                scope,
+                invalid: recovery.invalid,
+            });
+        }
+        const document = recovery.document;
         // 持久化恢复只恢复结构化记录，不能为每个 resource: key 逐条读取资源元数据或 Blob。
         // 远程资源直接使用受鉴权的 file URL；本地 legacy key 仍恢复为 Blob URL，避免兼容性回归。
         const assets = await Promise.all(document.state.assets.map((asset) => normalizePersistedAsset(asset)));
@@ -232,7 +267,7 @@ const assetStorage: PersistStorage<AssetStore> = {
 };
 
 async function normalizePersistedAsset(asset: Asset): Promise<Asset> {
-    asset = normalizeAssetRecord(asset);
+    asset = parseAssetRecord(asset);
     const storageKey = "data" in asset && asset.data && "storageKey" in asset.data ? asset.data.storageKey : undefined;
     const resourceId = resourceIdFromStorageKey(storageKey);
     if (resourceId) {
@@ -272,7 +307,7 @@ export const useAssetStore = create<AssetStore>()(
             addAsset: (asset) => {
                 const now = new Date().toISOString();
                 const id = nanoid();
-                set((state) => ({ assets: [normalizeAssetRecord({ ...asset, id, createdAt: now, updatedAt: now } as Asset), ...state.assets] }));
+                set((state) => ({ assets: [parseAssetRecord({ ...asset, id, createdAt: now, updatedAt: now }), ...state.assets] }));
                 return id;
             },
             addGenerationAsset: (effectKey, asset, signal) => {
@@ -290,13 +325,13 @@ export const useAssetStore = create<AssetStore>()(
                             assetId: id,
                             createAsset: () => {
                                 const now = new Date().toISOString();
-                                return normalizeAssetRecord({
+                                return parseAssetRecord({
                                     ...asset,
                                     id,
                                     createdAt: now,
                                     updatedAt: now,
                                     metadata: { ...asset.metadata, generationEffectKey: effectKey },
-                                } as Asset);
+                                });
                             },
                             updateAssets: (updater) => {
                                 withAssetStorePersistenceSuppressed(() => {
@@ -356,7 +391,7 @@ export const useAssetStore = create<AssetStore>()(
             },
             updateAsset: (id, patch) =>
                 set((state) => ({
-                    assets: state.assets.map((asset) => (asset.id === id ? normalizeAssetRecord({ ...asset, ...patch, updatedAt: new Date().toISOString() } as Asset) : asset)),
+                    assets: state.assets.map((asset) => (asset.id === id ? parseAssetRecord({ ...asset, ...patch, updatedAt: new Date().toISOString() }) : asset)),
                 })),
             removeAsset: async (id) => {
                 let remainingAssets: Asset[] = [];
@@ -372,7 +407,7 @@ export const useAssetStore = create<AssetStore>()(
                 if (!removedAsset || (!collectImageStorageKeys(removedAsset).size && !collectMediaStorageKeys(removedAsset).size)) return;
                 await get().cleanupImages({ assets: remainingAssets });
             },
-            replaceAssets: (assets) => set({ assets: assets.map(normalizeAssetRecord) }),
+            replaceAssets: (assets) => set({ assets: assets.map(parseAssetRecord) }),
             cleanupImages: async (extra) => {
                 const scope = getActiveUserScope();
                 const frozenExtraImageKeys = collectImageStorageKeys(extra);
@@ -380,6 +415,7 @@ export const useAssetStore = create<AssetStore>()(
                 await new Promise<void>((resolve, reject) => {
                     window.setTimeout(() =>
                         withGenerationArtifactCommitLock(scope, async () => {
+                            const syncDrafts = await readAllCanvasSyncDrafts(scope);
                             // 固定锁序：artifact -> Canvas（释放）-> Asset，避免跨 store 锁重入。
                             const canvasProjects = await withCanvasStorePersistenceLock(scope, async () => {
                                 await commitPendingCanvasStorePersistenceLocked(scope);
@@ -389,7 +425,7 @@ export const useAssetStore = create<AssetStore>()(
                             await withGenerationAssetStorageLock(scope, async () => {
                                 await commitPendingAssetStorePersistenceLocked(scope);
                                 const durableAssets = (await readPersistedAssetDocumentForScope(scope)).state.assets;
-                                const references = { projects: canvasProjects, assets: durableAssets };
+                                const references = { projects: canvasProjects, assets: durableAssets, syncDrafts };
                                 const imageKeys = new Set([...frozenExtraImageKeys, ...collectImageStorageKeys(references)]);
                                 const mediaKeys = new Set([...frozenExtraMediaKeys, ...collectMediaStorageKeys(references)]);
                                 await cleanupUnusedImages(

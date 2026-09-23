@@ -1,8 +1,9 @@
-import { AudioLines, Captions, Clapperboard, Download, FolderPlus, Images, Image as ImageIcon, Info, LoaderCircle, Lock, Maximize2, MessageSquare, Minus, Music2, Plus, RefreshCw, Scissors, Settings2, Trash2, Unlock, Upload, UserRound, Video } from "lucide-react";
+import { AudioLines, Captions, Clapperboard, Download, FolderPlus, Images, Image as ImageIcon, Info, LoaderCircle, Lock, Maximize2, MessageSquare, Minus, Music2, Plus, RefreshCw, Scissors, Settings2, Trash2, Unlock, Upload, UserRound, Video, WandSparkles } from "lucide-react";
 
 import { CONTENT_MODERATION_ERROR_CODE, isContentModerationError } from "@/lib/generation-error";
 import { registerToolbarTools, type ToolContext, type ToolDefinition } from "@/lib/canvas/tool-registry";
 import { CanvasNodeType } from "@/types/canvas";
+import { isCanvasImageSourceNode } from "@/lib/canvas/canvas-image-source";
 
 // 节点状态判定辅助函数——从 ToolContext 派生
 function isImage(ctx: ToolContext) { return ctx.node?.type === CanvasNodeType.Image; }
@@ -10,15 +11,19 @@ function isVideo(ctx: ToolContext) { return ctx.node?.type === CanvasNodeType.Vi
 function isAudio(ctx: ToolContext) { return ctx.node?.type === CanvasNodeType.Audio; }
 function isText(ctx: ToolContext) { return ctx.node?.type === CanvasNodeType.Text; }
 function isConfig(ctx: ToolContext) { return ctx.node?.type === CanvasNodeType.Config; }
-function hasImage(ctx: ToolContext) { return isImage(ctx) && Boolean(ctx.nodeMetadata?.content); }
-function hasVideo(ctx: ToolContext) { return isVideo(ctx) && Boolean(ctx.nodeMetadata?.content); }
-function hasAudio(ctx: ToolContext) { return isAudio(ctx) && Boolean(ctx.nodeMetadata?.content); }
+function hasMediaPayload(ctx: ToolContext) {
+    return Boolean(ctx.nodeMetadata?.content || ctx.nodeMetadata?.storageKey || ctx.nodeMetadata?.previewContent);
+}
+function hasImage(ctx: ToolContext) { return isImage(ctx) && hasMediaPayload(ctx); }
+function hasVideo(ctx: ToolContext) { return isVideo(ctx) && hasMediaPayload(ctx); }
+function hasAudio(ctx: ToolContext) { return isAudio(ctx) && Boolean(ctx.nodeMetadata?.content || ctx.nodeMetadata?.storageKey); }
 function isCharacterReference(ctx: ToolContext) { return isText(ctx) && ctx.nodeMetadata?.workflowKind === "character" && Boolean(ctx.nodeMetadata?.characterAssetId); }
 function isEditableText(ctx: ToolContext) { return isText(ctx) && !isCharacterReference(ctx); }
-function canOpenDialog(ctx: ToolContext) { return isEditableText(ctx) || isImage(ctx) || isVideo(ctx); }
+function canOpenDialog(ctx: ToolContext) { return isEditableText(ctx) || (isImage(ctx) && !isCanvasImageSourceNode(ctx.node)) || isVideo(ctx); }
 function simpleMode(ctx: ToolContext) { return ctx.workspaceMode === "simple"; }
 function isImageBatchRoot(ctx: ToolContext) { return isImage(ctx) && Boolean(ctx.nodeMetadata?.isBatchRoot && ctx.nodeMetadata.batchChildIds?.length); }
 function canRetry(ctx: ToolContext) {
+    if (ctx.nodeMetadata?.fileUpload) return false;
     const requiresPromptChange = ctx.nodeMetadata?.generationErrorCode === CONTENT_MODERATION_ERROR_CODE || isContentModerationError(ctx.nodeMetadata?.errorDetails);
     const batchHasFailures = isImageBatchRoot(ctx) && (ctx.nodeMetadata?.batchFailedCount || (ctx.nodeMetadata?.status === "error" ? 1 : 0)) > 0;
     return (ctx.nodeMetadata?.status === "error" || (batchHasFailures && ctx.nodeMetadata?.status !== "loading")) && !requiresPromptChange;
@@ -31,10 +36,15 @@ export const nodeHoverToolbarTools: ToolDefinition[] = [
         toolbar: "node-hover",
         category: "node-state",
         label: (ctx) => isCharacterReference(ctx) ? "查看角色详情" : "查看节点信息",
-        displayLabel: (ctx) => isCharacterReference(ctx) ? "角色详情" : "信息",
+        displayLabel: (ctx) => isCharacterReference(ctx) ? "角色详情" : "节点信息",
         icon: (ctx) => isCharacterReference(ctx) ? <UserRound className="size-3.5" /> : <Info className="size-3.5" />,
         defaultVisible: true,
         defaultOrder: 10,
+        nodeToolbar: {
+            group: (ctx) => isCharacterReference(ctx) || (!isImage(ctx) && !isVideo(ctx) && !isAudio(ctx) && !isEditableText(ctx) && !isConfig(ctx)) ? "primary" : "more",
+            order: 10,
+            section: "节点管理",
+        },
         run: (ctx) => ctx.handlers.onNodeInfo(ctx.node!),
     },
     {
@@ -42,10 +52,11 @@ export const nodeHoverToolbarTools: ToolDefinition[] = [
         toolbar: "node-hover",
         category: "node-state",
         label: "移除节点",
-        displayLabel: "删除",
+        displayLabel: "移除节点",
         icon: <Trash2 className="size-3.5" />,
         defaultVisible: true,
         defaultOrder: 20,
+        nodeToolbar: { group: "more", order: 1000, section: "危险操作" },
         danger: true,
         run: (ctx) => ctx.handlers.onNodeDelete(ctx.node!),
     },
@@ -59,6 +70,7 @@ export const nodeHoverToolbarTools: ToolDefinition[] = [
         icon: <RefreshCw className="size-3.5" />,
         defaultVisible: true,
         defaultOrder: 30,
+        nodeToolbar: { group: "primary", order: 5 },
         applicable: canRetry,
         run: (ctx) => ctx.handlers.onNodeRetry(ctx.node!),
     },
@@ -66,11 +78,12 @@ export const nodeHoverToolbarTools: ToolDefinition[] = [
         id: "extractFrames",
         toolbar: "node-hover",
         category: "node-state",
-        label: (ctx) => ctx.extractingVideoFrames ? "正在提取视频画面" : "提取一个或多个视频画面",
+        label: (ctx) => ctx.extractingVideoFrames ? "正在截取视频画面" : "截取一个或多个视频画面",
         displayLabel: (ctx) => ctx.extractingVideoFrames ? "提取中" : "提取画面",
         icon: (ctx) => ctx.extractingVideoFrames ? <LoaderCircle className="size-3.5 animate-spin" /> : <Images className="size-3.5" />,
         defaultVisible: true,
         defaultOrder: 40,
+        nodeToolbar: { group: "process", order: 10, section: "提取素材", description: "选取画面，保存为图片节点" },
         applicable: (ctx) => hasVideo(ctx) && !simpleMode(ctx),
         disabled: (ctx) => ctx.extractingVideoFrames,
         run: (ctx) => ctx.handlers.onNodeExtractVideoFrames(ctx.node!),
@@ -79,11 +92,12 @@ export const nodeHoverToolbarTools: ToolDefinition[] = [
         id: "extractAudio",
         toolbar: "node-hover",
         category: "node-state",
-        label: (ctx) => ctx.extractingAudio ? "正在提取声音为 MP3" : "提取声音为 MP3",
+        label: (ctx) => ctx.extractingAudio ? "正在提取音频" : "提取视频声音为 MP3，保留原视频声音",
         displayLabel: (ctx) => ctx.extractingAudio ? "提取中" : "提取音频",
         icon: (ctx) => ctx.extractingAudio ? <LoaderCircle className="size-3.5 animate-spin" /> : <AudioLines className="size-3.5" />,
         defaultVisible: true,
         defaultOrder: 42,
+        nodeToolbar: { group: "process", order: 20, section: "提取素材", description: "生成音频节点，保留原视频声音" },
         applicable: (ctx) => hasVideo(ctx) && !simpleMode(ctx),
         disabled: (ctx) => ctx.extractingAudio || ctx.trimmingVideo,
         run: (ctx) => ctx.handlers.onNodeExtractAudioFromVideo(ctx.node!),
@@ -97,6 +111,7 @@ export const nodeHoverToolbarTools: ToolDefinition[] = [
         icon: (ctx) => ctx.trimmingVideo ? <LoaderCircle className="size-3.5 animate-spin" /> : <Scissors className="size-3.5" />,
         defaultVisible: true,
         defaultOrder: 44,
+        nodeToolbar: { group: "primary", order: 10, description: "截取一段或多段，生成新视频节点" },
         applicable: (ctx) => hasVideo(ctx) && !simpleMode(ctx),
         disabled: (ctx) => ctx.extractingAudio || ctx.trimmingVideo,
         run: (ctx) => ctx.handlers.onNodeTrimVideoSegments(ctx.node!),
@@ -106,10 +121,11 @@ export const nodeHoverToolbarTools: ToolDefinition[] = [
         toolbar: "node-hover",
         category: "node-state",
         label: "加入我的素材",
-        displayLabel: "存素材",
+        displayLabel: "保存到素材库",
         icon: <FolderPlus className="size-3.5" />,
         defaultVisible: true,
         defaultOrder: 50,
+        nodeToolbar: { group: "more", order: 40, section: "素材" },
         applicable: (ctx) => hasImage(ctx) || hasVideo(ctx) || isEditableText(ctx),
         run: (ctx) => ctx.handlers.onNodeSaveAsset(ctx.node!),
     },
@@ -122,6 +138,7 @@ export const nodeHoverToolbarTools: ToolDefinition[] = [
         icon: <Download className="size-3.5" />,
         defaultVisible: true,
         defaultOrder: 60,
+        nodeToolbar: { group: "utility", order: 20 },
         applicable: (ctx) => hasImage(ctx) || hasVideo(ctx) || hasAudio(ctx),
         run: (ctx) => ctx.handlers.onNodeDownload(ctx.node!),
     },
@@ -130,10 +147,11 @@ export const nodeHoverToolbarTools: ToolDefinition[] = [
         toolbar: "node-hover",
         category: "node-state",
         label: (ctx) => isEditableText(ctx) ? "调用文本模型生成内容" : "编辑",
-        displayLabel: (ctx) => isEditableText(ctx) ? "文本生成" : "编辑",
+        displayLabel: (ctx) => isEditableText(ctx) ? "文本生成" : "生成设置",
         icon: <MessageSquare className="size-3.5" />,
         defaultVisible: true,
         defaultOrder: 70,
+        nodeToolbar: { group: (ctx) => isEditableText(ctx) ? "primary" : "more", order: 20, section: "生成信息" },
         applicable: canOpenDialog,
         run: (ctx) => ctx.handlers.onNodeToggleDialog(ctx.node!),
     },
@@ -146,6 +164,7 @@ export const nodeHoverToolbarTools: ToolDefinition[] = [
         icon: <Maximize2 className="size-3.5" />,
         defaultVisible: true,
         defaultOrder: 80,
+        nodeToolbar: { group: "primary", order: 30 },
         applicable: isEditableText,
         run: (ctx) => ctx.handlers.onNodeEditText(ctx.node!),
     },
@@ -158,6 +177,7 @@ export const nodeHoverToolbarTools: ToolDefinition[] = [
         icon: <ImageIcon className="size-3.5" />,
         defaultVisible: true,
         defaultOrder: 90,
+        nodeToolbar: { group: "primary", order: 40 },
         applicable: isEditableText,
         run: (ctx) => ctx.handlers.onNodeGenerateImage(ctx.node!),
     },
@@ -170,6 +190,7 @@ export const nodeHoverToolbarTools: ToolDefinition[] = [
         icon: <Settings2 className="size-3.5" />,
         defaultVisible: true,
         defaultOrder: 100,
+        nodeToolbar: { group: "primary", order: 10 },
         applicable: (ctx) => isConfig(ctx) && !simpleMode(ctx),
         run: (ctx) => ctx.handlers.onNodeToggleDialog(ctx.node!),
     },
@@ -182,6 +203,7 @@ export const nodeHoverToolbarTools: ToolDefinition[] = [
         icon: <Minus className="size-3.5" />,
         defaultVisible: true,
         defaultOrder: 110,
+        nodeToolbar: { group: "process", order: 10 },
         applicable: (ctx) => isEditableText(ctx) && !simpleMode(ctx),
         run: (ctx) => ctx.handlers.onNodeDecreaseFont(ctx.node!),
     },
@@ -194,6 +216,7 @@ export const nodeHoverToolbarTools: ToolDefinition[] = [
         icon: <Plus className="size-3.5" />,
         defaultVisible: true,
         defaultOrder: 120,
+        nodeToolbar: { group: "process", order: 20 },
         applicable: (ctx) => isEditableText(ctx) && !simpleMode(ctx),
         run: (ctx) => ctx.handlers.onNodeIncreaseFont(ctx.node!),
     },
@@ -206,6 +229,7 @@ export const nodeHoverToolbarTools: ToolDefinition[] = [
         icon: <Upload className="size-3.5" />,
         defaultVisible: true,
         defaultOrder: 130,
+        nodeToolbar: { group: "primary", order: 10 },
         applicable: (ctx) => isImage(ctx) && !hasImage(ctx),
         run: (ctx) => ctx.handlers.onNodeUpload(ctx.node!),
     },
@@ -218,6 +242,7 @@ export const nodeHoverToolbarTools: ToolDefinition[] = [
         icon: <Video className="size-3.5" />,
         defaultVisible: true,
         defaultOrder: 140,
+        nodeToolbar: { group: (ctx) => hasVideo(ctx) ? "more" : "primary", order: 45, section: "素材" },
         applicable: isVideo,
         run: (ctx) => ctx.handlers.onNodeUpload(ctx.node!),
     },
@@ -230,6 +255,7 @@ export const nodeHoverToolbarTools: ToolDefinition[] = [
         icon: <Captions className="size-3.5" />,
         defaultVisible: true,
         defaultOrder: 145,
+        nodeToolbar: { group: "primary", order: 20 },
         applicable: (ctx) => hasVideo(ctx),
         run: (ctx) => ctx.handlers.onNodeSubtitles(ctx.node!),
     },
@@ -238,10 +264,11 @@ export const nodeHoverToolbarTools: ToolDefinition[] = [
         toolbar: "node-hover",
         category: "node-state",
         label: "时间线编辑",
-        displayLabel: "时间线",
+        displayLabel: "进入剪辑",
         icon: <Clapperboard className="size-3.5" />,
         defaultVisible: true,
         defaultOrder: 148,
+        nodeToolbar: { group: "workspace", order: 30, section: "项目剪辑", description: "打开项目时间线，定位到当前素材" },
         applicable: (ctx) => hasVideo(ctx) || hasAudio(ctx),
         run: (ctx) => ctx.handlers.onNodeTimeline(ctx.node!),
     },
@@ -254,6 +281,7 @@ export const nodeHoverToolbarTools: ToolDefinition[] = [
         icon: <Music2 className="size-3.5" />,
         defaultVisible: true,
         defaultOrder: 150,
+        nodeToolbar: { group: (ctx) => hasAudio(ctx) ? "more" : "primary", order: 45, section: "素材" },
         applicable: isAudio,
         run: (ctx) => ctx.handlers.onNodeUpload(ctx.node!),
     },
@@ -263,10 +291,11 @@ export const nodeHoverToolbarTools: ToolDefinition[] = [
         toolbar: "node-hover",
         category: "navigation",
         label: (ctx) => ctx.nodeMetadata?.locked ? "解锁节点" : "锁定位置和尺寸",
-        displayLabel: (ctx) => ctx.nodeMetadata?.locked ? "解锁" : "锁定",
+        displayLabel: "锁定位置与尺寸",
         icon: (ctx) => ctx.nodeMetadata?.locked ? <Unlock className="size-3.5" /> : <Lock className="size-3.5" />,
         defaultVisible: true,
         defaultOrder: 160,
+        nodeToolbar: { group: "more", order: 900, section: "节点管理" },
         active: (ctx) => Boolean(ctx.nodeMetadata?.locked),
         run: (ctx) => ctx.handlers.onNodeToggleLocked(ctx.node!),
     },

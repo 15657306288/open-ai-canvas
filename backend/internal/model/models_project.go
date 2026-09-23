@@ -35,6 +35,11 @@ type Resource struct {
 	Height           int    `json:"height"`
 	DurationMs       int64  `json:"durationMs"`
 	ETag             string `json:"etag" gorm:"size:160"`
+	// 浏览器兼容播放副本（HEVC/H.265 原片在 Chrome 等无法解码，由 ffmpeg 转 H.264）：
+	// PlaybackStatus: none|processing|ready|failed；PlaybackObjectKey 为本地播放目录下的文件名。
+	PlaybackStatus    string `json:"playbackStatus" gorm:"index;size:24"`
+	PlaybackObjectKey string `json:"playbackObjectKey"`
+	PlaybackError     string `json:"playbackError" gorm:"type:text"`
 	// UploadKey 是客户端逻辑上传身份的摘要；NULL 表示不参与幂等约束。
 	UploadKey *string   `json:"-" gorm:"size:64;uniqueIndex:idx_resources_user_upload_key,priority:2"`
 	Error     string    `json:"error"`
@@ -364,13 +369,85 @@ type ProductionTaskLink struct {
 }
 
 type CanvasProject struct {
-	ID          string    `json:"id" gorm:"primaryKey;size:80"`
-	UserID      string    `json:"userId" gorm:"index;size:36;index:idx_canvas_projects_user_updated,priority:1;index:idx_canvas_projects_user_project_updated,priority:1"`
-	ProjectID   string    `json:"projectId,omitempty" gorm:"index;size:36;index:idx_canvas_projects_user_project_updated,priority:2"`
-	Title       string    `json:"title" gorm:"size:240"`
-	PayloadJSON string    `json:"payloadJson" gorm:"type:text"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt" gorm:"index:idx_canvas_projects_user_updated,priority:2;index:idx_canvas_projects_user_project_updated,priority:3"`
+	CollaborationEnabled bool      `json:"collaborationEnabled" gorm:"not null;default:false;index"`
+	ID                   string    `json:"id" gorm:"primaryKey;size:80"`
+	UserID               string    `json:"userId" gorm:"index;size:36;index:idx_canvas_projects_user_updated,priority:1;index:idx_canvas_projects_user_project_updated,priority:1"`
+	ProjectID            string    `json:"projectId,omitempty" gorm:"index;size:36;index:idx_canvas_projects_user_project_updated,priority:2"`
+	Title                string    `json:"title" gorm:"size:240"`
+	PayloadJSON          string    `json:"payloadJson" gorm:"type:text"`
+	Revision             int64     `json:"revision" gorm:"not null;default:1"`
+	CreatedAt            time.Time `json:"createdAt"`
+	UpdatedAt            time.Time `json:"updatedAt" gorm:"index:idx_canvas_projects_user_updated,priority:2;index:idx_canvas_projects_user_project_updated,priority:3"`
+}
+
+// CanvasBranch keeps a durable relationship between an ordinary canvas copy
+// and the canvas it was created from. The branch document itself lives in
+// CanvasProject so it can use the normal editor and collaboration protocol.
+type CanvasBranch struct {
+	ID                  string     `json:"id" gorm:"primaryKey;size:80"`
+	SourceCanvasID      string     `json:"sourceCanvasId" gorm:"index;size:80"`
+	BranchCanvasID      string     `json:"branchCanvasId" gorm:"uniqueIndex;size:80"`
+	OwnerID             string     `json:"ownerId" gorm:"index;size:36"`
+	Name                string     `json:"name" gorm:"size:240"`
+	Status              string     `json:"status" gorm:"index;size:24"`
+	BaseRevision        int64      `json:"baseRevision"`
+	BasePayloadJSON     string     `json:"-" gorm:"type:text;not null"`
+	LastMergedSourceRev int64      `json:"lastMergedSourceRevision"`
+	LastMergedTargetRev int64      `json:"lastMergedTargetRevision"`
+	MergedAt            *time.Time `json:"mergedAt,omitempty"`
+	MergedBy            string     `json:"mergedBy,omitempty" gorm:"size:36"`
+	CreatedBy           string     `json:"createdBy" gorm:"size:36"`
+	CreatedAt           time.Time  `json:"createdAt"`
+	UpdatedAt           time.Time  `json:"updatedAt"`
+}
+
+// CanvasCollaborator grants a user access to a shared canvas. The owner is
+// implicit in CanvasProject.UserID and is not duplicated in this table.
+type CanvasCollaborator struct {
+	ID        string    `json:"id" gorm:"primaryKey;size:36"`
+	CanvasID  string    `json:"canvasId" gorm:"index;size:80;uniqueIndex:idx_canvas_collaborator_user,priority:1"`
+	UserID    string    `json:"userId" gorm:"index;size:36;uniqueIndex:idx_canvas_collaborator_user,priority:2"`
+	Role      string    `json:"role" gorm:"size:20;not null"`
+	CreatedBy string    `json:"createdBy" gorm:"size:36;not null"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// CanvasCollaborationNode is the server-side lifecycle record for a node.
+// It prevents an old operation from writing into a node that was deleted and
+// later restored with the same logical ID.
+type CanvasCollaborationNode struct {
+	ID          string     `json:"id" gorm:"primaryKey;size:80"`
+	CanvasID    string     `json:"canvasId" gorm:"index;size:80;uniqueIndex:idx_canvas_collab_node,priority:1"`
+	NodeID      string     `json:"nodeId" gorm:"index;size:160;uniqueIndex:idx_canvas_collab_node,priority:2"`
+	Incarnation int64      `json:"incarnation" gorm:"not null"`
+	Status      string     `json:"status" gorm:"size:20;not null;index"`
+	NodeJSON    string     `json:"nodeJson" gorm:"type:text"`
+	DeletedAt   *time.Time `json:"deletedAt,omitempty"`
+	DeletedBy   string     `json:"deletedBy,omitempty" gorm:"size:36"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	UpdatedAt   time.Time  `json:"updatedAt"`
+}
+
+// CanvasCollaborationOperation is an immutable operation receipt. RequestJSON
+// is kept so a retry with the same actor/op ID can be compared byte-for-byte;
+// ResultJSON stores deletion snapshots and the resulting document metadata.
+type CanvasCollaborationOperation struct {
+	ID                string    `json:"id" gorm:"primaryKey;size:80"`
+	CanvasID          string    `json:"canvasId" gorm:"index;size:80;uniqueIndex:idx_canvas_collab_operation_identity,priority:1"`
+	ActorID           string    `json:"actorId" gorm:"index;size:36;uniqueIndex:idx_canvas_collab_operation_identity,priority:2"`
+	OpID              string    `json:"opId" gorm:"size:120;not null;uniqueIndex:idx_canvas_collab_operation_identity,priority:3"`
+	Kind              string    `json:"kind" gorm:"size:40;not null"`
+	TargetNodeID      string    `json:"targetNodeId,omitempty" gorm:"size:160;index"`
+	TargetIncarnation int64     `json:"targetIncarnation,omitempty"`
+	BaseRevision      int64     `json:"baseRevision"`
+	Revision          int64     `json:"revision" gorm:"index"`
+	ResultStatus      string    `json:"resultStatus" gorm:"size:32;not null"`
+	RequestJSON       string    `json:"requestJson" gorm:"type:text;not null"`
+	ResultJSON        string    `json:"resultJson" gorm:"type:text"`
+	SnapshotJSON      string    `json:"snapshotJson" gorm:"type:text"`
+	CreatedAt         time.Time `json:"createdAt"`
+	UpdatedAt         time.Time `json:"updatedAt"`
 }
 
 type CanvasShare struct {
@@ -431,4 +508,31 @@ type UserAnnouncementRead struct {
 	UserID         string    `json:"userId" gorm:"index;size:36;uniqueIndex:idx_user_announcement_read,priority:1"`
 	AnnouncementID string    `json:"announcementId" gorm:"index;size:36;uniqueIndex:idx_user_announcement_read,priority:2"`
 	ReadAt         time.Time `json:"readAt"`
+}
+
+// BannerTitleRun 是通知标题中一段连续文本的样式覆盖；零值字段表示沿用默认样式。
+// 字重与字号用指针区分「未设置」和「显式设置为默认值」。
+type BannerTitleRun struct {
+	Text       string `json:"text"`
+	FontSize   *int   `json:"fontSize,omitempty"`   // px，仅接受 10-20
+	FontWeight *int   `json:"fontWeight,omitempty"` // 仅接受 400 / 500 / 600 / 700
+	FontFamily string `json:"fontFamily,omitempty"` // "" | "sans" | "serif" | "mono"
+	Color      string `json:"color,omitempty"`      // #RRGGBB
+}
+
+type BannerAnnouncement struct {
+	ID    string `json:"id" gorm:"primaryKey;size:36"`
+	Title string `json:"title" gorm:"size:120"` // 纯文本标题，由 TitleRuns 拼接得出，供列表展示和关键字检索
+	// TitleRuns 是标题的样式分段，前端按段渲染；持久化在 title_runs 文本列，由仓储层显式编解码。
+	TitleRuns     []BannerTitleRun `json:"titleRuns,omitempty" gorm:"-"`
+	TitleRunsJSON string           `json:"-" gorm:"column:title_runs;type:text"`
+	// NoticeType 决定通知条底色（"notice" | "activity" | "update" | "warning"），取值白名单见 app 层。
+	NoticeType string     `json:"noticeType" gorm:"size:24"`
+	Link       string     `json:"link" gorm:"size:500"`        // 点击跳转目标：http(s) 外链或 / 开头的站内路径；空表示不可点击
+	Status     string     `json:"status" gorm:"size:24;index"` // "active" | "disabled"
+	StartsAt   *time.Time `json:"startsAt,omitempty" gorm:"index"`
+	EndsAt     *time.Time `json:"endsAt,omitempty" gorm:"index"`
+	CreatedBy  string     `json:"createdBy" gorm:"size:36"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	UpdatedAt  time.Time  `json:"updatedAt"`
 }

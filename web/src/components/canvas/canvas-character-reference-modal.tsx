@@ -1,5 +1,6 @@
-import { Modal } from "antd";
+
 import { AudioLines, BadgeCheck, Image as ImageIcon, UserRound, Volume2 } from "lucide-react";
+import { AppModal } from "@/components/ui/product/app-modal";
 import type { ReactNode } from "react";
 
 import type { CanvasNodeData } from "@/types/canvas";
@@ -15,14 +16,14 @@ export function CanvasCharacterReferenceModal({ node, open, onClose }: { node: C
     const voiceProfile = metadata?.characterVoiceProfile;
 
     return (
-        <Modal
+        <AppModal
             open={open}
             title={null}
             footer={null}
             destroyOnHidden
             width="min(1180px, calc(100vw - 32px))"
             onCancel={onClose}
-            styles={{ container: { padding: 0, overflow: "hidden" }, body: { padding: 0 } }}
+            flush
         >
             <div className="grid h-[min(720px,calc(100dvh-48px))] min-h-0 grid-rows-[minmax(240px,42vh)_minmax(0,1fr)] overflow-hidden bg-background text-foreground md:grid-cols-[minmax(0,1.55fr)_minmax(360px,.85fr)] md:grid-rows-1">
                 <section className="relative min-h-0 overflow-hidden border-b border-border bg-foreground/[.035] md:border-b-0 md:border-r" aria-label="角色三视图">
@@ -91,7 +92,7 @@ export function CanvasCharacterReferenceModal({ node, open, onClose }: { node: C
                     </div>
                 </aside>
             </div>
-        </Modal>
+        </AppModal>
     );
 }
 

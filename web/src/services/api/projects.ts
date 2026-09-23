@@ -1,8 +1,7 @@
-import { apiClient, request } from "@/services/api/request";
+import { http } from "@/services/api/request";
 import { normalizeAssetCategory, type AssetCategory } from "@/lib/asset-category";
 import type { GenerationTask } from "@/services/api/task-center";
 
-const api = apiClient;
 
 export type Project = {
     id: string;
@@ -65,9 +64,11 @@ export type ProjectAsset = {
     folderId?: string;
     position: number;
     storageKey?: string;
+    durationMs?: number;
     previewText?: string;
     updatedAt: string;
     character?: CharacterCardSummary;
+    source?: string;
 };
 
 export type ProjectAssetFolder = {
@@ -276,6 +277,7 @@ export type ProjectOverviewMetrics = {
     readyStoryboardCount: number;
     readyPrevizCount: number;
     readyVideoCount: number;
+    renderSucceededCount: number;
     staleArtifactCount: number;
 };
 
@@ -330,58 +332,58 @@ export type ProjectAssetCandidatePage = {
 export function listProjects(): Promise<{ projects: ProjectSummary[] }>;
 export function listProjects(params: { page: number; pageSize: number }): Promise<ProjectListPage>;
 export function listProjects(params?: { page: number; pageSize: number }) {
-    return request<{ projects: ProjectSummary[] } | ProjectListPage>(api.get("/projects", params ? { params: { page: params.page, page_size: params.pageSize } } : undefined));
+    return http.get<{ projects: ProjectSummary[] } | ProjectListPage>("/projects", params ? { params: { page: params.page, pageSize: params.pageSize } } : undefined);
 }
 
 export function getProject(id: string) {
-    return request<ProjectDetail>(api.get(`/projects/${encodeURIComponent(id)}`)).then(normalizeProjectDetail);
+    return http.get<ProjectDetail>(`/projects/${encodeURIComponent(id)}`).then(normalizeProjectDetail);
 }
 
 export function getProjectCore(id: string) {
-    return request<ProjectCore>(api.get(`/projects/${encodeURIComponent(id)}/core`));
+    return http.get<ProjectCore>(`/projects/${encodeURIComponent(id)}/core`);
 }
 
 export function listProjectUnits(projectId: string) {
-    return request<{ units: ProjectUnit[]; canvasCounts: Record<string, number> }>(api.get(`/projects/${encodeURIComponent(projectId)}/units`));
+    return http.get<{ units: ProjectUnit[]; canvasCounts: Record<string, number> }>(`/projects/${encodeURIComponent(projectId)}/units`);
 }
 
 export function getProjectOverview(projectId: string) {
-    return request<ProjectOverview>(api.get(`/projects/${encodeURIComponent(projectId)}/overview`));
+    return http.get<ProjectOverview>(`/projects/${encodeURIComponent(projectId)}/overview`);
 }
 
 export function getProjectUnitWorkspace(projectId: string, unitId: string) {
-    return request<ProjectUnitWorkspace>(api.get(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/workspace`));
+    return http.get<ProjectUnitWorkspace>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/workspace`);
 }
 
 export function listProjectCanvases(projectId: string, page = 1, pageSize = 40) {
-    return request<ProjectCanvasPage>(api.get(`/projects/${encodeURIComponent(projectId)}/canvases`, { params: { page, page_size: pageSize } }));
+    return http.get<ProjectCanvasPage>(`/projects/${encodeURIComponent(projectId)}/canvases`, { params: { page, pageSize } });
 }
 
 export function listProjectAssetsPage(projectId: string, options: { page?: number; pageSize?: number; category?: string; mediaType?: string; status?: string; folderId?: string; query?: string } = {}) {
-    return request<ProjectAssetPage>(api.get(`/projects/${encodeURIComponent(projectId)}/assets`, { params: {
+    return http.get<ProjectAssetPage>(`/projects/${encodeURIComponent(projectId)}/assets`, { params: {
         page: options.page || 1,
-        page_size: options.pageSize || 40,
+        pageSize: options.pageSize || 40,
         category: options.category || undefined,
-        media_type: options.mediaType || undefined,
+        mediaType: options.mediaType || undefined,
         status: options.status || undefined,
-        folder_id: options.folderId,
+        folderId: options.folderId,
         q: options.query || undefined,
-    } })).then((page) => ({ ...page, assets: page.assets.map(normalizeProjectAsset) }));
+    } }).then((page) => ({ ...page, assets: page.assets.map(normalizeProjectAsset) }));
 }
 
 export function listProjectAssets(projectId: string) {
-    return request<{ assets: ProjectAsset[] }>(api.get(`/projects/${encodeURIComponent(projectId)}/assets`)).then((result) => ({ assets: result.assets.map(normalizeProjectAsset) }));
+    return http.get<{ assets: ProjectAsset[] }>(`/projects/${encodeURIComponent(projectId)}/assets`).then((result) => ({ assets: result.assets.map(normalizeProjectAsset) }));
 }
 
 export function listProjectAssetCandidates(projectId: string, options: { page?: number; pageSize?: number; unitId?: string; status?: string; category?: string; query?: string } = {}) {
-    return request<ProjectAssetCandidatePage>(api.get(`/projects/${encodeURIComponent(projectId)}/asset-candidates`, { params: {
+    return http.get<ProjectAssetCandidatePage>(`/projects/${encodeURIComponent(projectId)}/asset-candidates`, { params: {
         page: options.page || 1,
-        page_size: options.pageSize || 100,
-        unit_id: options.unitId || undefined,
+        pageSize: options.pageSize || 100,
+        unitId: options.unitId || undefined,
         status: options.status || undefined,
         category: options.category || undefined,
         q: options.query || undefined,
-    } })).then((page) => ({ ...page, candidates: page.candidates.map(normalizeProjectAssetCandidate) }));
+    } }).then((page) => ({ ...page, candidates: page.candidates.map(normalizeProjectAssetCandidate) }));
 }
 
 function normalizeProjectAsset(asset: ProjectAsset): ProjectAsset {
@@ -430,157 +432,157 @@ function normalizeProjectDetail(detail: ProjectDetail): ProjectDetail {
 }
 
 export function createProject(input: { name: string; type: string; aspectRatio: string; sourceType: string; description?: string; stylePresetId?: string; styleProfileJson?: string; defaultImageModel?: string; defaultVideoModel?: string }) {
-    return request<{ project: Project }>(api.post("/projects", input));
+    return http.post<{ project: Project }>("/projects", input);
 }
 
 export function updateProject(projectId: string, input: Partial<Pick<Project, "name" | "type" | "aspectRatio" | "sourceType" | "description" | "coverResourceId" | "stylePresetId" | "styleProfileJson" | "defaultImageModel" | "defaultVideoModel" | "status">>) {
-    return request<{ project: Project }>(api.patch(`/projects/${encodeURIComponent(projectId)}`, input));
+    return http.patch<{ project: Project }>(`/projects/${encodeURIComponent(projectId)}`, input);
 }
 
 export function deleteProject(projectId: string) {
-    return request<{ id: string }>(api.delete(`/projects/${encodeURIComponent(projectId)}`));
+    return http.delete<{ id: string }>(`/projects/${encodeURIComponent(projectId)}`);
 }
 
 export function createProjectUnit(projectId: string, input: { kind: string; title: string; sourceText?: string; position?: number }) {
-    return request<{ unit: ProjectUnit }>(api.post(`/projects/${encodeURIComponent(projectId)}/units`, input));
+    return http.post<{ unit: ProjectUnit }>(`/projects/${encodeURIComponent(projectId)}/units`, input);
 }
 
 export function getProjectUnit(projectId: string, unitId: string) {
-    return request<{ unit: ProjectUnit }>(api.get(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}`));
+    return http.get<{ unit: ProjectUnit }>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}`);
 }
 
 export function importProjectUnits(projectId: string, units: Array<{ kind: string; title: string; sourceText?: string }>) {
-    return request<{ units: ProjectUnit[] }>(api.post(`/projects/${encodeURIComponent(projectId)}/units/import`, { units }));
+    return http.post<{ units: ProjectUnit[] }>(`/projects/${encodeURIComponent(projectId)}/units/import`, { units });
 }
 
 export function reorderProjectUnits(projectId: string, unitIds: string[]) {
-    return request<{ unitIds: string[] }>(api.patch(`/projects/${encodeURIComponent(projectId)}/units/reorder`, { unitIds }));
+    return http.patch<{ unitIds: string[] }>(`/projects/${encodeURIComponent(projectId)}/units/reorder`, { unitIds });
 }
 
 export function updateProjectUnit(projectId: string, unitId: string, input: { title?: string; sourceText: string; status?: ProjectUnit["status"] }) {
-    return request<{ unit: ProjectUnit }>(api.patch(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}`, input));
+    return http.patch<{ unit: ProjectUnit }>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}`, input);
 }
 
 export function deleteProjectUnit(projectId: string, unitId: string) {
-    return request<{ id: string }>(api.delete(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}`));
+    return http.delete<{ id: string }>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}`);
 }
 
 export function linkCanvasUnit(projectId: string, input: { canvasId: string; unitId: string; role?: string }) {
-    return request<{ link: { id: string; projectId: string; canvasId: string; unitId: string; role: string } }>(api.post(`/projects/${encodeURIComponent(projectId)}/canvas-links`, input));
+    return http.post<{ link: { id: string; projectId: string; canvasId: string; unitId: string; role: string } }>(`/projects/${encodeURIComponent(projectId)}/canvas-links`, input);
 }
 
 export function unlinkCanvasUnit(projectId: string, canvasId: string, unitId: string) {
-    return request<{ canvasId: string; unitId: string }>(api.delete(`/projects/${encodeURIComponent(projectId)}/canvas-links/${encodeURIComponent(canvasId)}/units/${encodeURIComponent(unitId)}`));
+    return http.delete<{ canvasId: string; unitId: string }>(`/projects/${encodeURIComponent(projectId)}/canvas-links/${encodeURIComponent(canvasId)}/units/${encodeURIComponent(unitId)}`);
 }
 
 export function unlinkCanvasProject(projectId: string, canvasId: string) {
-    return request<{ canvasId: string }>(api.delete(`/projects/${encodeURIComponent(projectId)}/canvases/${encodeURIComponent(canvasId)}`));
+    return http.delete<{ canvasId: string }>(`/projects/${encodeURIComponent(projectId)}/canvases/${encodeURIComponent(canvasId)}`);
 }
 
-export function linkProjectAsset(projectId: string, input: { assetId: string; category: AssetCategory; folderId?: string }, signal?: AbortSignal) {
-    return request<{ asset: ProjectAsset }>(api.post(`/projects/${encodeURIComponent(projectId)}/assets`, input, { signal }));
+export function linkProjectAsset(projectId: string, input: { assetId: string; category: AssetCategory; folderId?: string; title?: string; source?: "uploaded" | "canvas" }, signal?: AbortSignal) {
+    return http.post<{ asset: ProjectAsset }>(`/projects/${encodeURIComponent(projectId)}/assets`, input, { signal });
 }
 
 export function unlinkProjectAsset(projectId: string, assetId: string) {
-    return request<{ id: string }>(api.delete(`/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}`));
+    return http.delete<{ id: string }>(`/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}`);
 }
 
 export function updateProjectAssetCategory(projectId: string, assetId: string, category: AssetCategory, signal?: AbortSignal) {
-    return request<{ asset: ProjectAsset }>(api.patch(`/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}`, { category }, { signal }));
+    return http.patch<{ asset: ProjectAsset }>(`/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}`, { category }, { signal });
 }
 
 export function moveProjectAsset(projectId: string, assetId: string, folderId: string, signal?: AbortSignal) {
-    return request<{ asset: ProjectAsset }>(api.patch(`/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}`, { folderId }, { signal }));
+    return http.patch<{ asset: ProjectAsset }>(`/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}`, { folderId }, { signal });
 }
 
 export function listProjectAssetFolders(projectId: string, signal?: AbortSignal) {
-    return request<{ folders: ProjectAssetFolder[] }>(api.get(`/projects/${encodeURIComponent(projectId)}/asset-folders`, { signal }));
+    return http.get<{ folders: ProjectAssetFolder[] }>(`/projects/${encodeURIComponent(projectId)}/asset-folders`, { signal });
 }
 
 export function createProjectAssetFolder(projectId: string, input: { name: string; parentId?: string; style?: ProjectAssetFolder["style"]; theme?: ProjectAssetFolder["theme"] }) {
-    return request<{ folder: ProjectAssetFolder }>(api.post(`/projects/${encodeURIComponent(projectId)}/asset-folders`, input));
+    return http.post<{ folder: ProjectAssetFolder }>(`/projects/${encodeURIComponent(projectId)}/asset-folders`, input);
 }
 
 export function updateProjectAssetFolder(projectId: string, folderId: string, input: { name?: string; parentId?: string; style?: ProjectAssetFolder["style"]; theme?: ProjectAssetFolder["theme"] }) {
-    return request<{ folder: ProjectAssetFolder }>(api.patch(`/projects/${encodeURIComponent(projectId)}/asset-folders/${encodeURIComponent(folderId)}`, input));
+    return http.patch<{ folder: ProjectAssetFolder }>(`/projects/${encodeURIComponent(projectId)}/asset-folders/${encodeURIComponent(folderId)}`, input);
 }
 
 export function deleteProjectAssetFolder(projectId: string, folderId: string) {
-    return request<{ id: string }>(api.delete(`/projects/${encodeURIComponent(projectId)}/asset-folders/${encodeURIComponent(folderId)}`));
+    return http.delete<{ id: string }>(`/projects/${encodeURIComponent(projectId)}/asset-folders/${encodeURIComponent(folderId)}`);
 }
 
 export function createProjectAssetVersion(projectId: string, assetId: string, input: { prompt?: string; definitionJson?: string; note?: string }) {
-    return request<{ version: { id: string; assetId: string; version: number; status: string } }>(api.post(`/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/versions`, input));
+    return http.post<{ version: { id: string; assetId: string; version: number; status: string } }>(`/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/versions`, input);
 }
 
 export function listVoiceProfiles() {
-    return request<{ profiles: VoiceProfile[] }>(api.get("/voice-profiles"));
+    return http.get<{ profiles: VoiceProfile[] }>("/voice-profiles");
 }
 
 export function createProjectCharacter(projectId: string, input: { name: string; definition?: Record<string, unknown> }) {
-    return request<ProjectCharacterDetail>(api.post(`/projects/${encodeURIComponent(projectId)}/characters`, input));
+    return http.post<ProjectCharacterDetail>(`/projects/${encodeURIComponent(projectId)}/characters`, input);
 }
 
 export function getProjectCharacter(projectId: string, assetId: string) {
-    return request<ProjectCharacterDetail>(api.get(`/projects/${encodeURIComponent(projectId)}/characters/${encodeURIComponent(assetId)}`));
+    return http.get<ProjectCharacterDetail>(`/projects/${encodeURIComponent(projectId)}/characters/${encodeURIComponent(assetId)}`);
 }
 
 export function updateProjectCharacter(projectId: string, assetId: string, input: { name: string; definition: Record<string, unknown> }) {
-    return request<ProjectCharacterDetail>(api.patch(`/projects/${encodeURIComponent(projectId)}/characters/${encodeURIComponent(assetId)}`, input));
+    return http.patch<ProjectCharacterDetail>(`/projects/${encodeURIComponent(projectId)}/characters/${encodeURIComponent(assetId)}`, input);
 }
 
 export function replaceProjectCharacterRepresentations(projectId: string, assetId: string, representations: Array<{ role: string; resourceId: string; metadata?: Record<string, unknown> }>) {
-    return request<ProjectCharacterDetail>(api.put(`/projects/${encodeURIComponent(projectId)}/characters/${encodeURIComponent(assetId)}/representations`, { representations }));
+    return http.put<ProjectCharacterDetail>(`/projects/${encodeURIComponent(projectId)}/characters/${encodeURIComponent(assetId)}/representations`, { representations });
 }
 
 export function bindProjectCharacterVoice(projectId: string, assetId: string, input: { voiceProfileId?: string; sampleResourceId?: string; voiceName?: string; instructions?: string }) {
-    return request<ProjectCharacterDetail>(api.put(`/projects/${encodeURIComponent(projectId)}/characters/${encodeURIComponent(assetId)}/voice`, input));
+    return http.put<ProjectCharacterDetail>(`/projects/${encodeURIComponent(projectId)}/characters/${encodeURIComponent(assetId)}/voice`, input);
 }
 
 export function unbindProjectCharacterVoice(projectId: string, assetId: string) {
-    return request<ProjectCharacterDetail>(api.delete(`/projects/${encodeURIComponent(projectId)}/characters/${encodeURIComponent(assetId)}/voice`));
+    return http.delete<ProjectCharacterDetail>(`/projects/${encodeURIComponent(projectId)}/characters/${encodeURIComponent(assetId)}/voice`);
 }
 
 export function createUnitWorkflow(projectId: string, unitId: string) {
-    return request<{ workflow: ProjectWorkflow }>(api.post(`/projects/${encodeURIComponent(projectId)}/workflows`, { unitId }));
+    return http.post<{ workflow: ProjectWorkflow }>(`/projects/${encodeURIComponent(projectId)}/workflows`, { unitId });
 }
 
 export function saveProjectShot(projectId: string, input: { id?: string; unitId?: string; title: string; description?: string; position?: number; durationMs?: number; status?: string; revision?: Partial<ShotRevisionInput> }) {
-    return request<{ shot: ProjectShot }>(api.post(`/projects/${encodeURIComponent(projectId)}/shots`, input));
+    return http.post<{ shot: ProjectShot }>(`/projects/${encodeURIComponent(projectId)}/shots`, input);
 }
 
 export function deleteProjectShot(projectId: string, shotId: string) {
-    return request<{ deleted: boolean }>(api.delete(`/projects/${encodeURIComponent(projectId)}/shots/${encodeURIComponent(shotId)}`));
+    return http.delete<{ deleted: boolean }>(`/projects/${encodeURIComponent(projectId)}/shots/${encodeURIComponent(shotId)}`);
 }
 
 export function replaceProjectUnitShots(projectId: string, unitId: string, shots: Array<{ title: string; description: string; durationMs: number; revision?: Partial<ShotRevisionInput>; assetVersionIds?: string[] }>, expectedShotIds?: string[]) {
-    return request<{ shots: ProjectShot[] }>(api.put(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/shots`, { shots, ...(expectedShotIds ? { expectedShotIds } : {}) }));
+    return http.put<{ shots: ProjectShot[] }>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/shots`, { shots, ...(expectedShotIds ? { expectedShotIds } : {}) });
 }
 
 export function linkShotAsset(projectId: string, shotId: string, input: { assetVersionId: string; role: ShotAssetReference["role"] }) {
-    return request<{ reference: ShotAssetReference }>(api.post(`/projects/${encodeURIComponent(projectId)}/shots/${encodeURIComponent(shotId)}/assets`, input));
+    return http.post<{ reference: ShotAssetReference }>(`/projects/${encodeURIComponent(projectId)}/shots/${encodeURIComponent(shotId)}/assets`, input);
 }
 
 export function unlinkShotAsset(projectId: string, shotId: string, referenceId: string) {
-    return request<{ unlinked: boolean }>(api.delete(`/projects/${encodeURIComponent(projectId)}/shots/${encodeURIComponent(shotId)}/assets/${encodeURIComponent(referenceId)}`));
+    return http.delete<{ unlinked: boolean }>(`/projects/${encodeURIComponent(projectId)}/shots/${encodeURIComponent(shotId)}/assets/${encodeURIComponent(referenceId)}`);
 }
 
 export function createShotRevision(projectId: string, shotId: string, input: ShotRevisionInput) {
-    return request<{ shot: ProjectShot; revision: ShotRevision }>(api.post(`/projects/${encodeURIComponent(projectId)}/shots/${encodeURIComponent(shotId)}/revisions`, input));
+    return http.post<{ shot: ProjectShot; revision: ShotRevision }>(`/projects/${encodeURIComponent(projectId)}/shots/${encodeURIComponent(shotId)}/revisions`, input);
 }
 
 export function createProjectAssetCandidates(projectId: string, candidates: Array<{ unitId?: string; shotId?: string; name: string; category: AssetCategory; details?: Record<string, unknown> }>, source?: "chapter_character_extract" | "agent") {
-	return request<{ candidates: ProjectAssetCandidate[] }>(api.post(`/projects/${encodeURIComponent(projectId)}/asset-candidates`, { candidates, source }));
+	return http.post<{ candidates: ProjectAssetCandidate[] }>(`/projects/${encodeURIComponent(projectId)}/asset-candidates`, { candidates, source });
 }
 
 export function confirmProjectAssetCandidate(projectId: string, candidateId: string, assetId?: string) {
-    return request<{ asset: ProjectAsset }>(api.post(`/projects/${encodeURIComponent(projectId)}/asset-candidates/${encodeURIComponent(candidateId)}/confirm`, { assetId: assetId || "" }));
+    return http.post<{ asset: ProjectAsset }>(`/projects/${encodeURIComponent(projectId)}/asset-candidates/${encodeURIComponent(candidateId)}/confirm`, { assetId: assetId || "" });
 }
 
 export function updateWorkflowStep(projectId: string, stepId: string, input: { status: string; outputJson?: string; error?: string }) {
-    return request<{ step: WorkflowStep }>(api.patch(`/projects/${encodeURIComponent(projectId)}/workflow-steps/${encodeURIComponent(stepId)}`, input));
+    return http.patch<{ step: WorkflowStep }>(`/projects/${encodeURIComponent(projectId)}/workflow-steps/${encodeURIComponent(stepId)}`, input);
 }
 
 export function registerProjectTaskOutput(projectId: string, stepId: string, input: { taskId: string; canvasId?: string; unitId?: string; shotId?: string; artifactType?: string; assetVersionId?: string; resourceId?: string; mediaType?: string; role?: string; metadataJson?: string; outputJson?: string }) {
-    return request<{ step: WorkflowStep }>(api.post(`/projects/${encodeURIComponent(projectId)}/workflow-steps/${encodeURIComponent(stepId)}/task-output`, input));
+    return http.post<{ step: WorkflowStep }>(`/projects/${encodeURIComponent(projectId)}/workflow-steps/${encodeURIComponent(stepId)}/task-output`, input);
 }

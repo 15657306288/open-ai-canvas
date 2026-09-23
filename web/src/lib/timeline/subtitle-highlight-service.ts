@@ -1,6 +1,12 @@
 import type { SrtEntry, SubtitleHighlight } from "@/types/timeline";
 import { filterValidSubtitleHighlights } from "./subtitle-highlights";
-import type { SubtitleHighlightLLMResult } from "./subtitle-highlight-ai";
+interface SubtitleHighlightLLMResult {
+    entryIndex: number;
+    shouldHighlight: boolean;
+    highlightText: string;
+    start: number;
+    end: number;
+}
 
 function isSubtitleHighlightLLMResult(value: unknown): value is SubtitleHighlightLLMResult {
     if (!value || typeof value !== "object") {

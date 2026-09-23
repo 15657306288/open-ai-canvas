@@ -1,8 +1,9 @@
-import { App, Button, Checkbox, Dropdown, Input, Select } from "antd";
+import { App, Button, Dropdown, Input, Select } from "antd";
+import { Checkbox } from "@/pages/admin/ui/controls";
 import { Ban, Search, Settings2, UserPlus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { PaginationBar } from "@/components/layout/workspace-page";
+import { PaginationBar } from "@/pages/admin/components/admin-ui";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { bulkDisableAdminUsers, deleteAdminUser, listAdminUsers, updateAdminUser, type AdminUser, type LocalUser } from "@/services/api/auth";
 import { useUserStore } from "@/stores/use-user-store";
@@ -56,7 +57,7 @@ export default function UsersPanel({ onUserChanged }: { onUserChanged?: (user: L
             role: state.role === "all" ? undefined : state.role,
             status: state.status === "all" ? undefined : state.status,
             page: state.page,
-            limit: state.pageSize,
+            pageSize: state.pageSize,
         })
             .then((result) => {
                 if (sequence !== requestSequence.current) return;
@@ -182,6 +183,7 @@ export default function UsersPanel({ onUserChanged }: { onUserChanged?: (user: L
                                         {userColumnOptions.map((option) => (
                                             <label key={option.key} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted/60">
                                                 <Checkbox
+                                                    bare
                                                     checked={visibleColumns.has(option.key)}
                                                     disabled={option.locked}
                                                     onChange={(event) => setVisibleColumns((current) => {

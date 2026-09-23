@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { AppModal } from "@/components/ui/product/app-modal";
 import { Command, Search } from "lucide-react";
-import { Modal } from "antd";
+import { Kbd } from "@/components/ui/base/kbd";
 
 import {
     CANVAS_SHORTCUT_CATEGORIES,
@@ -30,7 +31,7 @@ export function CanvasShortcutsModal({ open, onClose }: { open: boolean; onClose
     );
 
     return (
-        <Modal
+        <AppModal
             className="workspace-modal workspace-modal-wide canvas-shortcuts-modal"
             open={open}
             onCancel={onClose}
@@ -39,7 +40,7 @@ export function CanvasShortcutsModal({ open, onClose }: { open: boolean; onClose
             centered
             keyboard
             width="min(860px, calc(100vw - 24px))"
-            styles={{ container: { padding: 0 }, body: { padding: 0 } }}
+            flush
             afterOpenChange={(visible) => {
                 if (visible) window.requestAnimationFrame(() => inputRef.current?.focus());
             }}
@@ -105,10 +106,10 @@ export function CanvasShortcutsModal({ open, onClose }: { open: boolean; onClose
 
                 <footer className="canvas-shortcuts-footer">
                     <span>共 {results.length} 个快捷键</span>
-                    <span className="canvas-shortcuts-close-hint"><kbd>Esc</kbd> 关闭</span>
+                    <span className="canvas-shortcuts-close-hint"><Kbd>Esc</Kbd> 关闭</span>
                 </footer>
             </div>
-        </Modal>
+        </AppModal>
     );
 }
 
@@ -140,7 +141,7 @@ function ShortcutRow({ shortcut, showCategory }: { shortcut: CanvasShortcutItem;
                         {combination.map((key, keyIndex) => (
                             <span key={`${key}-${keyIndex}`} className="canvas-shortcuts-key-part">
                                 {keyIndex ? <i>+</i> : null}
-                                <kbd>{key}</kbd>
+                                <Kbd>{key}</Kbd>
                             </span>
                         ))}
                     </span>

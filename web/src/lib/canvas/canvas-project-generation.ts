@@ -1,6 +1,6 @@
 import { type GenerationTask } from "@/services/api/task-center";
 import { backendProviderConfig, logicalModelIDForConfig, runBackendGenerationTask, type GenerationTaskDependencies } from "@/services/api/generation-task";
-import { configuredModelMatchesCapability, defaultConfig, normalizeModelOptionValue, normalizeRunningHubCapability, resolveModelRequestConfig, type AiConfig, type WorkflowFieldMapping } from "@/stores/use-config-store";
+import { configuredModelMatchesCapability, defaultConfig, modelDisplayName, normalizeModelOptionValue, normalizeRunningHubCapability, resolveModelRequestConfig, type AiConfig, type WorkflowFieldMapping } from "@/stores/use-config-store";
 import { resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { resolveMediaUrl } from "@/services/file-storage";
 import { resourceIdFromStorageKey } from "@/services/api/resources";
@@ -8,14 +8,16 @@ import { NODE_DEFAULT_SIZE } from "@/constant/canvas";
 import { normalizeVideoDuration, normalizeVideoResolution } from "@/lib/video-generation-options";
 import { isSeedanceVideoConfig } from "@/lib/seedance-video";
 import { modelCapabilityConfigFor, workflowFieldCurrentValue, workflowFieldHasStoredValue, workflowFieldKey, workflowFieldRandomKey, workflowFieldSubmissionValue, workflowOutputSizeValue, workflowVideoFieldsFromJson } from "@/lib/model-capabilities";
-import { modelRequestOptions, resolveCompatibleModel, resolveModelGenerationDefaults, resolveVideoOperation, type ModelGenerationDefaults, type ModelRequirements } from "@/lib/model-selection";
+import { modelCompatibilityError, modelRequestOptions, resolveCompatibleModel, resolveModelGenerationDefaults, resolveVideoOperation, type ModelGenerationDefaults, type ModelRequirements } from "@/lib/model-selection";
 import { imageMetadata } from "@/lib/canvas/canvas-generation-task-sync";
 import { ensureMediaNodeMinimumSize } from "@/lib/canvas/canvas-node-size";
+import { interruptFileUpload } from "@/lib/canvas/canvas-file-upload";
 import { isCanvasWorkflowProvider, resolveCanvasWorkflowProvider } from "@/lib/canvas/canvas-workflow";
 import type { CanvasNodeGenerationMode } from "@/components/canvas/canvas-node-prompt-panel";
 import { CanvasNodeType, type CanvasAssistantSession, type CanvasConnection, type CanvasImageGenerationType, type CanvasNodeData, type CanvasNodeMetadata, type CanvasVideoEditOperation } from "@/types/canvas";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
+import { generationSpecMetadata, readNodeGenerationSpec, resolveGenerationSelection } from "@/lib/canvas/generation-contract";
 
 export async function runBackendCanvasGenerationTask(
     {
@@ -76,11 +78,23 @@ export async function runBackendCanvasGenerationTask(
 }
 
 export function canvasImageReferenceLimitError(config: AiConfig, referenceImages: ReferenceImage[]) {
-    // 工作流的参考素材上限由字段映射槽位决定，不能再套用当前普通图片模型的能力表。
-    if ((config.taskWorkflowProvider || "model") !== "model") return "";
-    const maxImages = modelCapabilityConfigFor(config, config.model).image?.references.maxImages;
+    const maxImages = canvasImageMaxReferenceImages(config);
     if (maxImages === undefined || referenceImages.length <= maxImages) return "";
     return `当前图片模型最多支持 ${maxImages} 张参考图，当前已连接 ${referenceImages.length} 张。请移除多余连线后重试`;
+}
+
+/** 工作流的参考素材上限由字段映射槽位决定，不能再套用当前普通图片模型的能力表。 */
+export function canvasImageMaxReferenceImages(config: AiConfig) {
+    if ((config.taskWorkflowProvider || "model") !== "model") return undefined;
+    return modelCapabilityConfigFor(config, config.model).image?.references.maxImages;
+}
+
+/** 「按标记生成」固定提交原图与标记图两张参考图，模型能力不足时返回可直接展示的中文原因。 */
+export function canvasImageAnnotationReferenceError(config: AiConfig, node?: CanvasNodeData) {
+    const generationConfig = buildGenerationConfig(config, node, "image", undefined, true);
+    const maxImages = canvasImageMaxReferenceImages(generationConfig);
+    if (maxImages === undefined || maxImages >= 2) return "";
+    return `当前图片模型最多支持 ${maxImages} 张参考图，无法按标记生成（需要原图与标记图两张）。请换用支持至少 2 张参考图的模型`;
 }
 
 export function assertCanvasImageReferenceLimit(config: AiConfig, referenceImages: ReferenceImage[]) {
@@ -231,6 +245,19 @@ export function buildImageGenerationMetadata(type: CanvasImageGenerationType, co
 }
 
 export function nodeReferenceImage(node: CanvasNodeData): ReferenceImage | null {
+    if (node.type === CanvasNodeType.MediaConversion) {
+        // 转换结果只在成功物化后作为生成参考；运行中、跳过和失败状态都不能透传旧结果。
+        const conversion = node.metadata?.mediaConversion;
+        const storageKey = conversion?.resultStorageKey || node.metadata?.storageKey;
+        if (conversion?.status !== "completed" || !storageKey) return null;
+        return {
+            id: node.id,
+            name: node.title || `conversion-${node.id}.png`,
+            type: node.metadata?.mimeType || "image/png",
+            dataUrl: node.metadata?.content || "",
+            storageKey,
+        };
+    }
     if (node.type !== CanvasNodeType.Image || (!node.metadata?.content && !node.metadata?.storageKey)) return null;
     return {
         id: node.id,
@@ -324,8 +351,8 @@ export function buildVideoGenerationMetadata(
     const metadata = node?.metadata;
     const referenceImageIds = new Set((context?.referenceImages || []).map((image) => image.id));
     // 工作流视频把已连接媒体交给字段映射处理，不再把历史首尾帧选择当成硬约束。
-    // 这样旧节点切换到 RunningHub/ComfyUI 后，不会因为残留的首尾帧 ID 阻断生成。
-    const workflowVideo = node?.type === CanvasNodeType.Config && ((config?.taskWorkflowProvider === "runninghub" || config?.taskWorkflowProvider === "comfyui") || isCanvasWorkflowProvider(metadata));
+    // 工作流视频把已连接媒体交给字段映射处理，不再把历史首尾帧选择当成硬约束。
+    const workflowVideo = node?.type === CanvasNodeType.Config && (config?.taskWorkflowProvider === "runninghub" || isCanvasWorkflowProvider(metadata));
     const startFrame = workflowVideo ? undefined : requireConnectedVideoFrame(metadata?.videoStartFrameNodeId, "首帧", referenceImageIds);
     const endFrame = workflowVideo ? undefined : requireConnectedVideoFrame(metadata?.videoEndFrameNodeId, "尾帧", referenceImageIds);
     return {
@@ -393,24 +420,27 @@ export function getGenerationCount(count: string) {
     return Math.max(1, Math.min(15, Math.floor(Math.abs(Number(count)) || 1)));
 }
 
-export function generationWorkflowMetadata(config: AiConfig): Pick<CanvasNodeMetadata, "workflowProvider" | "runningHubWorkflowId" | "runningHubWorkflowKind" | "comfyBridgeWorkflowId"> {
+export function generationWorkflowMetadata(config: AiConfig): Pick<CanvasNodeMetadata, "workflowProvider" | "runningHubWorkflowId" | "runningHubWorkflowKind"> {
     const provider = config.taskWorkflowProvider || "model";
     return {
         workflowProvider: provider,
         runningHubWorkflowId: provider === "runninghub" ? config.runningHub.workflowId : undefined,
         runningHubWorkflowKind: provider === "runninghub" ? config.runningHub.selectedKind : undefined,
-        comfyBridgeWorkflowId: provider === "comfyui" ? config.comfyBridge.workflowId : undefined,
     };
 }
 
-export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefined, mode: CanvasNodeGenerationMode, requirements?: ModelRequirements): AiConfig {
+export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefined, mode: CanvasNodeGenerationMode, requirements?: ModelRequirements, displayOnly = false): AiConfig {
+    const generationSpec = node ? readNodeGenerationSpec(node) : undefined;
+    const selection = generationSpec?.mode === mode ? generationSpec.modelSelection : undefined;
+    const selectedModel = resolveGenerationSelection(config, selection);
+    if (selection && !selectedModel && !displayOnly) throw new Error("节点选择的模型或渠道已不可用，请重新选择模型后生成");
+    if (node && generationSpec?.mode === mode) node = { ...node, metadata: { ...node.metadata, ...generationSpecMetadata(generationSpec) } };
     // 只有独立 Config 节点读取工作流元数据；普通图片/视频/音频节点始终按基础模型生成。
-    const workflowProvider = mode !== "text" && node?.type === CanvasNodeType.Config
-        ? resolveCanvasWorkflowProvider(node.metadata) === "comfyui" ? "comfyui" : "runninghub"
-        : "model";
+    const workflowProvider = mode !== "text" && node?.type === CanvasNodeType.Config && resolveCanvasWorkflowProvider(node.metadata) === "runninghub" ? "runninghub" : "model";
     const defaultModel = mode === "image" ? config.imageModel : mode === "video" ? config.videoModel : mode === "audio" ? config.audioModel : config.textModel;
     const fallbackModel = mode === "image" ? defaultConfig.imageModel : mode === "video" ? defaultConfig.videoModel : mode === "audio" ? defaultConfig.audioModel : defaultConfig.textModel;
-    const storedModel = resolveCanvasGenerationModel(config, node?.metadata?.model, mode);
+    const storedModel = resolveCanvasGenerationModel(config, selectedModel || node?.metadata?.model, mode);
+    if (selection && selectedModel && !storedModel && !displayOnly) throw new Error("节点选择的模型不支持当前生成模式，请重新选择");
     const preferredModel = storedModel || resolveCanvasGenerationModel(config, defaultModel, mode) || fallbackModel;
     // 先合并节点上的实时选择，再做兼容性匹配。否则路由只看到全局默认值，节点改过的时长、分辨率或布尔能力无法参与分流。
     const workflowParameters = node?.metadata?.workflowParameters || {};
@@ -418,15 +448,9 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
     const selectedRunningHubWorkflow = workflowProvider === "runninghub"
         ? config.runningHub.workflows.find((item) => item.workflowId.trim() === runningHubWorkflowId && (!node?.metadata?.runningHubWorkflowKind || (item.kind === "app" ? "app" : "workflow") === node.metadata.runningHubWorkflowKind))
         : undefined;
-    const comfyBridgeWorkflowId = node?.metadata?.comfyBridgeWorkflowId?.trim() || config.comfyBridge.workflowId.trim();
-    const selectedComfyBridgeWorkflow = workflowProvider === "comfyui"
-        ? config.comfyBridge.workflows.find((item) => item.workflowId.trim() === comfyBridgeWorkflowId)
-        : undefined;
     const selectedWorkflowFields = workflowProvider === "runninghub"
         ? selectedRunningHubWorkflow?.fields?.length ? selectedRunningHubWorkflow.fields : workflowVideoFieldsFromJson(selectedRunningHubWorkflow?.workflowJson)
-        : workflowProvider === "comfyui"
-            ? selectedComfyBridgeWorkflow?.fields?.length ? selectedComfyBridgeWorkflow.fields : workflowVideoFieldsFromJson(selectedComfyBridgeWorkflow?.workflowJson)
-            : [];
+        : [];
     const workflowOutputSize = workflowProvider === "model" ? "" : workflowOutputSizeValue(selectedWorkflowFields, workflowParameters);
     const workflowParameterValue = (source: string) => {
         const value = workflowParameters[`source:${source}`];
@@ -494,20 +518,18 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
     const modeCapability = mode === "video" || mode === "audio" ? mode : "image";
     const runningHubCapability = normalizeRunningHubCapability(selectedRunningHubWorkflow?.capability, normalizeRunningHubCapability(config.runningHub.capability));
     const runningHub = { ...config.runningHub, enabled: workflowProvider === "runninghub" && config.runningHub.enabled, selectedKind: selectedRunningHubWorkflow?.kind === "app" ? "app" as const : "workflow" as const, workflowId: runningHubWorkflowId, capability: runningHubCapability, workflows: workflowProvider === "runninghub" ? config.runningHub.workflows.map((item) => item.workflowId.trim() === runningHubWorkflowId && (!node?.metadata?.runningHubWorkflowKind || (item.kind === "app" ? "app" : "workflow") === node.metadata.runningHubWorkflowKind) ? { ...item, fields: applyWorkflowParameterValues(item.fields?.length ? item.fields : workflowVideoFieldsFromJson(item.workflowJson) as WorkflowFieldMapping[], workflowParameters) } : item) : config.runningHub.workflows };
-    const comfyBridge = { ...config.comfyBridge, enabled: workflowProvider === "comfyui" && config.comfyBridge.enabled, workflowId: comfyBridgeWorkflowId, capability: selectedComfyBridgeWorkflow?.capability || modeCapability, workflows: workflowProvider === "comfyui" ? config.comfyBridge.workflows.map((item) => item.workflowId.trim() === comfyBridgeWorkflowId ? { ...item, fields: applyWorkflowParameterValues(item.fields?.length ? item.fields : workflowVideoFieldsFromJson(item.workflowJson) as WorkflowFieldMapping[], workflowParameters) } : item) : config.comfyBridge.workflows };
     return {
         ...requestedConfig,
         taskWorkflowProvider: workflowProvider,
         runningHub,
-        comfyBridge,
         model,
         quality: generationDefaults.quality || requestedConfig.quality,
         size: generationDefaults.size ?? requestedConfig.size,
         transparentBackground: generationDefaults.transparentBackground || (requestedConfig.transparentBackground === "true" ? "true" : "false"),
-        videoSeconds: generationDefaults.videoSeconds || requestedConfig.videoSeconds,
+        videoSeconds: generationDefaults.videoSeconds ?? requestedConfig.videoSeconds,
         vquality: generationDefaults.vquality ?? requestedConfig.vquality,
-        videoGenerateAudio: generationDefaults.videoGenerateAudio || requestedConfig.videoGenerateAudio,
-        videoWatermark: generationDefaults.videoWatermark || requestedConfig.videoWatermark,
+        videoGenerateAudio: generationDefaults.videoGenerateAudio ?? requestedConfig.videoGenerateAudio,
+        videoWatermark: generationDefaults.videoWatermark ?? requestedConfig.videoWatermark,
         videoArkPrivateAssetUpload: requestedConfig.videoArkPrivateAssetUpload,
         count: generationDefaults.count || requestedConfig.count,
     };
@@ -518,6 +540,57 @@ export function resolveCanvasGenerationModel(config: AiConfig, model: string | u
     const normalized = normalizeModelOptionValue(model, config.channels);
     if (!normalized) return "";
     return configuredModelMatchesCapability(config, normalized, mode) ? normalized : "";
+}
+
+export type CanvasImageTextModelResolution = { model: string; error: string };
+
+// 图片文字编辑的第一步是让模型读图识别文字，它依旧是 text 能力任务：后端准入会同时校验
+// 任务能力与渠道模型能力，不一致时只返回“所选模型与任务能力不匹配”。这里在提交之前
+// 按目录声明选出可用的文字模型，既不回退到当前图片模型，也不把失败留给后端报错。
+export function resolveCanvasImageTextModel(config: AiConfig): CanvasImageTextModelResolution {
+    const requirements: ModelRequirements = {
+        capability: "text",
+        input: { textCount: 1, imageCount: 1, videoCount: 0, audioCount: 0, characterCount: 0 },
+        options: modelRequestOptions(config, "text"),
+    };
+    const candidates = [config.textModel, config.model].map((candidate) => resolveCanvasGenerationModel(config, candidate, "text")).filter((candidate, index, list) => Boolean(candidate) && list.indexOf(candidate) === index);
+    if (!candidates.length) {
+        return { model: "", error: "当前没有可用的文字模型，图片文字编辑需要支持图片输入的文字模型，请先在模型设置中选择文字模型" };
+    }
+    const compatible = candidates.find((candidate) => !modelCompatibilityError(config, candidate, requirements));
+    if (!compatible) {
+        return { model: "", error: `当前文字模型 ${modelDisplayName(config, candidates[0])} 不支持图片输入，请在模型设置中切换到支持图片理解的文字模型` };
+    }
+    return { model: compatible, error: "" };
+}
+
+// 图片工具对话框（图片编辑、去除背景等）会把用户可见的模型随提交回传；用户没有主动改选时，
+// 回传的可能是全局默认的文字模型。图生图请求必须落到图片能力模型，否则后端准入会以
+// “所选模型与任务能力不匹配”拒绝，这里在提交前把非图片模型归一到调用方解析出的图片模型。
+export function resolveCanvasImageEditModel(config: AiConfig, requested: string | undefined, fallback: string) {
+    return resolveCanvasGenerationModel(config, requested, "image") || fallback;
+}
+
+export type CanvasImageRetryModelResolution = { model: string; error: string };
+
+// 失败图片节点的 metadata.model 可能已被固化成文字模型（图片工具曾把全局默认模型带进图生图请求）。
+// 重试链路若原样提交，后端准入会以同一句“所选模型与任务能力不匹配”再次拒绝，用户点“重新生成”永远修不好。
+// 这里按目录声明把模型归一到图片模型；一个都解析不到时返回中文可执行提示，由调用方在提交前拦截。
+export function resolveCanvasImageRetryModel(config: AiConfig, savedModel: string | undefined, fallback: string): CanvasImageRetryModelResolution {
+    const candidates = [savedModel, fallback, config.imageModel, config.model].map((candidate) => resolveCanvasGenerationModel(config, candidate, "image")).filter((candidate, index, list) => Boolean(candidate) && list.indexOf(candidate) === index);
+    const model = candidates[0] || "";
+    if (model) return { model, error: "" };
+    return { model: "", error: "当前没有可用的图片模型，无法重新生成，请先在模型设置中配置图片模型" };
+}
+
+export type CanvasRemoveBackgroundIntent = { transparentBackground: "true" | undefined; notice: string };
+
+// 「去除背景」的透明底是模型能力而不是提示词能保证的结果：只有模型声明支持透明背景时才提交该意图。
+// 能力不支持的模型（如 nano-banana-pro / nano-banana2）硬传也拿不到真透明底，这里改为返回一次中文提示。
+export function resolveCanvasRemoveBackgroundIntent(config: AiConfig, model: string): CanvasRemoveBackgroundIntent {
+    const profile = modelCapabilityConfigFor(config, model).image;
+    if (profile?.transparentBackground?.supported) return { transparentBackground: "true", notice: "" };
+    return { transparentBackground: undefined, notice: `当前模型 ${modelDisplayName(config, model) || "未选择"} 不支持透明背景，本次按普通去背景提示处理；如需真正的透明底，请切换到 gpt-image-2.5` };
 }
 
 function applyWorkflowParameterValues(fields: WorkflowFieldMapping[] | undefined, values: Record<string, unknown>) {
@@ -552,7 +625,7 @@ export function resetInterruptedGeneration(nodes: CanvasNodeData[]) {
     const configHeight = NODE_DEFAULT_SIZE[CanvasNodeType.Config].height;
     let changed = false;
     const reset = nodes.map((node) => {
-        const mediaNode = ensureMediaNodeMinimumSize(node);
+        const mediaNode = ensureMediaNodeMinimumSize(interruptFileUpload(node));
         const resizedNode =
             mediaNode.type === CanvasNodeType.Config && (mediaNode.width < configWidth || mediaNode.height < configHeight)
                 ? { ...mediaNode, width: Math.max(mediaNode.width, configWidth), height: Math.max(mediaNode.height, configHeight) }

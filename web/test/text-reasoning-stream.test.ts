@@ -67,11 +67,11 @@ describe("text reasoning streams", () => {
         expect(output).toEqual({ result: "可见回答", content: "可见回答", reasoning: "内部思考" });
     });
 
-    test("keeps single results open and collapses completed bulk results on restore", () => {
+    test("keeps completed results open until the user collapses them", () => {
         const single = renderToStaticMarkup(React.createElement(GenerationToolCard, { status: "completed", heading: "图像生成" }, React.createElement("span", null, "单图结果")));
-        const bulk = renderToStaticMarkup(React.createElement(GenerationToolCard, { status: "completed", isBulk: true, heading: "图像生成" }, React.createElement("span", null, "批量结果")));
+        const bulk = renderToStaticMarkup(React.createElement(GenerationToolCard, { status: "completed", heading: "图像生成" }, React.createElement("span", null, "批量结果")));
 
         expect(single).toContain("单图结果");
-        expect(bulk).not.toContain("批量结果");
+        expect(bulk).toContain("批量结果");
     });
 });

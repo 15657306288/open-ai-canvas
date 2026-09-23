@@ -1,5 +1,5 @@
 import type { CanvasConnection } from "@/types/canvas";
-import { apiClient, request } from "@/services/api/request";
+import { http } from "@/services/api/request";
 
 export type TapNowImportIssue = { id?: string; name?: string; reason: string };
 export type TapNowImportWarning = { id?: string; message: string };
@@ -53,5 +53,5 @@ export type TapNowImportResult = {
 };
 
 export function importTapNowCanvas(projectId: string, shareId: string) {
-    return request<TapNowImportResult>(apiClient.post(`/canvas-projects/${encodeURIComponent(projectId)}/import/tapnow`, { shareId }));
+    return http.post<TapNowImportResult>(`/canvas-projects/${encodeURIComponent(projectId)}/import/tapnow`, { shareId });
 }

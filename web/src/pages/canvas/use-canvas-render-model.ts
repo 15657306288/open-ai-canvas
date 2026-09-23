@@ -4,7 +4,7 @@ import { buildNodeGenerationInputs, type NodeGenerationInput } from "@/component
 import { isFrameNode } from "@/lib/canvas/canvas-frame";
 import { sameNodeSemanticData } from "@/lib/canvas/canvas-project-domain";
 import { canvasNodeRenderBudget, canvasNodeRenderPadding, CANVAS_MAX_RENDERED_CONNECTIONS, shouldReduceCanvasMediaEffects } from "@/lib/canvas/canvas-performance-mode";
-import { buildCanvasNodeMentionReferenceMap, buildCanvasResourceReferences } from "@/lib/canvas/canvas-resource-references";
+import { buildCanvasNodeMentionReferenceMap, buildCanvasResourceReferences, buildToolMentionReference, parseToolMentionTokens } from "@/lib/canvas/canvas-resource-references";
 import { buildSkillMentionReferences } from "@/lib/canvas/canvas-skill-mentions";
 import { buildCanvasSpatialIndex, canvasNodeBounds, type CanvasSpatialIndex, type CanvasSpatialIndexEntry } from "@/lib/canvas/canvas-spatial-index";
 import type { Skill } from "@/services/api/skills";
@@ -30,11 +30,13 @@ type UseCanvasRenderModelOptions = {
     infoNodeId: string | null;
     cropNodeId: string | null;
     maskEditNodeId: string | null;
+    imageEditNodeId: string | null;
     annotationNodeId: string | null;
     splitNodeId: string | null;
     upscaleNodeId: string | null;
     superResolveNodeId: string | null;
     angleNodeId: string | null;
+    lightingNodeId: string | null;
     emotionNodeId: string | null;
     previewNodeId: string | null;
     contextMenu: ContextMenuState | null;
@@ -60,11 +62,13 @@ export function useCanvasRenderModel({
     infoNodeId,
     cropNodeId,
     maskEditNodeId,
+    imageEditNodeId,
     annotationNodeId,
     splitNodeId,
     upscaleNodeId,
     superResolveNodeId,
     angleNodeId,
+    lightingNodeId,
     emotionNodeId,
     previewNodeId,
     contextMenu,
@@ -220,11 +224,13 @@ export function useCanvasRenderModel({
     const infoNode = infoNodeId ? nodeById.get(infoNodeId) || null : null;
     const cropNode = cropNodeId ? nodeById.get(cropNodeId) || null : null;
     const maskEditNode = maskEditNodeId ? nodeById.get(maskEditNodeId) || null : null;
+    const imageEditNode = imageEditNodeId ? nodeById.get(imageEditNodeId) || null : null;
     const annotationNode = annotationNodeId ? nodeById.get(annotationNodeId) || null : null;
     const splitNode = splitNodeId ? nodeById.get(splitNodeId) || null : null;
     const upscaleNode = upscaleNodeId ? nodeById.get(upscaleNodeId) || null : null;
     const superResolveNode = superResolveNodeId ? nodeById.get(superResolveNodeId) || null : null;
     const angleNode = angleNodeId ? nodeById.get(angleNodeId) || null : null;
+    const lightingNode = lightingNodeId ? nodeById.get(lightingNodeId) || null : null;
     const emotionNode = emotionNodeId ? nodeById.get(emotionNodeId) || null : null;
     const previewNode = previewNodeId ? nodeById.get(previewNodeId) || null : null;
     const contextMenuNode = contextMenu?.type === "node" ? nodeById.get(contextMenu.nodeId) || null : null;
@@ -347,12 +353,32 @@ export function useCanvasRenderModel({
     );
     const resourceReferenceByNodeId = useMemo(() => new Map(canvasResourceReferences.map((reference) => [reference.nodeId, reference])), [canvasResourceReferences]);
     const skillMentionReferences = useMemo(() => buildSkillMentionReferences(addedSkills), [addedSkills]);
+    const toolMentionReferencesByNodeId = useMemo(() => {
+        const map = new Map<string, ReturnType<typeof buildToolMentionReference>[]>();
+        for (const node of semanticNodes) {
+            const text = node.metadata?.composerContent ?? node.metadata?.prompt ?? "";
+            const tokens = parseToolMentionTokens(text);
+            if (!tokens.length) continue;
+            const seen = new Set<number>();
+            const refs: ReturnType<typeof buildToolMentionReference>[] = [];
+            for (const { type, toolId, label, icon } of tokens) {
+                if (seen.has(toolId)) continue;
+                seen.add(toolId);
+                refs.push(buildToolMentionReference(toolId, label, type, icon));
+            }
+            if (refs.length) map.set(node.id, refs);
+        }
+        return map;
+    }, [semanticNodes]);
     const mentionReferencesByNodeId = useMemo(() => {
         const map = buildCanvasNodeMentionReferenceMap(semanticNodes, connections, visibleNodes);
-        if (!skillMentionReferences.length) return map;
-        map.forEach((references, nodeId) => map.set(nodeId, [...references, ...skillMentionReferences]));
+        if (!skillMentionReferences.length && toolMentionReferencesByNodeId.size === 0) return map;
+        map.forEach((references, nodeId) => {
+            const extras = [...skillMentionReferences, ...(toolMentionReferencesByNodeId.get(nodeId) ?? [])];
+            if (extras.length) map.set(nodeId, [...references, ...extras]);
+        });
         return map;
-    }, [connections, semanticNodes, skillMentionReferences, visibleNodes]);
+    }, [connections, semanticNodes, skillMentionReferences, toolMentionReferencesByNodeId, visibleNodes]);
 
     return {
         activeDirectorNode,
@@ -361,6 +387,7 @@ export function useCanvasRenderModel({
         activeScriptNode,
         activeStylePresetId,
         angleNode,
+        lightingNode,
         emotionNode,
         annotationNode,
         batchChildCountById,
@@ -375,6 +402,7 @@ export function useCanvasRenderModel({
         imageAssets,
         infoNode,
         maskEditNode,
+        imageEditNode,
         mentionReferencesByNodeId,
         nodeById,
         previewNode,

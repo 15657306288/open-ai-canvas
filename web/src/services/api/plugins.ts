@@ -1,4 +1,4 @@
-import { apiClient, request } from "@/services/api/request";
+import { http } from "@/services/api/request";
 import type { PluginManifest } from "@/lib/plugins/plugin-types";
 
 export type BackendPlugin = {
@@ -37,34 +37,34 @@ export type PluginState = {
 export type AdminPluginState = PluginState & { enabledUserCount: number };
 
 export async function fetchPlugins() {
-    return request<{ plugins: BackendPlugin[]; states: Record<string, PluginState> }>(apiClient.get("/plugins"));
+    return http.get<{ plugins: BackendPlugin[]; states: Record<string, PluginState> }>("/plugins");
 }
 
 export async function fetchPluginRuntimeState() {
-    return request<{ statuses: Record<string, WorkflowPluginStatus>; states: Record<string, PluginState> }>(apiClient.get("/plugins/status"));
+    return http.get<{ statuses: Record<string, WorkflowPluginStatus>; states: Record<string, PluginState> }>("/plugins/status");
 }
 
 export async function uploadPlugin(file: File) {
     const body = new FormData();
     body.append("file", file);
-    const result = await request<{ plugin: BackendPlugin }>(apiClient.post("/plugins", body));
+    const result = await http.post<{ plugin: BackendPlugin }>("/plugins", body);
     return result.plugin;
 }
 
 export async function setUserPluginEnabled(id: string, enabled: boolean) {
-    const result = await request<{ state: PluginState }>(apiClient.put(`/plugins/${encodeURIComponent(id)}/activation`, { enabled }));
+    const result = await http.put<{ state: PluginState }>(`/plugins/${encodeURIComponent(id)}/activation`, { enabled });
     return result.state;
 }
 
 export async function fetchAdminPlugins() {
-    return request<{ plugins: BackendPlugin[]; states: Record<string, AdminPluginState> }>(apiClient.get("/admin/plugins"));
+    return http.get<{ plugins: BackendPlugin[]; states: Record<string, AdminPluginState> }>("/admin/plugins");
 }
 
 export async function setPluginPlatformAvailability(id: string, available: boolean) {
-    const result = await request<{ state: AdminPluginState }>(apiClient.put(`/admin/plugins/${encodeURIComponent(id)}/availability`, { available }));
+    const result = await http.put<{ state: AdminPluginState }>(`/admin/plugins/${encodeURIComponent(id)}/availability`, { available });
     return result.state;
 }
 
 export async function uninstallPlugin(id: string) {
-    await request<{ deleted: boolean }>(apiClient.delete(`/plugins/${encodeURIComponent(id)}`));
+    await http.delete<{ deleted: boolean }>(`/plugins/${encodeURIComponent(id)}`);
 }

@@ -1,10 +1,11 @@
-import { Alert, App, Button, Drawer, Form, Input, Popconfirm, Select, Tabs, Tag } from "antd";
+import { App, Button, Form, Input, Popconfirm, Select, Tabs } from "antd";
+import { Callout } from "@/pages/admin/ui/controls";
 import type { ColumnsType } from "antd/es/table";
 import { Braces, Copy, FileJson, FileText, Plus, Power, Search, ShieldCheck, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 
-import { PaginationBar } from "@/components/layout/workspace-page";
+import { AdminDrawer } from "@/pages/admin/ui/overlays";
 import { PromptCodeEditor, type PromptCodeEditorHandle } from "@/components/prompt/prompt-code-editor";
 import {
     createAdminPromptTemplate,
@@ -15,7 +16,7 @@ import {
     type PromptTemplate,
 } from "@/services/api/auth";
 import { AdminPageFrame } from "../components/admin-shell";
-import { AdminDataTable, AdminRowActions, AdminStatusBadge, AdminTableEmpty } from "../components/admin-ui";
+import { AdminDataTable, AdminRowActions, AdminStatusBadge, AdminTableEmpty, PaginationBar } from "../components/admin-ui";
 
 type PromptFormValues = { name: string; enabled?: boolean };
 type DraftBaseline = { operation: string; name: string; enabled: boolean; content: string };
@@ -185,7 +186,8 @@ export default function StoryboardPromptsPage() {
                 footer={<PaginationBar alwaysShow current={page} pageSize={pageSize} total={filtered.length} onChange={(nextPage, nextPageSize) => { setPage(nextPageSize !== pageSize ? 1 : nextPage); setPageSize(nextPageSize); }} />}
             />
 
-            <Drawer
+            <AdminDrawer
+                flush
                 title={baseTemplate ? `基于 v${baseTemplate.version} 新建版本` : "新建提示词版本"}
                 open={drawerOpen}
                 size="min(1180px, 100vw)"
@@ -194,8 +196,6 @@ export default function StoryboardPromptsPage() {
                 closable={false}
                 mask={{ closable: false }}
                 keyboard={false}
-                destroyOnHidden
-                styles={{ body: { padding: 0 } }}
                 extra={<div className="flex gap-2"><Popconfirm disabled={!dirty} title="放弃模板修改？" description="尚未保存的新版本内容将丢失。" okText="放弃修改" cancelText="继续编辑" okButtonProps={{ danger: true }} onConfirm={closeDrawer}><Button disabled={saving} onClick={() => { if (!dirty) closeDrawer(); }}>关闭</Button></Popconfirm><Button type="primary" loading={saving} disabled={!draftOperation || !draftName.trim() || !editorContent.trim()} onClick={() => void save()}>保存版本</Button></div>}
             >
                 <Form form={form} layout="vertical" requiredMark={false} className="flex min-h-full flex-col">
@@ -212,19 +212,13 @@ export default function StoryboardPromptsPage() {
                     </div>
 
                     {pendingOperation ? (
-                        <Alert
-                            type="warning"
-                            showIcon
-                            title="当前版本有未保存修改"
-                            description={`切换到“${definitionByOperation.get(pendingOperation)?.label || pendingOperation}”会丢弃当前草稿。`}
-                            action={<div className="flex gap-2"><Button size="small" onClick={() => setPendingOperation("")}>继续编辑</Button><Button size="small" danger onClick={() => loadDraftBaseline(pendingOperation)}>放弃并切换</Button></div>}
-                        />
+                        <Callout tone="warning" title="当前版本有未保存修改" action={<div className="flex gap-2"><Button size="small" onClick={() => setPendingOperation("")}>继续编辑</Button><Button size="small" danger onClick={() => loadDraftBaseline(pendingOperation)}>放弃并切换</Button></div>}>{`切换到“${definitionByOperation.get(pendingOperation)?.label || pendingOperation}”会丢弃当前草稿。`}</Callout>
                     ) : null}
 
                     <div className="grid min-h-0 flex-1 gap-0 lg:grid-cols-3">
                         <section className="flex min-h-0 flex-col border-b border-border p-4 lg:col-span-2 lg:border-b-0 lg:border-r">
                             <div className="mb-3 flex shrink-0 flex-wrap items-start justify-between gap-3">
-                                <div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-semibold">模板内容</h3>{dirty ? <Tag variant="filled" color="warning">未保存</Tag> : null}</div>
+                                <div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-semibold">模板内容</h3>{dirty ? <AdminStatusBadge variant="filled" tone="warning" label="未保存" /> : null}</div>
                                 <div className="flex flex-wrap justify-end gap-2">
                                     {selectedDefinition?.variables.map((variable) => (
                                         <Button key={variable.placeholder} size="small" icon={<Braces className="size-3.5" />} onClick={() => editorRef.current?.insertText(variable.placeholder)}>
@@ -257,7 +251,7 @@ export default function StoryboardPromptsPage() {
                         </aside>
                     </div>
                 </Form>
-            </Drawer>
+            </AdminDrawer>
         </AdminPageFrame>
     );
 }

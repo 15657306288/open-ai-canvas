@@ -1,4 +1,4 @@
-import { apiClient, request } from "@/services/api/request";
+import { http } from "@/services/api/request";
 import type { RunningHubConfig, RunningHubWorkflow } from "@/stores/use-config-store";
 
 export type RunningHubWorkflowFetchResult = RunningHubWorkflow & { kind: "workflow" | "app"; webappId?: string; raw?: Record<string, unknown> };
@@ -6,11 +6,11 @@ export type RunningHubWorkflowFetchResult = RunningHubWorkflow & { kind: "workfl
 type FetchRequest = Pick<RunningHubConfig, "baseUrl" | "apiKey" | "walletApiKey" | "useWallet"> & { workflowId?: string; webappId?: string; title?: string; capability: RunningHubConfig["capability"] };
 
 export function fetchRunningHubWorkflow(config: FetchRequest) {
-    return request<RunningHubWorkflowFetchResult>(apiClient.post("/runninghub/workflow-info", runningHubFetchPayload(config)));
+    return http.post<RunningHubWorkflowFetchResult>("/runninghub/workflow-info", runningHubFetchPayload(config));
 }
 
 export function fetchRunningHubApp(config: FetchRequest) {
-    return request<RunningHubWorkflowFetchResult>(apiClient.post("/runninghub/app-info", runningHubFetchPayload(config)));
+    return http.post<RunningHubWorkflowFetchResult>("/runninghub/app-info", runningHubFetchPayload(config));
 }
 
 function runningHubFetchPayload(config: FetchRequest) {

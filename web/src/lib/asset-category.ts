@@ -29,6 +29,15 @@ export function normalizeAssetCategory(value: unknown, fallback: AssetCategory =
     return LEGACY_ASSET_CATEGORY_MAP[normalized] || fallback;
 }
 
+export function parseAssetCategory(value: unknown): AssetCategory {
+    if (typeof value !== "string") throw new Error("素材 category 必须是字符串");
+    const normalized = value.trim().toLowerCase();
+    if ((ASSET_CATEGORIES as readonly string[]).includes(normalized)) return normalized as AssetCategory;
+    const mapped = LEGACY_ASSET_CATEGORY_MAP[normalized];
+    if (!mapped) throw new Error("素材 category 无效");
+    return mapped;
+}
+
 export function defaultAssetCategoryForKind(kind: string): AssetCategory {
     if (kind === "entity") return "character";
     if (kind === "image" || kind === "video" || kind === "audio" || kind === "model") return "material";

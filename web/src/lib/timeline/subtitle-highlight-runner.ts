@@ -1,7 +1,7 @@
 import { runBackendCanvasGenerationTask } from "@/lib/canvas/canvas-project-generation";
 import type { AiConfig } from "@/stores/use-config-store";
 import type { SrtEntry, SubtitleHighlight } from "@/types/timeline";
-import { buildSubtitleHighlightSystemPrompt, buildSubtitleHighlightUserMessage } from "./subtitle-highlight-ai";
+import { buildSubtitleHighlightSystemPrompt, buildSubtitleHighlightUserMessage } from "@/lib/prompts";
 import { parseSubtitleHighlightResponse } from "./subtitle-highlight-service";
 
 export interface SubtitleHighlightProgress {

@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Button, Modal } from "antd";
 import { Check, Lock, LockOpen, X } from "lucide-react";
 
-import { readImageMeta } from "@/lib/image-utils";
+import { canvasDialogImageInput, type CanvasDialogImageInput } from "@/lib/canvas/canvas-node-image-source";
+import { CanvasNodeImageStatus } from "@/components/canvas/canvas-node-image-status";
+import { useCanvasNodeImage } from "@/hooks/use-canvas-node-image";
 
 export type CanvasImageCropRect = {
     x: number;
@@ -29,12 +31,23 @@ const cropAspectPresets: Array<{ value: CropAspectPreset; label: string; ratio?:
     { value: "9:16", label: "9:16", ratio: 9 / 16 },
 ];
 
-export function CanvasNodeCropDialog({ dataUrl, open, onClose, onConfirm }: { dataUrl: string; open: boolean; onClose: () => void; onConfirm: (crop: CanvasImageCropRect) => void }) {
+export function CanvasNodeCropDialog({ dataUrl, image: imageInput, open, onClose, onConfirm }: {
+    /** 兼容老的 dataUrl 直传；新调用点传「storageKey 优先」的解析结果。 */
+    dataUrl?: string;
+    image?: CanvasDialogImageInput | null;
+    open: boolean;
+    onClose: () => void;
+    onConfirm: (crop: CanvasImageCropRect) => void;
+}) {
+    const requested = canvasDialogImageInput(dataUrl, imageInput);
+    const loaded = useCanvasNodeImage(requested, open);
+    // 裁剪坐标与尺寸换算以解码出的真实像素为准，不能只信节点宽高。
+    const image = useMemo(() => (loaded.status === "ready" ? { width: loaded.width, height: loaded.height } : null), [loaded.height, loaded.status, loaded.width]);
+    const sourceReady = loaded.status === "ready";
     const boxRef = useRef<HTMLDivElement>(null);
     const [crop, setCrop] = useState<CanvasImageCropRect>(defaultCrop);
     const [lockedRatio, setLockedRatio] = useState<number | null>(null);
     const [activePreset, setActivePreset] = useState<CropAspectPreset | "custom" | null>(null);
-    const [image, setImage] = useState<{ width: number; height: number } | null>(null);
     const cropSize = image ? { width: Math.max(1, Math.round(crop.width * image.width)), height: Math.max(1, Math.round(crop.height * image.height)) } : null;
 
     useEffect(() => {
@@ -42,19 +55,8 @@ export function CanvasNodeCropDialog({ dataUrl, open, onClose, onConfirm }: { da
         setCrop(defaultCrop);
         setLockedRatio(null);
         setActivePreset(null);
-    }, [dataUrl, open]);
+    }, [open, requested?.storageKey, requested?.url]);
 
-    useEffect(() => {
-        if (!open) return;
-        let cancelled = false;
-        setImage(null);
-        void readImageMeta(dataUrl).then((meta) => {
-            if (!cancelled) setImage(meta);
-        });
-        return () => {
-            cancelled = true;
-        };
-    }, [dataUrl, open]);
 
     const startDrag = (mode: DragMode, event: ReactPointerEvent, handle?: ResizeHandle) => {
         const box = boxRef.current?.getBoundingClientRect();
@@ -101,13 +103,14 @@ export function CanvasNodeCropDialog({ dataUrl, open, onClose, onConfirm }: { da
     };
 
     return (
-        <Modal title="裁剪图片" open={open && Boolean(dataUrl)} onCancel={onClose} footer={null} width={780} centered destroyOnHidden>
+        <Modal title="裁剪图片" open={open && Boolean(requested)} onCancel={onClose} footer={null} width={780} centered destroyOnHidden>
             <div className="space-y-4">
                 <div className="flex justify-center">
-                    <div ref={boxRef} className="relative inline-block max-w-full overflow-hidden rounded-lg bg-black select-none">
-                        <img src={dataUrl} alt="" className="block max-h-[62vh] max-w-full opacity-90" draggable={false} />
-                        <CropMask crop={crop} />
-                        <div className="absolute cursor-move border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,.3),0_0_28px_rgba(0,0,0,.28)]" style={cropStyle(crop)} onPointerDown={(event) => startDrag("move", event)}>
+                    <div ref={boxRef} className={`relative inline-block max-w-full overflow-hidden rounded-lg bg-black select-none ${sourceReady ? "" : "min-h-[240px] min-w-[320px]"}`}>
+                        {sourceReady ? <img src={loaded.url} alt="" className="block max-h-[62vh] max-w-full opacity-90" draggable={false} /> : null}
+                        <CanvasNodeImageStatus status={loaded.status} error={loaded.error} onRetry={loaded.reload} />
+                        {sourceReady ? <CropMask crop={crop} /> : null}
+                        {sourceReady ? <div className="absolute cursor-move border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,.3),0_0_28px_rgba(0,0,0,.28)]" style={cropStyle(crop)} onPointerDown={(event) => startDrag("move", event)}>
                             <div className="pointer-events-none absolute inset-x-0 top-1/3 border-t border-white/50" />
                             <div className="pointer-events-none absolute inset-x-0 top-2/3 border-t border-white/50" />
                             <div className="pointer-events-none absolute inset-y-0 left-1/3 border-l border-white/50" />
@@ -115,7 +118,7 @@ export function CanvasNodeCropDialog({ dataUrl, open, onClose, onConfirm }: { da
                             {handles.map((handle) => (
                                 <button key={handle} type="button" className="absolute size-3 rounded-full border border-black bg-white" style={handleStyle(handle)} onPointerDown={(event) => startDrag("resize", event, handle)} aria-label="调整裁剪框" />
                             ))}
-                        </div>
+                        </div> : null}
                     </div>
                 </div>
 

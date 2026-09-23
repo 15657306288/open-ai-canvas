@@ -1,4 +1,4 @@
-import { ChartColumn, Clapperboard, Code, Columns2, FileText, Globe, Image as ImageIcon, Music2, PanelTop, Palette, Pencil, Settings2, Shapes, Sparkles, Type, Video } from "lucide-react";
+import { ChartColumn, Clapperboard, Code, Columns2, FileText, Globe, Image as ImageIcon, Music2, PanelTop, Palette, Pencil, Settings2, Shapes, Sparkles, Table2, Type, Video, WandSparkles } from "lucide-react";
 
 import { NODE_SPECS } from "@/constant/canvas";
 import { MEDIA_NODE_MIN_SIZE } from "@/lib/canvas/canvas-node-size";
@@ -25,7 +25,7 @@ const BUILTIN_NODE_TRAITS = {
         minSize: MEDIA_NODE_MIN_SIZE,
         keepAspectRatio: (node: CanvasNodeData) => !node.metadata?.freeResize,
         showInCreateMenu: true,
-        resourceKind: (node: CanvasNodeData) => (node.metadata?.content ? "image" : null),
+        resourceKind: (node: CanvasNodeData) => (node.metadata?.content || node.metadata?.storageKey ? "image" : null),
         generationMode: () => "image",
         inputKind: "image",
     },
@@ -82,7 +82,7 @@ const BUILTIN_NODE_TRAITS = {
         minSize: MEDIA_NODE_MIN_SIZE,
         keepAspectRatio: () => true,
         showInCreateMenu: true,
-        resourceKind: (node: CanvasNodeData) => (node.metadata?.content ? "video" : null),
+        resourceKind: (node: CanvasNodeData) => (node.metadata?.content || node.metadata?.storageKey ? "video" : null),
         generationMode: () => "video",
         inputKind: "video",
     },
@@ -154,6 +154,8 @@ const BUILTIN_NODE_TRAITS = {
         showInCreateMenu: true,
         inputKind: "text",
     },
+    [CanvasNodeType.BatchTable]: { label: "批量创作表", icon: <Table2 />, minSize: { width: 1080, height: 420 }, showInCreateMenu: true, acceptsInputKind: "image", inputKind: "text", resourceKind: () => null },
+    [CanvasNodeType.MediaConversion]: { label: "转换", icon: <WandSparkles />, minSize: { width: 400, height: 360 }, showInCreateMenu: true, resourceKind: (node: CanvasNodeData) => { const c = node.metadata?.mediaConversion; return c?.status === "completed" && c.resultStorageKey ? (c.outputKind === "video" ? "video" : "image") : null; }, acceptsInputKind: ["image", "video"], maxInputCount: 1, inputKind: "image" },
     [CanvasNodeType.ColorGrade]: {
         label: "调色",
         icon: <Palette />,

@@ -5,6 +5,12 @@ description: 在宿主机启动影策前后端开发服务
 
 # 本地开发
 
+## 协作 WebSocket 开发代理
+
+Vite 为 /api/canvas-projects/:id/collaboration/ws 配置专用 ws 代理，目标跟随 VITE_API_PROXY_TARGET；专用规则必须位于通用 /api 前。部署时 nginx.conf 同一路径保留 Upgrade/Connection 头并关闭该连接缓冲，外层代理也必须支持升级。普通 HTTP 健康检查不能替代握手与消息验证。
+
+代理专项：在 web 目录执行 bun test test/canvas-collaboration-proxy.test.ts。测试使用临时目录隔离 Vite cacheDir，避免破坏已有开发服务的依赖缓存；排障见 docs/AGENT_RUNBOOK.md 的 RB-20260920-01、02。无需为普通单元测试启动开发服务。
+
 ## 一键启动（Windows PowerShell）
 
 在仓库根目录执行：
@@ -21,7 +27,7 @@ description: 在宿主机启动影策前后端开发服务
 - 打开两个 PowerShell 窗口，分别运行后端和前端；
 - 将前端 `/api` 请求代理到 `http://127.0.0.1:8080`。
 
-启动后访问 <http://localhost:3000>。后端健康检查地址是 <http://127.0.0.1:8080/api/health>。
+启动后访问 [http://localhost:3000](http://localhost:3000)。后端健康检查地址是 [http://127.0.0.1:8080/api/health](http://127.0.0.1:8080/api/health)。
 
 脚本使用固定的本地开发端口：前端 `3000`，后端 `8080`。如果端口被占用，脚本会先退出，不会关闭已有进程。请分别在两个开发窗口中按 `Ctrl+C` 停止服务。
 
@@ -50,11 +56,62 @@ go run ./cmd/server
 
 ```bash
 cd web
-bun install
+bun install --frozen-lockfile
 bun run dev
 ```
 
+`web/` 只使用 `bun.lock`。不要用 pnpm 或 npm 往同一套 `node_modules` 里再装一遍。
+
 前端默认监听 `0.0.0.0:3000`，Vite 将 `/api` 和 OAuth 回调代理到 `127.0.0.1:8080`。如需修改代理目标，可设置 `VITE_API_PROXY_TARGET`。
+
+## 时间线字幕转写（whisper.cpp）
+
+时间线“字幕转写”由**本地 whisper.cpp server** 执行：后端将片段音频预处理为 16k mono wav 后，POST 到 `CANVAS_WHISPER_BASE_URL/inference`（whisper server 原生接口，`response_format=verbose_json`）。未配置该地址时，转写任务会立即明确失败，提示“撰写失败未配置本地转写服务”。
+
+### 安装 whisper-server
+
+```bash
+brew install whisper-cpp
+```
+
+### 下载模型
+
+仓库脚本将模型放在 `.local/whisper-models/`（已被 `.gitignore` 忽略）。多语言模型（含中文）用 `ggml-base.bin`（约 141MB）；网络受限时可用 aifasthub 镜像：
+
+```bash
+mkdir -p .local/whisper-models
+curl -fL -o .local/whisper-models/ggml-base.bin \
+  https://aifasthub.com/ggerganov/whisper.cpp/resolve/main/ggml-base.bin
+```
+
+### 启动服务
+
+```bash
+scripts/start-whisper-local.sh
+```
+
+脚本默认以 `ggml-base.bin` 监听 `127.0.0.1:8082`（`-l auto` 自动识别语言）。需要换模型或端口时：`WHISPER_MODEL=ggml-small.bin WHISPER_PORT=8083 scripts/start-whisper-local.sh`。
+
+### 让后端指向该服务
+
+后端不读取 `.env` 文件，环境变量必须由启动 shell 注入（在手工启动命令基础上追加）：
+
+```bash
+cd backend
+CANVAS_BACKEND_DATA_DIR=../.local/project-workbench-debug \
+CANVAS_WHISPER_BASE_URL=http://127.0.0.1:8082 \
+go run ./cmd/server
+```
+
+### 验证
+
+```bash
+# 服务就绪：返回 200/404 即可
+curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8082/
+# 冒烟：20 秒语音 → verbose_json 字幕段
+curl -s -X POST http://127.0.0.1:8082/inference \
+  -F 'file=@sample.wav' -F 'response_format=verbose_json'
+```
 
 ## Docker 开发
 

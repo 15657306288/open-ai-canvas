@@ -1,5 +1,5 @@
 import type { CanvasConnection } from "@/types/canvas";
-import { apiClient, request } from "@/services/api/request";
+import { http } from "@/services/api/request";
 
 export type AdminLibTVSetting = {
     enabled: boolean;
@@ -59,17 +59,17 @@ export type LibTVImportResult = {
 };
 
 export function getAdminLibTVSetting() {
-    return request<{ setting: AdminLibTVSetting }>(apiClient.get("/admin/settings/libtv"));
+    return http.get<{ setting: AdminLibTVSetting }>("/admin/settings/libtv");
 }
 
 export function updateAdminLibTVSetting(input: { enabled: boolean; token?: string; clearToken?: boolean }) {
-    return request<{ setting: AdminLibTVSetting }>(apiClient.patch("/admin/settings/libtv", input));
+    return http.patch<{ setting: AdminLibTVSetting }>("/admin/settings/libtv", input);
 }
 
 export function testAdminLibTV(uuid: string) {
-    return request<{ ok: boolean }>(apiClient.post("/admin/settings/libtv/test", { uuid }));
+    return http.post<{ ok: boolean }>("/admin/settings/libtv/test", { uuid });
 }
 
 export function importLibTVCanvas(projectId: string, uuid: string) {
-    return request<LibTVImportResult>(apiClient.post(`/canvas-projects/${encodeURIComponent(projectId)}/import/libtv`, { uuid }));
+    return http.post<LibTVImportResult>(`/canvas-projects/${encodeURIComponent(projectId)}/import/libtv`, { uuid });
 }

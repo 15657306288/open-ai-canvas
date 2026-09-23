@@ -6,7 +6,7 @@ import { createGenerationTaskSubscriptionService, type GenerationTask } from "..
 import { removeCreationConversationSnapshot, updateCreationConversationSnapshot } from "../src/services/creation-conversation-store";
 
 test("Create exposes one accessible copy action beside each displayed user prompt", async () => {
-    const source = await Bun.file(new URL("../src/pages/create/index.tsx", import.meta.url)).text();
+    const source = await Bun.file(new URL("../src/pages/create/creation-workspace.tsx", import.meta.url)).text();
     expect(source).toContain('aria-label="复制提示词"');
     expect(source).toContain('copyText(visiblePrompt, "提示词已复制")');
 });
@@ -28,11 +28,11 @@ test("Create keeps optimistic messages when the first local task binds immediate
     }));
     const bound = updateCreationConversationSnapshot(optimistic, "conversation-0001", (conversation) => ({
         ...conversation,
-        messages: conversation.messages.map((message) => (message.id === "assistant-0001" ? { ...message, taskIds: ["local:dreamina-cli:task-0001"] } : message)),
+        messages: conversation.messages.map((message) => (message.id === "assistant-0001" ? { ...message, taskIds: ["backend-task-0001"] } : message)),
     }));
 
     expect(bound[0].messages).toHaveLength(2);
-    expect(bound[0].messages[1]).toMatchObject({ id: "assistant-0001", taskIds: ["local:dreamina-cli:task-0001"] });
+    expect(bound[0].messages[1]).toMatchObject({ id: "assistant-0001", taskIds: ["backend-task-0001"] });
 });
 
 test("Create history deletion removes only the selected conversation snapshot", () => {
@@ -95,8 +95,53 @@ test("Create refresh subscriptions share one durable scheduler observation witho
     });
 });
 
+
+test("task subscription can reconnect after an observation failure", async () => {
+    let queryCalls = 0;
+    const terminal: GenerationTask = {
+        id: "dreamina:reconnect-task-0001",
+        projectId: "create-project-0001",
+        type: "canvas_video",
+        status: "succeeded",
+        prompt: "fixture",
+        attempts: 1,
+        createdAt: "2026-08-13T00:00:00.000Z",
+        updatedAt: "2026-08-13T00:01:00.000Z",
+    };
+    const service = createGenerationTaskSubscriptionService({
+        async queryTask() {
+            queryCalls += 1;
+            if (queryCalls === 1) throw new Error("temporary observation failure");
+            return terminal;
+        },
+        async waitTask() {
+            throw new Error("terminal task must not enter waitTask") as never;
+        },
+    });
+    const previousWarn = console.warn;
+    console.warn = () => undefined;
+    try {
+        const first = service.subscribe([terminal.id], () => undefined);
+        await new Promise((resolveTick) => setTimeout(resolveTick, 0));
+        first();
+
+        const observed: GenerationTask[] = [];
+        const second = service.subscribe([terminal.id], (task) => observed.push(task));
+        await new Promise((resolveTick) => setTimeout(resolveTick, 0));
+        second();
+
+        expect(queryCalls).toBe(2);
+        expect(observed.at(-1)).toMatchObject({ id: terminal.id, status: "succeeded" });
+    } finally {
+        console.warn = previousWarn;
+    }
+});
+
 test("Create durably correlates failures that happen before the first Runtime response", async () => {
-    const source = await Bun.file(new URL("../src/pages/create/index.tsx", import.meta.url)).text();
+    const source = [
+        await Bun.file(new URL("../src/pages/create/index.tsx", import.meta.url)).text(),
+        await Bun.file(new URL("../src/pages/create/creation-types.ts", import.meta.url)).text(),
+    ].join("\n");
     expect(source).toContain("generationErrorCode?: string");
     expect(source).toContain("generationOperation?: string");
     expect(source).toContain("generationOperation: task.operation");
@@ -311,15 +356,16 @@ test("creation result handoff falls back by stable result order only for a compl
 });
 
 test("Create forwards owned result assets through one new canvas and the project persists before clearing the handoff", () => {
-    const create = readFileSync(resolve(import.meta.dir, "../src/pages/create/index.tsx"), "utf8");
+    const workspace = readFileSync(resolve(import.meta.dir, "../src/pages/create/creation-workspace.tsx"), "utf8");
+    const createPage = readFileSync(resolve(import.meta.dir, "../src/pages/create/index.tsx"), "utf8");
     const canvasIndex = readFileSync(resolve(import.meta.dir, "../src/pages/canvas/index.tsx"), "utf8");
     const canvasProject = readFileSync(resolve(import.meta.dir, "../src/pages/canvas/project.tsx"), "utf8");
 
-    expect(create).toContain('import { creationCanvasHandoffPath, creationResultAssetIds } from "@/lib/canvas/canvas-asset-handoff"');
-    expect(create).toContain("const resultAssetIds = result && resultUrls.length ? creationResultAssetIds(assets, { messageId: result.id, taskIds: result.taskIds || [], resultUrls }) : [];");
-    expect(create).toContain('const canvasHandoffPath = result ? creationCanvasHandoffPath(resultAssetIds, resultUrls.length) : "";');
-    expect(create).toContain('const canvasPath = canvasHandoffPath || "/canvas";');
-    expect(create).toContain('<Link to={canvasPath}>{canvasHandoffPath ? "添加到画布" : "打开画布"}</Link>');
+    expect(workspace).toContain("onContinueCanvas(resultAssetIds)");
+    expect(createPage).toContain("continueCreationConversationOnCanvas(source)");
+    expect(createPage).toContain("if (ids.length !== item.resultUrls.length) throw new Error");
+    expect(createPage).toContain("await saveCreationConversations(next)");
+    expect(createPage.indexOf("await saveCreationConversations(next)")).toBeLessThan(createPage.indexOf("navigate(`/canvas/${result.id}?${params.toString()}`)"));
     expect(canvasIndex).toContain('const handoffMode = mode === "handoff"');
     expect(canvasIndex).toContain('mode !== "new" && mode !== "recent" && mode !== "handoff"');
     expect(canvasProject).toContain('import { canvasAssetHandoffAttempt, finalizeCanvasAssetHandoff, uninsertedCanvasAssetHandoffPayloads } from "@/lib/canvas/canvas-asset-handoff"');

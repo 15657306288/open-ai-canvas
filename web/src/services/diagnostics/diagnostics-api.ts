@@ -1,6 +1,4 @@
-import axios from "axios";
-
-import { apiClient, ApiError, request } from "@/services/api/request";
+import { http, ApiError } from "@/services/api/request";
 import type { ClientDiagnosticEvent } from "./client-diagnostics";
 
 export type DiagnosticExportInput = {
@@ -35,21 +33,21 @@ export type DiagnosticDownload = {
 };
 
 export function previewDiagnosticBundle(input: DiagnosticExportInput) {
-    return request<DiagnosticPreview>(apiClient.post("/diagnostics/preview", input));
+    return http.post<DiagnosticPreview>("/diagnostics/preview", input);
 }
 
 export async function exportDiagnosticBundle(input: DiagnosticExportInput): Promise<DiagnosticDownload> {
     try {
-        const response = await apiClient.post<Blob>("/diagnostics/export", input, { responseType: "blob" });
+        const response = await http.raw<Blob>({ method: "post", url: "/diagnostics/export", data: input, responseType: "blob" });
         return {
             blob: response.data,
             bundleId: readHeader(response.headers, "x-diagnostic-bundle-id") || "",
             fileName: parseFileName(readHeader(response.headers, "content-disposition")) || "yingce-diagnostics.zip",
         };
     } catch (error) {
-        if (axios.isAxiosError(error) && error.response) {
-            const status = error.response.status;
-            const raw = await readErrorBody(error.response.data);
+        if (error instanceof ApiError) {
+            const status = error.status;
+            const raw = await readErrorBody(responseDataFromCause(error));
             try {
                 const payload = raw ? (JSON.parse(raw) as { code?: number; msg?: string }) : null;
                 if (payload) {
@@ -68,6 +66,14 @@ export async function exportDiagnosticBundle(input: DiagnosticExportInput): Prom
         }
         throw error;
     }
+}
+
+function responseDataFromCause(error: ApiError): unknown {
+    const cause = error.cause;
+    if (cause && typeof cause === "object" && "response" in cause) {
+        return (cause as { response?: { data?: unknown } }).response?.data;
+    }
+    return undefined;
 }
 
 async function readErrorBody(data: unknown) {

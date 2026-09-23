@@ -1,4 +1,7 @@
-import { App, Button, Form, Input, Modal, Segmented, Select, Switch, Upload, type UploadFile } from "antd";
+import { App, Button, Form, Input, Modal, Upload, type UploadFile } from "antd";
+import { Select } from "@/components/ui/base/select";
+import { Switch } from "@/components/ui/base/switch";
+import { SegmentedControl } from "@/components/ui/base/segmented-control";
 import { FileArchive, FileText, GitBranch, UploadCloud } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -15,7 +18,7 @@ type InstallFormValues = {
     url?: string;
     ref?: string;
     subdir?: string;
-    auto_update: boolean;
+    autoUpdate: boolean;
 };
 
 const modeOptions = [
@@ -35,7 +38,7 @@ export function SkillInstallModal({ open, onClose, onInstalled, onManualCreate }
         if (!open) return;
         setMode("markdown");
         setFileList([]);
-        form.setFieldsValue({ tag: "creative", is_public: true, auto_update: true, name: "", description: "", url: "", ref: "", subdir: "" });
+        form.setFieldsValue({ tag: "creative", is_public: true, autoUpdate: true, name: "", description: "", url: "", ref: "", subdir: "" });
     }, [form, open]);
 
     const install = async () => {
@@ -53,16 +56,16 @@ export function SkillInstallModal({ open, onClose, onInstalled, onManualCreate }
                     ref: values.ref || undefined,
                     subdir: values.subdir || undefined,
                     tag: values.tag,
-                    is_private: !values.is_public,
-                    auto_update: values.auto_update,
+                    isPrivate: !values.is_public,
+                    autoUpdate: values.autoUpdate,
                 })
                 : await installSkillUpload({
                     file: file as File,
-                    source_type: mode,
+                    sourceType: mode,
                     name: values.name || undefined,
                     description: values.description || undefined,
                     tag: values.tag,
-                    is_private: !values.is_public,
+                    isPrivate: !values.is_public,
                 });
             message.success("技能已安装");
             onInstalled(result.skill);
@@ -79,7 +82,7 @@ export function SkillInstallModal({ open, onClose, onInstalled, onManualCreate }
             open={open}
             width={680}
             destroyOnHidden
-            maskClosable={!installing}
+            mask={{ closable: !installing }}
             title="安装技能"
             onCancel={onClose}
             footer={(
@@ -90,7 +93,7 @@ export function SkillInstallModal({ open, onClose, onInstalled, onManualCreate }
             )}
         >
             <p className="mb-4 text-sm leading-6 text-foreground/55">支持标准 <code>SKILL.md</code>、包含多层目录的 ZIP 技能包，或公开 GitHub 仓库。名称和简介会优先从技能入口自动读取。</p>
-            <Segmented className="skill-install-mode" block options={modeOptions} value={mode} onChange={(value) => { setMode(value as InstallMode); setFileList([]); }} />
+<SegmentedControl className="skill-install-mode" block options={modeOptions} value={mode} onChange={(value) => { setMode(value as InstallMode); setFileList([]); }} />
 
             <Form form={form} layout="vertical" requiredMark="optional" className="skill-install-form">
                 {mode === "github" ? (
@@ -138,7 +141,7 @@ export function SkillInstallModal({ open, onClose, onInstalled, onManualCreate }
                         <Switch checkedChildren="公开" unCheckedChildren="私有" />
                     </Form.Item>
                 </div>
-                {mode === "github" ? <Form.Item name="auto_update" label="自动同步" valuePropName="checked" extra="后台每 6 小时检查一次提交版本，并记录最近检查与同步时间。"><Switch checkedChildren="开启" unCheckedChildren="关闭" /></Form.Item> : null}
+                {mode === "github" ? <Form.Item name="autoUpdate" label="自动同步" valuePropName="checked" extra="后台每 6 小时检查一次提交版本，并记录最近检查与同步时间。"><Switch checkedChildren="开启" unCheckedChildren="关闭" /></Form.Item> : null}
             </Form>
         </Modal>
     );

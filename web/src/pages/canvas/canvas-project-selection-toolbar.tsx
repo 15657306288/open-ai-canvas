@@ -5,34 +5,30 @@ import { FloatingDock } from "@/components/ui/aceternity/floating-dock";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { canvasDockStyle } from "@/lib/canvas/canvas-aceternity-style";
 import { defaultToolbarPrefs, readToolbarPrefs, resolveToolbarEntries, type ToolContext, type ToolbarHandlers } from "@/lib/canvas/tool-registry";
-import type { CanvasAlignmentMode } from "@/lib/canvas/canvas-layout";
-import { useThemeStore } from "@/stores/use-theme-store";
+import { useCanvasThemeStore } from "@/stores/canvas/use-canvas-theme-store";
 
 type CanvasProjectSelectionToolbarProps = {
     anchorRef: RefObject<HTMLDivElement | null>;
     containerRef: RefObject<HTMLDivElement | null>;
     count: number;
-    selectedVideoCount: number;
-    mergingVideos: boolean;
-    onAlign: (mode: CanvasAlignmentMode) => void;
-    onArrange: (mode: "row" | "column" | "grid" | "flow") => void;
-    onCreateStoryboard: () => void;
+    onDownloadSelection: () => void;
+    onAutoArrange: () => void;
     onCreateReferenceGroup: () => void;
-    onBatchConnect: () => void;
-    onMergeVideos: () => void;
+    onSendSelectionToAgent: () => void;
+    onSaveTemplate: () => void;
 };
 
-export function CanvasProjectSelectionToolbar({ anchorRef, containerRef, count, selectedVideoCount, mergingVideos, onAlign, onArrange, onCreateStoryboard, onCreateReferenceGroup, onBatchConnect, onMergeVideos }: CanvasProjectSelectionToolbarProps) {
-    const theme = canvasThemes[useThemeStore((state) => state.theme)];
+export function CanvasProjectSelectionToolbar({ anchorRef, containerRef, count, onDownloadSelection, onAutoArrange, onCreateReferenceGroup, onSendSelectionToAgent, onSaveTemplate }: CanvasProjectSelectionToolbarProps) {
+    const theme = canvasThemes[useCanvasThemeStore((state) => state.theme)];
 
     const handlers = {
-        onAlign, onArrange, onCreateStoryboard, onCreateReferenceGroup, onBatchConnect, onMergeVideos,
+        onDownloadSelection, onAutoArrange, onCreateReferenceGroup, onSendSelectionToAgent, onSaveTemplate,
     } as Partial<ToolbarHandlers> as ToolbarHandlers;
 
     const ctx: ToolContext = {
         selectedCount: count,
         selectedNodeTypes: new Set(),
-        selectedVideoCount,
+        selectedVideoCount: 0,
         canvasTool: "move",
         workspaceMode: "professional",
         isProjectLinked: false,
@@ -41,7 +37,7 @@ export function CanvasProjectSelectionToolbar({ anchorRef, containerRef, count, 
         extractingVideoFrames: false,
         extractingAudio: false,
         trimmingVideo: false,
-        mergingVideos,
+        mergingVideos: false,
         addPanelOpen: false,
         appearancePanelOpen: false,
         settingsPanelOpen: false,

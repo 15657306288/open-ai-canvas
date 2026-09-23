@@ -55,9 +55,15 @@ function runWithBrowserStorageLock<T>(scope: string, operation: () => Promise<T>
     return operation();
 }
 
+/**
+ * 串行化同一用户作用域的素材目录写入。
+ *
+ * 前一个操作失败不能阻塞后续操作，但当前操作的成功或失败必须原样返回，
+ * 因此只处理 predecessor 的 rejected 状态，不吞掉当前 `pending` 的错误。
+ */
 export function withGenerationAssetStorageLock<T>(scope: string, operation: () => Promise<T>, options: GenerationStorageLockOptions = {}): Promise<T> {
     const previous = assetStorageTails.get(scope) ?? Promise.resolve();
-    const pending = previous.catch(() => undefined).then(() => runWithBrowserStorageLock(scope, operation, options));
+    const pending = previous.then(() => undefined, () => undefined).then(() => runWithBrowserStorageLock(scope, operation, options));
     const tail = pending.then(
         () => undefined,
         () => undefined,
@@ -72,7 +78,7 @@ export function withGenerationAssetStorageLock<T>(scope: string, operation: () =
 export function withGenerationArtifactCommitLock<T>(scope: string, operation: () => Promise<T>, options: GenerationStorageLockOptions = {}): Promise<T> {
     const previous = artifactCommitTails.get(scope) ?? Promise.resolve();
     const pending = previous
-        .catch(() => undefined)
+        .then(() => undefined, () => undefined)
         .then(() => {
             const locks = typeof window !== "undefined" && typeof navigator !== "undefined" ? (navigator.locks as AsyncStorageLock | undefined) : undefined;
             if (locks) return locks.request(`${ARTIFACT_COMMIT_LOCK_PREFIX}${scope}`, operation);

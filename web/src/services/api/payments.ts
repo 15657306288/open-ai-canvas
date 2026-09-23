@@ -1,4 +1,4 @@
-import { apiClient, request } from "@/services/api/request";
+import { ApiError, compactApiParams, http } from "@/services/api/request";
 
 export type PaymentProvider = {
     id: "wechat-native" | "alipay-page-pay" | string;
@@ -76,65 +76,72 @@ export type AdminPaymentProvider = PaymentProvider & {
 };
 
 export function listPaymentProviders() {
-    return request<{ providers: PaymentProvider[] }>(apiClient.get("/payments/providers"));
+    return http.get<{ providers: PaymentProvider[] }>("/payments/providers");
 }
 
 export function listTopupProducts() {
-    return request<{ products: TopupProduct[] }>(apiClient.get("/payments/products"));
+    return http.get<{ products: TopupProduct[] }>("/payments/products");
 }
 
 export function createPaymentOrder(input: { productId: string; providerId: string; idempotencyKey: string }) {
-    return request<{ order: PaymentOrder }>(apiClient.post("/payments/orders", input));
+    return http.post<{ order: PaymentOrder }>("/payments/orders", input);
 }
 
 export function getPaymentOrder(id: string) {
-    return request<{ order: PaymentOrder }>(apiClient.get(`/payments/orders/${encodeURIComponent(id)}`));
+    return http.get<{ order: PaymentOrder }>(`/payments/orders/${encodeURIComponent(id)}`);
 }
 
 export function queryPaymentOrder(id: string) {
-    return request<{ order: PaymentOrder }>(apiClient.post(`/payments/orders/${encodeURIComponent(id)}/query`));
+    return http.post<{ order: PaymentOrder }>(`/payments/orders/${encodeURIComponent(id)}/query`);
 }
 
 export function closePaymentOrder(id: string) {
-    return request<{ order: PaymentOrder }>(apiClient.post(`/payments/orders/${encodeURIComponent(id)}/close`));
+    return http.post<{ order: PaymentOrder }>(`/payments/orders/${encodeURIComponent(id)}/close`);
 }
 
 export function refreshPaymentCheckout(id: string) {
-    return request<{ order: PaymentOrder }>(apiClient.post(`/payments/orders/${encodeURIComponent(id)}/checkout/refresh`));
+    return http.post<{ order: PaymentOrder }>(`/payments/orders/${encodeURIComponent(id)}/checkout/refresh`);
 }
 
 export function listAdminPaymentProviders() {
-    return request<{ providers: AdminPaymentProvider[] }>(apiClient.get("/admin/payments/providers"));
+    return http.get<{ providers: AdminPaymentProvider[] }>("/admin/payments/providers");
 }
 
 export function updateAdminPaymentProvider(id: string, input: { enabled: boolean; closeAfterMinutes: number; values: Record<string, string> }) {
-    return request<{ provider: AdminPaymentProvider }>(apiClient.put(`/admin/payments/providers/${encodeURIComponent(id)}/config`, input));
+    return http.put<{ provider: AdminPaymentProvider }>(`/admin/payments/providers/${encodeURIComponent(id)}/config`, input);
 }
 
 export function listAdminTopupProducts() {
-    return request<{ products: TopupProduct[] }>(apiClient.get("/admin/payments/products"));
+    return http.get<{ products: TopupProduct[] }>("/admin/payments/products");
 }
 
 export type TopupProductInput = Pick<TopupProduct, "name" | "amountFen" | "creditsMicrocredits" | "enabled" | "sortOrder"> & { description?: string };
 
 export function createAdminTopupProduct(input: TopupProductInput) {
-    return request<{ product: TopupProduct }>(apiClient.post("/admin/payments/products", input));
+    return http.post<{ product: TopupProduct }>("/admin/payments/products", input);
 }
 
 export function updateAdminTopupProduct(id: string, input: TopupProductInput) {
-    return request<{ product: TopupProduct }>(apiClient.put(`/admin/payments/products/${encodeURIComponent(id)}`, input));
+    return http.put<{ product: TopupProduct }>(`/admin/payments/products/${encodeURIComponent(id)}`, input);
 }
 
-export function listAdminPaymentOrders(params: { status?: string; keyword?: string; page?: number; limit?: number } = {}) {
-    return request<{ orders: PaymentOrder[]; total: number; page: number; limit: number }>(apiClient.get("/admin/payments/orders", { params }));
+export type AdminPaymentOrder = PaymentOrder & {
+    user: { id: string; username: string; displayName: string; email: string } | null;
+};
+
+export type PaymentOrderFilters = { status?: string; keyword?: string; providerId?: string; timeField?: "created" | "paid" | "credited"; from?: string; to?: string };
+export type PaymentReconciliationFilters = { providerId?: string; status?: string; from?: string; to?: string };
+
+export function listAdminPaymentOrders(params: PaymentOrderFilters & { page?: number; pageSize?: number } = {}, signal?: AbortSignal) {
+    return http.get<{ orders: AdminPaymentOrder[]; total: number; page: number; pageSize: number }>("/admin/payments/orders", { params: compactApiParams(params), signal });
 }
 
 export function queryAdminPaymentOrder(id: string) {
-    return request<{ order: PaymentOrder }>(apiClient.post(`/admin/payments/orders/${encodeURIComponent(id)}/query`));
+    return http.post<{ order: PaymentOrder }>(`/admin/payments/orders/${encodeURIComponent(id)}/query`);
 }
 
 export function closeAdminPaymentOrder(id: string) {
-    return request<{ order: PaymentOrder }>(apiClient.post(`/admin/payments/orders/${encodeURIComponent(id)}/close`));
+    return http.post<{ order: PaymentOrder }>(`/admin/payments/orders/${encodeURIComponent(id)}/close`);
 }
 
 export type PaymentReconciliationStatus = "running" | "completed" | "failed";
@@ -175,13 +182,47 @@ export type PaymentReconciliationItem = {
 };
 
 export function runAdminPaymentReconciliation(input: { providerId: string; billDate: string }) {
-    return request<{ run: PaymentReconciliationRun }>(apiClient.post("/admin/payments/reconciliations", input));
+    return http.post<{ run: PaymentReconciliationRun }>("/admin/payments/reconciliations", input);
 }
 
-export function listAdminPaymentReconciliations(params: { providerId?: string; status?: string; page?: number; limit?: number } = {}) {
-    return request<{ runs: PaymentReconciliationRun[]; total: number; page: number; limit: number }>(apiClient.get("/admin/payments/reconciliations", { params }));
+export function listAdminPaymentReconciliations(params: PaymentReconciliationFilters & { page?: number; pageSize?: number } = {}, signal?: AbortSignal) {
+    return http.get<{ runs: PaymentReconciliationRun[]; total: number; page: number; pageSize: number }>("/admin/payments/reconciliations", { params: compactApiParams(params), signal });
 }
 
-export function listAdminPaymentReconciliationItems(id: string, params: { result?: string; page?: number; limit?: number } = {}) {
-    return request<{ run: PaymentReconciliationRun; items: PaymentReconciliationItem[]; total: number; page: number; limit: number }>(apiClient.get(`/admin/payments/reconciliations/${encodeURIComponent(id)}/items`, { params }));
+export function listAdminPaymentReconciliationItems(id: string, params: { result?: string; page?: number; pageSize?: number } = {}, signal?: AbortSignal) {
+    return http.get<{ run: PaymentReconciliationRun; items: PaymentReconciliationItem[]; total: number; page: number; pageSize: number }>(`/admin/payments/reconciliations/${encodeURIComponent(id)}/items`, { params: compactApiParams(params), signal });
+}
+
+export function exportAdminPaymentOrders(params: PaymentOrderFilters) {
+    return downloadPaymentCSV("/admin/payments/orders/export.csv", params);
+}
+
+export function exportAdminPaymentReconciliations(params: PaymentReconciliationFilters) {
+    return downloadPaymentCSV("/admin/payments/reconciliations/export.csv", params);
+}
+
+export function exportAdminPaymentReconciliationItems(id: string, result?: string) {
+    return downloadPaymentCSV(`/admin/payments/reconciliations/${encodeURIComponent(id)}/items/export.csv`, { result });
+}
+
+async function downloadPaymentCSV(url: string, params: Record<string, string | undefined>) {
+    try {
+        const response = await http.raw<Blob>({ method: "get", url, params: compactApiParams(params), responseType: "blob" });
+        return response.data;
+    } catch (error) {
+        // Axios also wraps JSON error envelopes in a Blob for download requests.
+        const blob = error instanceof ApiError ? (error.cause as { response?: { data?: unknown } } | undefined)?.response?.data : undefined;
+        if (blob instanceof Blob) {
+            let envelope: { msg?: string; code?: number; reason?: string } | undefined;
+            try {
+                envelope = JSON.parse(await blob.text());
+            } catch {
+                /* Keep the original transport error. */
+            }
+            if (envelope?.msg && error instanceof ApiError) {
+                throw new ApiError(envelope.msg, { status: error.status, code: envelope.code, reason: envelope.reason, cause: error });
+            }
+        }
+        throw error;
+    }
 }

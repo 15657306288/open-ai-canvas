@@ -13,7 +13,7 @@ import {
 } from "@/lib/canvas/director/director-onboarding";
 
 /**
- * 导演台首次上手引导浮层（P2）。
+ * 导演台首次上手引导浮层。
  *
  * 硬约束：
  * - 非阻塞。不是 dialog，没有遮罩，不抢焦点，不做焦点陷阱：引导旁边就是要动手的工作台，

@@ -2,9 +2,13 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import "antd/dist/reset.css";
 import "./styles/globals.css";
-import { RouterProvider } from "react-router";
-
+import "./styles/shared/model-picker.css";
+import "./styles/shared/overlays.css";
+import "./styles/shared/scrollbars.css";
+// 全局自举内置插件注册（editor-shell 等预设以模块副作用注册编辑器插槽）：
+// 冷启动直达编辑器时素材/时间线等插槽不再为空。
 import "@/lib/plugins/builtin";
+import { RouterProvider } from "react-router";
 
 import { AppProviders } from "@/components/layout/app-providers";
 import { router } from "@/router";

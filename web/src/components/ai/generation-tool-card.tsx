@@ -3,8 +3,8 @@ import { ChevronDown } from "lucide-react";
 
 export type GenerationToolStatus = "running" | "completed" | "error" | "cancelled";
 
-export function GenerationToolCard({ status, isBulk = false, heading, children }: { status: GenerationToolStatus; isBulk?: boolean; heading: ReactNode; children: ReactNode }) {
-    const [open, setOpen] = useState(status !== "completed" || !isBulk);
+export function GenerationToolCard({ status, heading, children }: { status: GenerationToolStatus; heading: ReactNode; children: ReactNode }) {
+    const [open, setOpen] = useState(true);
 
     useEffect(() => {
         if (status !== "completed") setOpen(true);

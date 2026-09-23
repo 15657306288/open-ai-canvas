@@ -1,19 +1,43 @@
+import { Button, Modal, Slider } from "antd";
+import { Tooltip } from "@/components/ui/base/tooltip";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { Button, Modal, Slider, Tooltip } from "antd";
-import { Brush, Eraser, Redo2, RotateCcw, Save, Undo2 } from "lucide-react";
+
+import { Brush, Eraser, Redo2, RotateCcw, Save, Undo2, WandSparkles } from "lucide-react";
 
 import { imageToDataUrl } from "@/services/image-storage";
 
 type Point = { x: number; y: number };
 type Stroke = { color: string; size: number; erase: boolean; points: Point[] };
+export type CanvasImageAnnotationPayload = { sourceDataUrl: string; annotatedDataUrl: string };
+
+export type CanvasAnnotationAction = "save" | "generate";
+export type CanvasAnnotationComposed = { sourceDataUrl: string; mergedDataUrl: string; annotatedDataUrl: string };
+export type CanvasAnnotationSubmission = { action: "save"; dataUrl: string } | { action: "generate"; payload: CanvasImageAnnotationPayload };
+
+/** 「标记」弹窗的两个动作共用同一份画布产物：合并图用于另存，笔迹透明图作为模型参考。 */
+export function canvasAnnotationSubmission(action: CanvasAnnotationAction, composed: CanvasAnnotationComposed): CanvasAnnotationSubmission {
+    if (action === "save") return { action: "save", dataUrl: composed.mergedDataUrl };
+    return { action: "generate", payload: { sourceDataUrl: composed.sourceDataUrl, annotatedDataUrl: composed.annotatedDataUrl } };
+}
+
+/** 两个动作的可用性：没有标记时都不可用；按标记生成还要求模型支持两张参考图。 */
+export function canvasAnnotationActionState({ hasStrokes, generateDisabledReason }: { hasStrokes: boolean; generateDisabledReason?: string }) {
+    const missingStrokes = hasStrokes ? "" : "请先在图片上画出标记";
+    return { saveDisabledReason: missingStrokes, generateDisabledReason: missingStrokes || generateDisabledReason || "" };
+}
 
 const colors = ["#ef4444", "#f59e0b", "#22c55e", "#14b8a6", "#3b82f6", "#a855f7", "#ffffff", "#111827"];
 
-export function CanvasNodeAnnotationDialog({ image, open, onClose, onConfirm }: {
+export function CanvasNodeAnnotationDialog({ image, open, onClose, onSaveMark, onGenerate, generateDisabledReason = "" }: {
     image: { url: string; storageKey?: string };
     open: boolean;
     onClose: () => void;
-    onConfirm: (dataUrl: string) => void;
+    /** 本地合成标记图并另存为新节点，不消耗额度。 */
+    onSaveMark: (dataUrl: string) => void;
+    /** 按标记交给模型修改，消耗一次生成。 */
+    onGenerate: (payload: CanvasImageAnnotationPayload) => void;
+    /** 模型不支持两张参考图等原因，非空时禁用「按标记生成」并作为提示。 */
+    generateDisabledReason?: string;
 }) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const sourceImageRef = useRef<HTMLImageElement | null>(null);
@@ -86,25 +110,35 @@ export function CanvasNodeAnnotationDialog({ image, open, onClose, onConfirm }: 
         return current.slice(0, -1);
     });
 
-    const save = () => {
+    const compose = (): CanvasAnnotationComposed | null => {
         const sourceImage = sourceImageRef.current;
         const annotation = canvasRef.current;
-        if (!sourceImage || !annotation || !strokes.length) return;
+        if (!sourceImage || !annotation || !strokes.length) return null;
         const output = document.createElement("canvas");
         output.width = size.width;
         output.height = size.height;
         const context = output.getContext("2d");
-        if (!context) return;
+        if (!context) return null;
         context.drawImage(sourceImage, 0, 0, output.width, output.height);
         context.drawImage(annotation, 0, 0);
-        onConfirm(output.toDataURL("image/png"));
+        return { sourceDataUrl: source, mergedDataUrl: output.toDataURL("image/png"), annotatedDataUrl: annotation.toDataURL("image/png") };
     };
+
+    const submit = (action: CanvasAnnotationAction) => {
+        const composed = compose();
+        if (!composed) return;
+        const submission = canvasAnnotationSubmission(action, composed);
+        if (submission.action === "save") onSaveMark(submission.dataUrl);
+        else onGenerate(submission.payload);
+    };
+
+    const actionState = canvasAnnotationActionState({ hasStrokes: strokes.length > 0, generateDisabledReason });
 
     return (
         <Modal title={null} open={open} onCancel={onClose} footer={null} width="min(1120px, calc(100vw - 32px))" centered destroyOnHidden>
             <div className="flex flex-col gap-3">
                 <div className="flex flex-wrap items-center gap-2 rounded-lg border p-2" style={{ borderColor: "rgba(127,127,127,.22)" }}>
-                    <span className="px-1 text-sm font-semibold">标注</span>
+                    <span className="px-1 text-sm font-semibold">标记</span>
                     <span className="mx-1 h-6 w-px bg-current opacity-15" />
                     <ToolButton title="画笔" active={mode === "brush"} onClick={() => setMode("brush")}><Brush className="size-4" /></ToolButton>
                     <ToolButton title="橡皮" active={mode === "erase"} onClick={() => setMode("erase")}><Eraser className="size-4" /></ToolButton>
@@ -117,7 +151,12 @@ export function CanvasNodeAnnotationDialog({ image, open, onClose, onConfirm }: 
                     <ToolButton title="重做" disabled={!redoStrokes.length} onClick={redo}><Redo2 className="size-4" /></ToolButton>
                     <ToolButton title="清空" disabled={!strokes.length} onClick={() => { setStrokes([]); setRedoStrokes([]); }}><RotateCcw className="size-4" /></ToolButton>
                     <span className="min-w-0 flex-1" />
-                    <Button type="primary" icon={<Save className="size-4" />} disabled={!strokes.length} onClick={save}>保存为新节点</Button>
+                    <Tooltip title={actionState.saveDisabledReason || "把标记合成到图片并另存为新节点，不消耗额度"}>
+                        <Button icon={<Save className="size-4" />} disabled={Boolean(actionState.saveDisabledReason)} onClick={() => submit("save")}>保存标记图</Button>
+                    </Tooltip>
+                    <Tooltip title={actionState.generateDisabledReason || "交给模型按标记修改，消耗 1 次生成"}>
+                        <Button type="primary" icon={<WandSparkles className="size-4" />} disabled={Boolean(actionState.generateDisabledReason)} onClick={() => submit("generate")}>按标记生成</Button>
+                    </Tooltip>
                 </div>
                 <div className="flex min-h-[360px] items-center justify-center overflow-hidden rounded-lg bg-black/5 dark:bg-white/[0.03]">
                     {source && size.width ? (

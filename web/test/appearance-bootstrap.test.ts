@@ -6,8 +6,9 @@ test("initial HTML stays brand neutral until the public appearance is resolved",
     const [html, mainSource] = await Promise.all([Bun.file(new URL("../index.html", import.meta.url)).text(), Bun.file(new URL("../src/main.tsx", import.meta.url)).text()]);
 
     expect(html).not.toContain("影策");
-    expect(html).not.toContain("/logo.svg");
     expect(html).toContain("<title>正在加载</title>");
+    expect(mainSource).toContain("bootstrapAppearance()");
+    expect(mainSource).toContain('import("./application")');
     expect(mainSource.indexOf("bootstrapAppearance()")).toBeLessThan(mainSource.indexOf('import("./application")'));
 });
 
@@ -28,6 +29,12 @@ test("a custom login video never falls back to the built-in poster", () => {
     expect(appearance.authHeroTitle).toBe("把灵感，\n变成可见的故事。");
     expect(appearance.authHeroDescription).toBe("从同一个创作空间持续推进。");
     expect(appearance.authVideoPosterUrl).toBe("");
+    expect(appearance.authVideoAutoplay).toBe(true);
+});
+
+test("login video autoplay defaults on and can be disabled explicitly", () => {
+    expect(normalizePublicAppearance({}).authVideoAutoplay).toBe(true);
+    expect(normalizePublicAppearance({ authVideoAutoplay: false }).authVideoAutoplay).toBe(false);
 });
 
 test("appearance URLs reject executable and insecure remote schemes", () => {
@@ -64,6 +71,7 @@ test("auth scene consumes resolved appearance instead of hardcoded media constan
     const source = await Bun.file(new URL("../src/pages/auth/auth-scene.tsx", import.meta.url)).text();
 
     expect(source).toContain("appearance.authVideoUrl");
+    expect(source).toContain("appearance.authVideoAutoplay");
     expect(source).toContain("appearance.authVideoPosterUrl || undefined");
     expect(source).toContain("appearance.brandName");
     expect(source).toContain("appearance.authHeroTitle");
@@ -91,8 +99,14 @@ test("appearance management exposes light and dark logo uploads plus the frame s
     expect(pageSource).toContain("setLogoFrameEnabled(!checked)");
     expect(pageSource).not.toContain("<Checkbox");
     expect(pageSource).toContain("深浅模式 Logo 预览");
-    expect(brandSource).toContain("useThemeStore");
+    expect(pageSource).toContain("登录页视频自动播放");
+    expect(pageSource).toContain("authVideoAutoplay");
+    expect(brandSource).toContain("useActiveTheme");
     expect(brandSource).toContain("data-logo-frame-enabled");
+    expect(brandSource).toContain("failedSource === source");
+    expect(brandSource).toContain('aria-hidden="true"');
+    expect(brandSource).toContain('style.visibility = "hidden"');
+    expect(brandSource).toContain("setFailedSource(source)");
     expect(adminStyles).toContain(".admin-appearance-logo-preview-mark.is-unframed img");
     expect(globalStyles).toContain('.brand-logo-frame[data-logo-frame-enabled="false"] > :is(img, svg)');
 });
@@ -112,5 +126,5 @@ test("appearance management exposes a server-side reset to the built-in Yingce b
     expect(pageSource).toContain("恢复影策默认");
     expect(pageSource).toContain("resetAdminAppearance()");
     expect(pageSource).toContain("已上传文件仍保留在存储资源中");
-    expect(apiSource).toContain('apiClient.delete("/admin/settings/appearance")');
+    expect(apiSource).toContain('http.delete<{ setting: AdminAppearance }>("/admin/settings/appearance")');
 });

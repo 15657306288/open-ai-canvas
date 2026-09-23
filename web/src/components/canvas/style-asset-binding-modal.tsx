@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Button, Input, InputNumber, Modal, Select, Switch } from "antd";
+import { Button, Input, InputNumber, Select } from "antd";
+import { AppModal } from "@/components/ui/product/app-modal";
+import { Switch } from "@/components/ui/base/switch";
 import { AlertTriangle, Box, Check, FileImage, Link2, Plus, Save, SlidersHorizontal, Trash2 } from "lucide-react";
 import { nanoid } from "nanoid";
 
@@ -76,7 +78,7 @@ export function StyleAssetBindingModal({ open, profile, onClose, onApply }: Styl
     };
 
     return (
-        <Modal
+        <AppModal
             rootClassName="style-asset-binding-modal"
             open={open}
             title={null}
@@ -84,7 +86,7 @@ export function StyleAssetBindingModal({ open, profile, onClose, onApply }: Styl
             centered
             width="min(980px, calc(100vw - 24px))"
             onCancel={onClose}
-            styles={{ container: { padding: 0 }, body: { padding: 0 } }}
+            flush
         >
             <div className="flex max-h-dvh min-h-0 flex-col overflow-hidden bg-background text-foreground">
                 <header className="flex items-start justify-between gap-3 border-b border-border px-4 py-3 pr-12 sm:items-center sm:px-5">
@@ -168,7 +170,7 @@ export function StyleAssetBindingModal({ open, profile, onClose, onApply }: Styl
                     </div>
                 </footer>
             </div>
-        </Modal>
+        </AppModal>
     );
 }
 
@@ -198,7 +200,7 @@ function AssetEditor({ asset, onChange, onDelete }: { asset: StyleAssetBinding; 
                 <Field label="启用状态">
                     <div className="flex h-8 items-center justify-between border-b border-border">
                         <span className="text-xs text-foreground/55">参与生成执行计划</span>
-                        <Switch size="small" checked={asset.enabled !== false} onChange={(enabled) => onChange({ enabled })} />
+                        <Switch size="sm" checked={asset.enabled !== false} onChange={(enabled) => onChange({ enabled })} />
                     </div>
                 </Field>
                 <Field label="资产名称">

@@ -1,8 +1,10 @@
-import { Alert, Button, InputNumber, Select, Switch, Tag } from "antd";
+import { Button, InputNumber, Select, Tag } from "antd";
+import { Switch } from "@/pages/admin/ui/controls";
+import { Callout } from "@/pages/admin/ui/controls";
 import { RotateCcw } from "lucide-react";
 import type { ReactNode } from "react";
 
-import type { CapabilitySpec, OptionConstraint } from "@/services/api/logical-models";
+import type { CapabilityImageSize, CapabilitySpec, OptionConstraint } from "@/services/api/logical-models";
 import type { ChannelModel } from "@/services/api/wallet";
 import { STANDARD_IMAGE_SIZE_VALUES } from "@/lib/model-capabilities";
 
@@ -104,6 +106,7 @@ export function capabilitySpecFromChannelModel(item?: ChannelModel): CapabilityS
                 transparentBackground: { values: image.transparentBackground.supported ? [false, true] : [false] },
                 count: { min: 1, max: image.maxOutputs, step: 1 },
             }),
+            imageSize: image.size.parameter === "none" ? undefined : { parameter: image.size.parameter, allowCustom: image.size.allowCustom, presets: image.size.presets },
         };
     }
     if (capability === "video") {
@@ -173,7 +176,20 @@ export function mergeCapabilitySpecs(capability: CapabilityKind, specs: Capabili
         }
         result.options![definition.name] = preferredSourceConstraint(constraints);
     }
+    result.imageSize = mergeImageSize(matching);
     return result;
+}
+
+function mergeImageSize(specs: CapabilitySpec[]): CapabilityImageSize | undefined {
+    const parts = specs.map((item) => item.imageSize).filter((item): item is CapabilityImageSize => Boolean(item));
+    if (!parts.length) return undefined;
+    const parameters = [...new Set(parts.map((item) => item.parameter).filter((value): value is NonNullable<CapabilityImageSize["parameter"]> => Boolean(value)))];
+    const presets = [...new Map(parts.flatMap((item) => item.presets || []).map((preset) => [`${preset.tier}:${preset.ratio}:${preset.size}`, preset])).values()];
+    return {
+        parameter: parameters.includes("aspect_ratio") ? "aspect_ratio" : parameters[0],
+        allowCustom: parts.some((item) => item.allowCustom),
+        presets,
+    };
 }
 
 /**
@@ -189,7 +205,7 @@ export function normalizeCapabilitySpecForSources(value: CapabilitySpec | undefi
         if (!sourceConstraint || !isWildcardConstraint(constraint) || !sourceConstraint.values) continue;
         options[name] = { values: uniqueScalars([...(sourceConstraint.values || []), ...(constraint.values || [])]) };
     }
-    return { ...value, options };
+    return { ...value, options, imageSize: value.imageSize?.presets?.length ? value.imageSize : source.imageSize || value.imageSize };
 }
 
 export function capabilitySourceError(capability: CapabilityKind, sourceSpecs: CapabilitySpec[], value?: CapabilitySpec) {
@@ -233,7 +249,7 @@ export function CapabilityScopeEditor({ capability, sourceSpecs, value, onChange
                 </Button>
             </div>
 
-            {sourceError ? <Alert type="warning" showIcon message="当前选择需要调整" description={`${sourceError}。可重新选择，或采用全部可用范围。`} /> : null}
+            {sourceError ? <Callout tone="warning" title="当前选择需要调整">{`${sourceError}。可重新选择，或采用全部可用范围。`}</Callout> : null}
 
             {source.operations?.length ? (
                 <CapabilityBlock title="生成方式">
@@ -263,7 +279,7 @@ export function CapabilityScopeEditor({ capability, sourceSpecs, value, onChange
                                         </div>
                                     </div>
                                     <div className="col-span-12 sm:col-span-1">
-                                        <Switch size="small" checked={Boolean(selected)} onChange={(enabled) => updateInput(current, definition.name, enabled ? limit : undefined, update)} />
+                                        <Switch size="sm" checked={Boolean(selected)} onChange={(enabled) => updateInput(current, definition.name, enabled ? limit : undefined, update)} />
                                     </div>
                                     <div className="col-span-6 sm:col-span-3">
                                         <NumberInput
@@ -310,7 +326,11 @@ export function CapabilityScopeEditor({ capability, sourceSpecs, value, onChange
                 </CapabilityBlock>
             ) : null}
 
-            {!sourceInputs.length && !sourceOptions.length && !source.operations?.length ? <Alert type="info" showIcon message="该类型暂无额外能力参数" description="线路仍可按优先级和权重参与路由。" /> : null}
+            {!sourceInputs.length && !sourceOptions.length && !source.operations?.length ? (
+                <Callout tone="info" title="该类型暂无额外能力参数">
+                    线路仍可按优先级和权重参与路由。
+                </Callout>
+            ) : null}
         </div>
     );
 }
@@ -481,7 +501,7 @@ function OptionRuleEditor({ definition, source, value, onChange }: { definition:
                 <div className="text-xs text-foreground/45">{constraintSummary(source, definition.unit)}</div>
             </div>
             <div className="col-span-12 sm:col-span-1">
-                <Switch size="small" checked={Boolean(value)} onChange={(enabled) => onChange(enabled ? source : undefined)} />
+                <Switch size="sm" checked={Boolean(value)} onChange={(enabled) => onChange(enabled ? source : undefined)} />
             </div>
             <div className="col-span-12 sm:col-span-6">
                 {source.values ? (

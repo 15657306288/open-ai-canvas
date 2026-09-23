@@ -22,9 +22,6 @@ export function generationFailureMetadata(error: unknown, prompt: string): Gener
 }
 
 export function generationErrorMessage(error: unknown) {
-    const stableCode = generationErrorCode(error);
-    const stableMessage = stableCode ? DREAMINA_SUBMIT_ERROR_MESSAGES[stableCode] : undefined;
-    if (stableMessage) return stableMessage;
     const raw = rawGenerationError(error);
     if (isContentModerationError(raw)) return CONTENT_MODERATION_MESSAGE;
 
@@ -43,18 +40,10 @@ export function generationErrorMessage(error: unknown) {
     return displayMessage || DEFAULT_GENERATION_ERROR_MESSAGE;
 }
 
-export const DREAMINA_SUBMIT_ERROR_MESSAGES: Record<string, string> = {
-    dreamina_submit_spawn_failed: "无法启动官方即梦 CLI，任务尚未提交。",
-    dreamina_submit_exit_nonzero: "官方即梦 CLI 未接受本次提交，任务没有自动重试。",
-    dreamina_submit_timeout: "等待官方即梦 CLI 确认提交超时，为避免重复扣费，任务没有自动重试。",
-    dreamina_submit_receipt_missing: "官方即梦 CLI 未返回任务凭证，为避免重复扣费，任务没有自动重试。",
-    dreamina_submission_unknown: "提交结果待确认，为避免重复扣费未自动重试。",
-};
-
 export function generationErrorCode(error: unknown) {
     if (error && typeof error === "object" && "code" in error && typeof (error as { code?: unknown }).code === "string") {
         const code = (error as { code: string }).code;
-        if (/^(?:dreamina|local_generation|origin)_[a-z0-9_]{2,80}$/.test(code)) return code;
+        if (/^(?:model|provider|origin)_[a-z0-9_]{2,80}$/.test(code)) return code;
     }
     return undefined;
 }
@@ -140,6 +129,11 @@ function resourceStorageFailureMessage(value: string) {
     if (!value) return "";
     if (/\bUserDisable\b/i.test(value)) return "对象存储账号已停用，请检查或更换对象存储配置。";
     if (/(?:参考(?:图片|媒体)上传失败|OSS 上传失败|对象存储|腾讯云 COS|七牛云)/i.test(value)) {
+        // 网关/网络瞬时故障（Cloudflare 520 家族、502/503/504、超时）不是对象存储配置问题。
+        // 若仍提示「请检查对象存储配置」，会把用户引向错误方向，也可能误导其重配密钥。
+        if (/(?:云端网关|网关|HTTP\s*5\d{2}|\b52[0-6]\b|\b50[234]\b|暂时不可用|超时|timed?\s*out|network error|failed to fetch)/i.test(value)) {
+            return "参考素材上传时云端网关暂时不可用，请稍后重试。";
+        }
         return "参考素材上传到对象存储失败，请检查对象存储配置后重试。";
     }
     return "";

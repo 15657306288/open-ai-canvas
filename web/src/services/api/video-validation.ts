@@ -1,5 +1,5 @@
 import { modelCapabilityConfigFor, videoDurationAllowed } from "@/lib/model-capabilities";
-import { resolveModelRequestConfig } from "@/stores/use-config-store";
+import { optionalChannelSubmitError, resolveModelRequestConfig } from "@/stores/use-config-store";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 import type { ReferenceImage } from "@/types/image";
 
@@ -28,6 +28,9 @@ export function assertVideoCapability(
 
 export function assertVideoConfig(config: ResolvedAiConfig, model: string) {
     if (!model) throw new Error("请先配置视频模型");
+    // 可选渠道（账号池）：未开启或账号池为空时提前拦住，不把请求发到必然失败的上游。
+    const optionalChannelError = optionalChannelSubmitError(config, model, config.channelId);
+    if (optionalChannelError) throw new Error(optionalChannelError);
     if (!config.baseUrl.trim()) throw new Error("请先配置 Base URL");
     if (!config.apiKey.trim()) throw new Error("请先配置 API Key");
     if (config.apiFormat === "gemini" && config.interfaceType !== "gemini-veo") throw new Error("当前 Gemini 文本协议不支持视频生成，请为该模型选择 Gemini Veo 协议");

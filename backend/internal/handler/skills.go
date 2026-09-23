@@ -25,12 +25,12 @@ func RegisterSkillRoutes(r *gin.RouterGroup, svc *service.Service) {
 			failService(c, service.BadAuthRequest("请选择 Markdown 或 ZIP 技能文件"))
 			return
 		}
-		isPrivate, err := parseOptionalBool(c.PostForm("is_private"))
+		isPrivate, err := parseOptionalBool(c.PostForm("isPrivate"))
 		if err != nil {
-			failService(c, service.BadAuthRequest("is_private 必须是布尔值"))
+			failService(c, service.BadAuthRequest("isPrivate 必须是布尔值"))
 			return
 		}
-		sourceType := strings.ToLower(strings.TrimSpace(c.PostForm("source_type")))
+		sourceType := strings.ToLower(strings.TrimSpace(c.PostForm("sourceType")))
 		if sourceType == "" {
 			switch strings.ToLower(filepath.Ext(file.Filename)) {
 			case ".md", ".markdown":
@@ -75,8 +75,11 @@ func RegisterSkillRoutes(r *gin.RouterGroup, svc *service.Service) {
 			failService(c, err)
 			return
 		}
-		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-		pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+		page, pageSize, err := parsePaginationQuery(c, 20)
+		if err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
 		result, err := svc.Skills(user.ID, service.SkillListRequest{
 			Page: page, PageSize: pageSize, Scope: c.DefaultQuery("scope", "public"),
 			Search: c.Query("search"), Tag: c.Query("tag"), Sort: c.DefaultQuery("sort", "popular"),

@@ -21,9 +21,11 @@ describe("workspace route loading", () => {
         const modules = source("../src/lib/workspace-route-modules.ts");
         const navigation = source("../src/components/layout/workspace-sidebar-nav.tsx");
 
-        for (const route of ["projects", "canvas", "assets", "wallet", "create"]) {
+        for (const route of ["projects", "canvas", "assets", "create"]) {
             expect(modules).toContain(`${route}: () => import`);
         }
+        expect(modules).toContain('projectDetail: () => import("@/pages/projects/detail")');
+        expect(modules).toContain('slug === "projects" && segments.length > 1');
         expect(navigation).toContain("onPointerEnter={() => preloadWorkspaceRoute(linkTo)}");
         expect(navigation).toContain("onPointerDown={() => preloadWorkspaceRoute(linkTo)}");
         expect(navigation).toContain("onFocus={() => preloadWorkspaceRoute(linkTo)}");
@@ -37,7 +39,7 @@ describe("workspace route loading", () => {
         expect(router).toContain('{ path: "/create", element: <RequireAuth>{deferred(<CreatePage />)}</RequireAuth> }');
         expect(router).not.toContain('path: "/home"');
         expect(router).not.toContain("HomePage");
-        expect(navigation).toContain('{ id: "home", title: "首页", icon: Home, to: "/" }');
+        expect(navigation).toContain('{ ...toolItem("create", "/"), id: "home", title: "创作" }');
         expect(navigation).not.toContain('to: "/create"');
         expect(navigation).not.toContain('to: "/home"');
     });
@@ -56,12 +58,62 @@ describe("workspace route loading", () => {
         expect(canvasCard).toContain("正在打开");
     });
 
+    test("loads only the active project detail view and keeps canvas-only state out of the global layout", () => {
+        const detail = source("../src/pages/projects/detail.tsx");
+        const layout = source("../src/layouts/user-layout.tsx");
+        const canvas = source("../src/pages/canvas/index.tsx");
+
+        for (const view of ["assets", "canvases", "chapters", "overview", "settings", "workflow", "editor"]) {
+            expect(detail).toContain(`lazy(() => import("./detail/${view}"))`);
+        }
+        expect(layout).not.toContain("useCanvasUiStore");
+        expect(layout).not.toContain("CanvasDeleteProjectsDialog");
+        expect(canvas).toContain("deleteDialogOpen ? <Suspense");
+        expect(detail).toContain("project-workspace-header");
+        expect(detail).not.toContain("useWorkspaceTopBarExtension");
+        expect(detail).toContain("新建画布");
+    });
+
+
+    test("keeps project asset refresh scoped to the latest user and project", () => {
+        const editor = source("../src/pages/projects/detail/editor.tsx");
+
+        expect(editor).toContain("const assetOwnerKey = JSON.stringify([scope, projectId])");
+        expect(editor).toContain("activeAssetOwnerKeyRef.current !== requestedOwnerKey");
+        expect(editor).toContain("assetRefreshSequenceRef.current !== requestSequence");
+        expect(editor).toContain("assetRefreshSequenceRef.current += 1");
+        expect(editor).toContain("syncedAssetOwnerKeyRef.current = assetOwnerKey");
+        expect(editor.match(/listProjectAssets\(projectId\)/g)).toHaveLength(1);
+    });
+
+    test("does not poll wallet balance from permanent workspace chrome", () => {
+        const wallet = source("../src/hooks/use-wallet-balance.ts");
+        expect(wallet).not.toContain("refetchInterval:");
+        expect(wallet).toContain("wallet:updated");
+        expect(wallet).toContain("WALLET_STALE_TIME_MS");
+    });
+
+    test("defers modal-only markdown and canvas creation runtimes until interaction", () => {
+        const changelogButton = source("../src/components/layout/app-changelog-modal.tsx");
+        const announcements = source("../src/components/layout/system-announcement-center.tsx");
+        const projectDetail = source("../src/pages/projects/detail.tsx");
+        const workflow = source("../src/pages/projects/detail/workflow-production-workbench.tsx");
+
+        expect(changelogButton).toContain('lazy(() => import("@/components/layout/app-changelog-dialog")');
+        expect(changelogButton).not.toContain('from "react-markdown"');
+        expect(announcements).toContain('lazy(() => import("@/components/ui/aceternity/announcement-timeline-modal")');
+        expect(projectDetail).toContain('import("@/services/user-data-sync")');
+        expect(projectDetail).not.toContain('import { createCanvasProjectWithRemoteSync } from "@/services/user-data-sync"');
+        expect(workflow).not.toContain('from "@/lib/video-poster"');
+        expect(workflow).toContain('if (playing) return <video');
+    });
+
     test("uses a quiet workspace skeleton for initial hydration", () => {
         const loader = source("../src/components/ui/aceternity/full-screen-loader.tsx");
         const css = source("../src/styles/globals.css");
 
-        expect(loader).toContain("full-screen-loader-topbar");
-        expect(loader).toContain("full-screen-loader-rail");
+        expect(loader).toContain("full-screen-loader-scene");
+        expect(loader).toContain("full-screen-loader-guide");
         expect(loader).toContain("LoadingSignal");
         expect(loader).not.toContain("YINGCE STUDIO");
         expect(loader).not.toContain("loading-cue");
@@ -71,15 +123,29 @@ describe("workspace route loading", () => {
     });
 });
 
-describe("wallet balance summary", () => {
-    test("uses the workspace surface instead of an inverted primary button surface", () => {
+describe("workspace wallet entry", () => {
+    test("opens the credits modal instead of a dedicated wallet page", () => {
+        const router = source("../src/router.tsx");
+        const modules = source("../src/lib/workspace-route-modules.ts");
+        const host = source("../src/components/layout/workspace-wallet-modal.tsx");
+        const palette = source("../src/components/layout/workspace-command-palette.tsx");
+        const canvasTopBar = source("../src/pages/canvas/canvas-project-top-bar.tsx");
+        const topBar = source("../src/components/layout/workspace-top-bar.tsx");
         const css = source("../src/styles/globals.css");
-        const rule = css.match(/\.credit-balance-card \{[^}]+}/)?.[0] || "";
 
-        expect(rule).toContain("background: var(--library-surface)");
-        expect(rule).toContain("color: var(--foreground)");
-        expect(rule).not.toContain("--btn-solid-bg");
-        expect(css.match(/\.wallet-balance-inner \{/g)).toHaveLength(3);
-        expect(css).not.toContain(".wallet-library-page .wallet-balance-inner { padding-left: 0; }");
+        expect(router).toContain('path: "/wallet"');
+        expect(router).toContain("element: <RequireAuth>{null}</RequireAuth>");
+        expect(router).not.toContain("WalletPage");
+        expect(router).not.toContain("loadWalletPage");
+        expect(modules).not.toContain("pages/wallet");
+        expect(host).toContain("pathname !== \"/wallet\"");
+        expect(host).toContain("openWorkspaceWallet");
+        expect(palette).toContain('run: () => openWorkspaceWallet()');
+        expect(palette).not.toContain('"/wallet"');
+        expect(canvasTopBar).toContain("openWorkspaceWallet()");
+        expect(canvasTopBar).not.toContain('to="/wallet"');
+        expect(topBar).toContain("openWorkspaceWallet()");
+        expect(css).not.toContain(".wallet-library-page");
+        expect(css).not.toContain(".wallet-market-page");
     });
 });

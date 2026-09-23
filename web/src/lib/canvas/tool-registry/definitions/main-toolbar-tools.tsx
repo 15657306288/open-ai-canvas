@@ -1,32 +1,29 @@
-import { Eraser, FolderOpen, Hand, Palette, Plus, Redo2, Settings2, SquareDashedMousePointer, Trash2, Undo2, X } from "lucide-react";
+import { PanelsTopLeft, Eraser, FolderOpen, Hand, MousePointer2, Palette, Plus, Redo2, Settings2, Trash2, Undo2 } from "lucide-react";
 
 import { registerToolbarTools, type ToolDefinition } from "@/lib/canvas/tool-registry";
+import type { CanvasToolMode } from "@/types/canvas";
+
+const canvasModeOptions = [
+    { id: "box-select", label: "区域选择", icon: <MousePointer2 />, value: "box-select" },
+    { id: "move", label: "抓手工具", icon: <Hand />, value: "move" },
+];
 
 export const mainToolbarTools: ToolDefinition[] = [
+    { id: "tool-workspace", toolbar: "main", category: "navigation", label: "工作区", icon: <PanelsTopLeft />, defaultVisible: true, defaultOrder: 65, run: ctx => ctx.handlers.onOpenWorkspace?.() },
     {
-        id: "tool-move",
+        id: "tool-canvas-mode",
         toolbar: "main",
         category: "navigation",
-        label: (ctx) => ctx.canvasTool === "box-select" ? "移动与选择" : ctx.selectedCount ? `取消选择${ctx.selectedCount > 1 ? ` ${ctx.selectedCount} 个节点` : ""}` : "移动与选择",
-        icon: (ctx) => ctx.canvasTool === "box-select" ? <Hand /> : ctx.selectedCount ? <X /> : <Hand />,
+        label: "抓手 / 框选",
+        icon: <MousePointer2 />,
         defaultVisible: true,
         defaultOrder: 10,
-        active: (ctx) => ctx.canvasTool === "move",
-        run: (ctx) => {
-            if (ctx.canvasTool !== "move") ctx.handlers.onToolChange("move");
-            else ctx.handlers.onDeselect();
+        switchGroup: {
+            value: (ctx) => ctx.canvasTool,
+            options: canvasModeOptions,
+            onChange: (ctx, value) => ctx.handlers.onToolChange(value as CanvasToolMode),
         },
-    },
-    {
-        id: "tool-box-select",
-        toolbar: "main",
-        category: "navigation",
-        label: "框选",
-        icon: <SquareDashedMousePointer />,
-        defaultVisible: true,
-        defaultOrder: 20,
-        active: (ctx) => ctx.canvasTool === "box-select",
-        run: (ctx) => ctx.handlers.onToolChange(ctx.canvasTool === "box-select" ? "move" : "box-select"),
+        run: (ctx) => ctx.handlers.onToolChange(ctx.canvasTool === "move" ? "box-select" : "move"),
     },
     {
         id: "tool-undo",

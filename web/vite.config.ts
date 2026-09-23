@@ -8,6 +8,7 @@ const webDir = dirname(fileURLToPath(import.meta.url));
 const appVersion = process.env.CANVAS_BUILD_VERSION?.trim() || readFileSync(resolve(webDir, "../VERSION"), "utf8").trim();
 const appChangelog = readFileSync(resolve(webDir, "../CHANGELOG.md"), "utf8");
 const apiProxyTarget = process.env.VITE_API_PROXY_TARGET?.trim() || "http://127.0.0.1:8080";
+const apiProxyOrigin = new URL(apiProxyTarget).origin;
 
 export default defineConfig({
     plugins: [react()],
@@ -18,6 +19,13 @@ export default defineConfig({
     },
     server: {
         proxy: {
+            "^/api/canvas-projects/[^/]+/collaboration/ws$": {
+                target: apiProxyTarget,
+                changeOrigin: true,
+                xfwd: true,
+                ws: true,
+                headers: { Origin: apiProxyOrigin },
+            },
             "/api": {
                 target: apiProxyTarget,
                 changeOrigin: true,
@@ -33,6 +41,48 @@ export default defineConfig({
     resolve: {
         alias: {
             "@": resolve(webDir, "src"),
+        },
+    },
+    build: {
+        rolldownOptions: {
+            output: {
+                strictExecutionOrder: true,
+                codeSplitting: {
+                    // Keep route-level lazy imports isolated. Recursively merging dependencies
+                    // pulls unrelated pages into the initial modulepreload graph.
+                    includeDependenciesRecursively: false,
+                    minSize: 40 * 1024,
+                    groups: [
+                        {
+                            // Shared interop helpers must not be emitted into a route entry:
+                            // AntD would import that entry back and execute its bootstrap early.
+                            name: "vendor-babel-runtime",
+                            minSize: 0,
+                            test: /node_modules[\\/]@babel[\\/]runtime[\\/]/,
+                            priority: 40,
+                        },
+                        {
+                            name: "vendor-react",
+                            test: /node_modules[\\/](?:react(?:-dom|-router|-router-dom)?|scheduler|zustand|use-sync-external-store|@tanstack[\\/](?:query-core|react-query))[\\/]/,
+                            priority: 30,
+                        },
+                        {
+                            name: "vendor-icons",
+                            test: /node_modules[\\/](?:lucide-react|@ant-design[\\/]icons)[\\/]/,
+                            priority: 20,
+                            entriesAware: true,
+                            entriesAwareMergeThreshold: 48 * 1024,
+                        },
+                        {
+                            name: "vendor-antd",
+                            test: /node_modules[\\/](?:antd|@ant-design|@rc-component|rc-[^\\/]+|dayjs)[\\/]/,
+                            priority: 10,
+                            entriesAware: true,
+                            entriesAwareMergeThreshold: 80 * 1024,
+                        },
+                    ],
+                },
+            },
         },
     },
 });

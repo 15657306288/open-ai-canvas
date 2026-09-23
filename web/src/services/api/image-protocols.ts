@@ -102,28 +102,14 @@ export function toChatCompletionToolChoice(toolChoice: ToolChoice) {
 }
 
 export function buildBackendToolRequests(messages: ResponseInputMessage[], tools: ResponseFunctionTool[], toolChoice: ToolChoice, config?: AiConfig): BackendToolRequests {
-    const requests: BackendToolRequests = {
-        responses: {
-            input: toResponseInput(messages),
-            tools: tools.map(toResponseTool),
-            tool_choice: toolChoice,
-            parallel_tool_calls: false,
-        },
-        chatCompletion: {
-            messages: toChatCompletionMessages(messages),
+    return {
+        canonical: {
+            messages,
             tools,
-            tool_choice: toChatCompletionToolChoice(toolChoice),
-            parallel_tool_calls: false,
+            toolChoice,
+            systemPrompt: config?.systemPrompt || "",
         },
     };
-    if (config) {
-        requests.claude = {
-            ...toClaudeBody(config, messages, tools),
-            tool_choice: typeof toolChoice === "object" ? { type: "tool", name: toolChoice.name } : { type: toolChoice === "required" ? "any" : "auto" },
-        };
-        requests.gemini = toGeminiBody(config, messages, toGeminiToolOptions(tools, toolChoice));
-    }
-    return requests;
 }
 
 export function toGeminiBody(config: AiConfig, messages: ResponseInputMessage[], extra?: Record<string, unknown>) {

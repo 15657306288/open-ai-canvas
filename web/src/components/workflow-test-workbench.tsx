@@ -1,4 +1,6 @@
-import { App, Button, Empty, Input, InputNumber, Progress, Select, Switch } from "antd";
+import { App, Button, Input, InputNumber, Progress, Select } from "antd";
+import { Switch } from "@/components/ui/base/switch";
+import { EmptyState } from "@/components/ui/product/empty-state";
 import { FileAudio, FileImage, Film, Grip, Play, RotateCcw, Square, Upload, WandSparkles } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 
@@ -9,7 +11,7 @@ import { useConfigStore, type AiConfig, type RunningHubCapability, type Workflow
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 
-type WorkflowProvider = "runninghub" | "comfyui";
+type WorkflowProvider = "runninghub";
 type MediaKind = "image" | "video" | "audio";
 type Point = { x: number; y: number };
 type NodePositionMap = Record<string, Point>;
@@ -190,7 +192,7 @@ export function WorkflowTestWorkbench({ provider, workflowId, workflowKind = "wo
                 <div className="min-w-0">
                     <strong>{title || workflowId || "未选择工作流"}</strong>
                     <span>
-                        {provider === "runninghub" ? "RunningHub" : "ComfyUI Bridge"} · {capabilityName(capability)}工作流 · 测试值不会覆盖保存配置
+                        RunningHub · {capabilityName(capability)}工作流 · 测试值不会覆盖保存配置
                     </span>
                 </div>
                 <div className="workflow-test-toolbar-actions">
@@ -256,7 +258,7 @@ export function WorkflowTestWorkbench({ provider, workflowId, workflowKind = "wo
                         position={positions.output}
                         onMove={(point) => setPositions((current) => ({ ...current, output: point }))}
                     >
-                        <div className="workflow-test-output">{resultUrls.length ? <ResultPreview capability={capability} urls={resultUrls} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={error || stage} />}</div>
+                        <div className="workflow-test-output">{resultUrls.length ? <ResultPreview capability={capability} urls={resultUrls} /> : <EmptyState size="compact" title={error || stage} />}</div>
                         <Progress percent={progress} size="small" status={error ? "exception" : running ? "active" : undefined} showInfo={running || progress > 0} />
                     </WorkflowNode>
                 </div>
@@ -409,8 +411,6 @@ function buildTestConfig(config: AiConfig, provider: WorkflowProvider, workflowI
             selectedKind: workflowKind,
             workflows: config.runningHub.workflows.map((item) => (item.workflowId.trim() === workflowId.trim() && (item.kind === "app" ? "app" : "workflow") === workflowKind ? { ...item, fields: patchedFields } : item)),
         };
-    } else {
-        next.comfyBridge = { ...config.comfyBridge, enabled: true, workflowId, workflows: config.comfyBridge.workflows.map((item) => (item.workflowId.trim() === workflowId.trim() ? { ...item, fields: patchedFields } : item)) };
     }
     return next;
 }

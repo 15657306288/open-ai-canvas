@@ -7,17 +7,116 @@ description: 影策后端核心持久化表与状态边界
 
 后端通过 GORM 管理 SQLite 与 PostgreSQL 表结构。结构变化由 `migrate-schema` 按版本顺序执行并写入 `schema_migrations`；受管生产部署在 Backend 启动前运行独立迁移服务，Backend 只校验当前 Schema 是否与二进制兼容。业务写路径必须通过 service 和 repository 的状态约束，不能直接依赖前端状态。
 
+## 共享协作迁移 v30/v31/v32
+
+沿用上游版本 28 agent_execution_journal 和版本 29 agent_resource_leases，新增版本 30 canvas_collaboration_operations、31 canvas_durable_branches、32 canvas_media_grants。不得重编号或修改已发布迁移校验和。SQLite/PostgreSQL 导入命令也包含新增五张表。
+
+| 表/列 | 用途 | 约束 |
+| --- | --- | --- |
+| canvas_projects.collaboration_enabled | 开启协作操作保存 | 开启后拒绝普通全量自动保存；owner/editor 写入，viewer 只读 |
+| canvas_collaborators | 受邀成员和角色 | canvas_id + user_id 唯一；只有 owner 管理成员 |
+| canvas_collaboration_nodes | 节点 incarnation、字段版本及删除标记 | canvas_id + node_id 唯一，旧生命周期操作不能恢复已删除节点 |
+| canvas_collaboration_operations | 原请求、回执、增量及 revision | canvas_id + actor_id + op_id 唯一；提交后才广播 |
+| canvas_branches | 来源/独立画布、共同基线、状态与最近合并 | branch_canvas_id 唯一；合并锁定方案/双方画布并校验 revision |
+| canvas_media_grants | 服务端确认的画布媒体引用授权 | 主键 canvas_id + kind(resource/asset) + object_id；current 标记当前正文引用，granted_by/created_at 记录首次授权；读取实时联查画布所有者/成员 |
+
+v32 回填现有正文与保留历史中属于画布所有者的媒体，再按已授权来源与分支正文的交集补齐分支，不重写正文、所有者或 revision。后续授权在正文保存事务内校验并写入。历史授权保留用于读取/恢复，`current` 供跨所有者物理删除保护使用；删除画布同步清理授权及协作成员。资源 ID 上的反向索引用于读取和引用查询。
+
+普通协作操作写操作日志，不逐项生成历史快照；历史恢复与分支合并通过既有快照事务保护资源引用。方案归档保留画布和内容。成员权限与资源读取仍需在 service/repository 校验，不能依赖 UI 隐藏按钮。
+
 ## 结构迁移与版本
+
+### 云端 Agent 运行时
+
+每轮 Agent 存为 `tasks` 中 `operation = cloud_agent` 的 `canvas_text` 任务，任务 `input_json.cloudAgent` 保存版本 1 的已校验请求、父轮 ID、请求指纹和技能快照；历史从服务端父轮结果构造。任务 ID 由用户与幂等键确定，利用现有主键、任务 admission 和积分预留事务防止重复提交重复扣费。Agent 的模型循环、工具调用、审批、子任务和事件写入 `cloud_agent_executions.state_json`，任务 Worker 只负责推进状态，不依赖浏览器连接。公共任务创建与重试接口禁止绕过 Agent admission；删除任务会影响该轮继续对话与回放。
 
 | 表 | 用途 | 关键边界 |
 | --- | --- | --- |
 | `schema_migrations` | 保存已成功应用的结构版本、名称、校验和与时间 | 已应用版本的校验和发生变化时拒绝启动；数据库版本高于当前二进制支持版本时拒绝旧程序连接 |
+| `cloud_agent_executions` | 保存 Agent 每轮的持久化执行状态、修订号和运行状态 | `(id, user_id)` 归属受服务端校验；状态通过 revision CAS 更新；`state_json` 包含技能快照、工具调用、审批、活动子任务和事件，不保存浏览器密钥 |
+| `agent_profiles` | 保存用户、项目和画布层的 Agent 常驻偏好、哈希和独立 revision | `(user_id, scope, project_id, canvas_id)` 唯一；归属由 service 校验，写入使用 revision CAS；正文不能授权新能力 |
+| `agent_lessons` | 用户私有的 Agent 记忆。Agent 写入待审，用户自己批准后才会注入该用户的会话 | 按 `author_user_id` 隔离；写入机械脱敏；`steps_json` 存路线；`hits` 是主动查阅、`injected` 是自动注入；管理员可按用户查看和删除，不能代批 |
+| `agent_memory_settings` | 用户私有的记忆压缩周期、文本模型和最近一次压缩任务状态 | 主键 `user_id`；压缩结果只在 `compact_task_id` 匹配时应用到该用户已批准记忆 |
 
 容器内命令 `migrate-schema up` 应用缺失迁移，`migrate-schema status` 输出当前和期望版本，`migrate-schema verify` 只检查兼容性。`CANVAS_AUTO_MIGRATE=true` 仅用于开发和旧部署兼容；受管生产部署设置为 `false`，并由 Compose 的一次性 `migrate` 服务先完成迁移。后续迁移必须新增版本，不得修改已经发布迁移的实现或校验和。
 
-当前结构版本为 6。版本 2 为 `schema_migrations.applied_at` 增加 `idx_schema_migrations_applied_at` 索引；版本 3 `asset_taxonomy_candidate_identity` 为资产候选增加规范化名称和来源，收敛资产分类，并为待确认候选建立项目内部分唯一索引；版本 4 `resource_upload_key` 为资源上传幂等补充 `resources.upload_key` 列和用户维度唯一索引；版本 5 `payment_topup` 创建积分充值、支付通知和对账所需结构；版本 6 `asset_library_folders` 增加用户素材自定义分类及 `assets.folder_id`。
+豆包账号池融合使用独立 schema 38（`doubao_accounts`、`doubao_pool_meta`、`network_proxies`），不回退到 1.57 的 schema 25；SQLite 导入命令只处理这三张表。源账号表没有 `user_id`，所以导入保持全局账号池并校验代理绑定，不猜测用户归属。
+
+当前代码的期望结构版本为 38；协作相关迁移使用 v34/v35/v36，模板库迁移使用 v37，豆包账号池与网络代理使用独立 v38，历史已发布迁移编号保持不变。
+
+当前结构版本为 38。版本 2 为 `schema_migrations.applied_at` 增加 `idx_schema_migrations_applied_at` 索引；版本 3 `asset_taxonomy_candidate_identity` 为资产候选增加规范化名称和来源，收敛资产分类，并为待确认候选建立项目内部分唯一索引；版本 4 `resource_upload_key` 为资源上传幂等补充 `resources.upload_key` 列和用户维度唯一索引；版本 5 `payment_topup` 创建积分充值、支付通知和对账所需结构；版本 6 `resource_playback_variant` 增加资源播放副本状态；版本 7 `asset_library_folders` 增加用户素材自定义分类及 `assets.folder_id`；版本 8 `logical_model_active_code` 将前台模型 code 的唯一约束限定为未归档记录；版本 9 `channel_presentation` 为渠道添加 `public_alias`（默认空字符串）与 `sort_order`（默认 0），为渠道模型添加 `sort_order`（默认 0），不重写既有凭据、价格或能力配置；版本 10 `creation_runtime` 创建创作运行与提交表，并为任务增加可空且唯一的 `creation_submission_id`，旧任务无需伪造提交标识即可继续使用；版本 11 `cloud_agent_runtime` 创建 `cloud_agent_executions`；版本 12 `agent_token_charge_limit` 为账单增加 Agent Token 收费上限；版本 13 `cloud_agent_canvas_mutation` 持久化 Agent 画布变更；版本 14 `cloud_agent_recovery_control` 增加运行恢复控制字段和旧运行回填；版本 15 `agent_profiles` 创建常驻偏好表；版本 16 `agent_lessons` 创建用户记忆表（含分类、路线 JSON、注入/查阅计数）；版本 17 `agent_lessons_owner_index` 为 `(author_user_id, status)` 增加复合索引；版本 18 `agent_memory_settings` 创建按用户隔离的压缩周期与最近一次压缩任务状态；版本 19 `payment_plugin_version` 为已有 `payment_provider_configs` 和 `payment_orders` 补上 `plugin_version`，用于把配置和订单钉在具体插件版本上；版本 20 `banner_announcements` 创建首页常驻滚动通知表；版本 21 `banner_announcement_title_runs` 为通知标题增加样式分段；版本 22 `banner_announcement_notice_type` 增加通知类型底色；版本 23 `canvas_revision_history` 为既有画布回填 `revision = 1` 并新增历史快照与资源引用表。版本 24 `channel_model_label` 为渠道模型增加 `channel_label`（最长 80 字、非空、默认空字符串），不重写模型标识、上游 ID、价格或能力；版本 25 `video_token_formula_snapshot` 为账单增加视频公式用量及用量来源快照；版本 26 `channel_model_description` 为渠道模型增加 `description`（最长 500 字、非空、默认空字符串），供二级选项展示使用说明，不重写身份或价格；版本 27 `channel_credit_cost` 为价格档添加管理员积分成本，并在账单保存执行线路的成本快照；版本 28 `agent_execution_journal` 补齐 Agent journal/transcript 记录；版本 29 `agent_resource_leases` 创建 Agent 资源租约；版本 30 `builtin_tools` 创建内置工具表；版本 31 `tool_favorites` 创建工具收藏表；版本 34 `canvas_collaboration_operations` 创建协作操作日志；版本 35 `canvas_durable_branches` 创建画布分支；版本 36 `canvas_media_grants` 创建画布媒体授权；版本 37 `canvas_template_library` 创建模板库；版本 38 `doubao_account_pool_and_network_proxy` 仅创建豆包账号池、池元数据和网络代理表。已发布版本的实现和校验和不得修改；版本 32/33 保留历史迁移谱系，不重新编号。
+
+渠道模型的文本能力 JSON 还可声明 `contextWindowTokens` 与 `maxOutputTokens`。这两个字段是模型能力合同，不是数据库或 Agent checkpoint 的容量配置；旧记录读取时补 128K / 16K 默认值。运行状态、journal 和 transcript 的持久化边界仍由既有 runtime 表及其 512KB checkpoint 校验负责，本阶段没有通过扩大 checkpoint 绕过模型上下文限制。
+
+历史发布曾使用版本 6 `asset_library_folders`，之后合并引入了上述 6/7 顺序冲突。迁移器仅在该历史记录的名称和校验和均精确匹配时选择历史顺序：保留版本 6 的素材目录记录及时间，在版本 7 应用 `resource_playback_variant`，再继续版本 8。新数据库及已采用“6 播放副本、7 素材目录”的数据库保持原顺序；状态检查与启动校验采用同一套识别规则。未知名称、被改动的校验和或冲突的版本 7 记录仍会拒绝迁移，不通过删除、改名或伪造已应用记录绕过检查。
+
+升级前备份数据库，迁移命令必须沿用部署实际配置的数据库连接和数据目录。开发环境启用自动迁移时重新启动新代码即可；关闭自动迁移的部署先使用新构建的 `migrate-schema up`，然后 `migrate-schema verify`，成功后启动 Backend。迁移与记录写入在事务中执行；此修复不提供降级迁移，回退旧二进制可能无法识别历史顺序，应恢复匹配的备份和版本，不手工改迁移表。
 
 版本 3 会将 `wardrobe`、`weapon`、`accessory` 迁移为 `prop`，将 `style` 迁移为 `material`，并把原先归入 `other` 的图片、视频、音频和 3D 模型迁移为 `material`。迁移只合并重复的待确认候选：保留最早记录，其余标记为 `ignored`；已经确认的资产不会被自动删除或归并。
+
+## 画布版本与快照
+
+| 表 | 用途 | 关键边界 |
+| --- | --- | --- |
+| `canvas_projects` | 当前画布内容及递增 `revision`（非空，默认 1） | 客户端新建传 0；后续写入按用户、ID、原版本原子校验，成功才加 1 |
+| `canvas_snapshots` | 结构 JSON、版本、标题、节点/连线数、字节数、内容时间和备份时间 | `(canvas_id, revision)` 唯一；列表只读摘要，正文按需加载；不复制媒体文件 |
+| `canvas_snapshot_resources` | 历史快照引用的资源 | `(snapshot_id, resource_id)` 联合主键；资源外键禁止删除被引用记录 |
+
+浏览器、云端 Agent 和创作任务共用保存事务。内容变化时备份旧内容，普通备份最短间隔 5 分钟，每画布最多保留 20 份；恢复前强制备份当前内容。版本号每次成功写入递增，快照按间隔采样，两者不是一一对应。画布关联项目或解除关联同样推进版本，使旧页面的全量保存失效。
+
+恢复历史保留当前画布 ID、归属和项目关联，按当前版本做 CAS 后形成新版本；不会把 revision 改回历史值。快照写入、引用保护、恢复和保留数量清理在同一事务内完成。资源删除检查与异步物理删除任务均检查历史引用（包括同对象的资源别名），仍被历史引用的媒体延后回收；删除画布时清理该画布快照及引用。
+
+升级不改变已有画布正文，也不会凭空产生升级前历史。前后端应一起升级：旧客户端缺少 revision 的保存返回 428，需刷新客户端。
+
+## 画布模板库
+
+| 表 | 用途 | 关键边界 |
+| --- | --- | --- |
+| `canvas_templates` | 保存模板名称、分类、标签、归属、发布状态和当前版本 | 用户模板默认私有；公共模板必须由管理员发布并设置为 public；读取、更新和删除均校验归属或管理员权限 |
+| `canvas_template_versions` | 保存不可变的模板节点图版本 | `(template_id, version)` 唯一；正文限制为 `yingce.canvas-template` schema；节点图不能包含 `storageKey`、`assetId`、`taskId` 或运行时媒体引用 |
+
+模板版本保存可重新生成的工作流结构、提示词草稿和可选的模板预览媒体清单。预览媒体不属于用户素材，也不会作为任务结果写入画布；文件由导入命令安装到 `CANVAS_BACKEND_DATA_DIR/template-media`，通过模板媒体接口按模板可见性读取。NodyHub 公共预览导入命令优先读取带本地引用的 `offline-preview.json`，将外部媒体转换为空输入节点，并以公共发布模板写入当前部署数据库；重复执行按稳定模板 ID 替换导入版本和对应媒体目录。
+
+仓库内的带媒体模板包位于 `backend/templates/canvas/nody-templates-with-media-20260919`，可使用 `--package-dir` 直接导入目录；其中超过 GitHub 单文件限制的 MP4 使用 `.part-000` / `.part-001` 分片，导入器会自动合并。外部 ZIP 仍可通过 `--archive` 导入。
+
+## 已部署 PostgreSQL 的素材 bytes 修复
+
+升级到包含修复工具的镜像后，由部署管理员执行一次，无需终端用户修改数据库、清缓存或重建画布。旧镜像不支持以下子命令；请先将部署配置中的镜像版本更新为实际发布的修复版本。此操作不增加表或改变 schema 版本，也不会在启动时静默修改素材。
+
+`migrate-schema repair-asset-bytes` 默认只检查，`--apply` 才写入。它按 100 条分批扫描媒体素材，只修复无效的 `data.bytes`，从明确的 `resource:` 引用取得同用户、同类型、就绪且大小为正的资源 `size`。JSON 其他字段、素材 ID、文件和项目引用保留，仅同步推进素材及 JSON 的 `updatedAt`。没有可靠资源或存在其他合同错误的素材保持原样并列入 `unresolved`；存在未解决记录时命令非零退出，即使其他可修复记录已成功提交，也不代表全部修复。
+
+在原部署目录使用原来的环境文件执行；若部署使用了额外 Compose 文件，所有命令必须沿用相同参数。下面对应仓库标准 PostgreSQL Compose：
+
+```bash
+# 先下载实际发布的修复版本，再只读检查；不会启动后端。
+docker compose -f docker-compose.deploy.yml pull migrate backend web
+docker compose -f docker-compose.deploy.yml run --rm --no-deps migrate repair-asset-bytes
+```
+
+审阅报告，确认可修复范围后再进入维护窗口。多副本/独立 worker 也必须全部停止写入。备份或校验失败时停止操作，不能继续执行修复：
+
+```bash
+docker compose -f docker-compose.deploy.yml stop backend
+
+# 备份必须成功才可继续。备份含用户数据，限制权限，不上传或提交仓库。
+umask 077
+backup="asset-bytes-before-$(date +%Y%m%d-%H%M%S).dump"
+docker compose -f docker-compose.deploy.yml exec -T postgres \
+  sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$backup" || exit 1
+docker compose -f docker-compose.deploy.yml exec -T postgres pg_restore --list < "$backup" > /dev/null || exit 1
+```
+
+确认备份和检查均成功后执行写入，保留 JSON 报告：
+
+```bash
+docker compose -f docker-compose.deploy.yml run --rm --no-deps migrate repair-asset-bytes --apply
+docker compose -f docker-compose.deploy.yml run --rm --no-deps migrate repair-asset-bytes
+
+# 核查 repaired / unresolved，再恢复服务。
+docker compose -f docker-compose.deploy.yml up -d backend web
+```
+
+若报告仍有 `unresolved`，需按素材 ID 核查实际文件大小及引用；不要批量填零，也不要把未解决记录删除。工具不访问外部 URL，不下载媒体。应用后让用户重新加载素材库验证；不会要求清空本地存储。若数据库更新失败或检测到并发修改，整批写入事务回滚，`repaired` 为零。已成功提交后的回滚应在隔离数据库恢复备份并核查，再选择性恢复相关记录；不要在恢复写入后直接覆盖整库，以免丢失后续数据。
 
 ## 平台外观配置
 
@@ -35,6 +134,8 @@ description: 影策后端核心持久化表与状态边界
 
 密码重置在单个数据库事务中条件消费 `password_reset` 验证码、更新 `users.password_hash` 并删除 `auth_sessions`。任一步失败都会回滚，不能出现密码已修改但旧会话仍有效，或验证码已消耗但密码未更新的部分状态。
 
+邮件系统设置还保存电子邮件域名白名单。新配置默认填入 Gmail、163、126、QQ、Outlook、Hotmail、iCloud、Yahoo 和 Foxmail；管理员可按行编辑完整域名。白名单为空时不限制邮箱域名，非空时只有精确匹配的域名可注册。该规则只作用于新用户注册和注册验证码，不限制 SMTP 发件邮箱，也不影响已有账号找回密码。
+
 ## 技能包与版本
 
 | 表 | 用途 | 关键边界 |
@@ -45,6 +146,15 @@ description: 影策后端核心持久化表与状态边界
 | `user_skill_states` | 保存用户的加入、收藏、安装版本和自动更新选择 | 技能正文读取仍经过公开性和归属校验，不能通过文件接口绕过私有技能权限 |
 
 规范化技能包保存在后端数据目录的 `skill-packages/<skill-id>/<version-id>.zip`，数据库只保存索引和版本指针。上传 ZIP 时强制校验 `SKILL.md`、路径越界、软链接、重复路径、文件数量和解压大小；GitHub 技能保存公开仓库、分支、子目录和提交 SHA，后台每 6 小时检查一次开启自动更新的技能，并记录最近检查、同步时间及失败状态。
+
+## 提示词模板
+
+| 表 | 用途 | 关键边界 |
+| --- | --- | --- |
+| `prompt_templates` | 保存每个操作的平台提示词版本 | `(operation, version)` 唯一；同一操作同一时间只能有一个启用版本；启用中的版本不能直接改文案或停用 |
+| `user_prompt_customizations` | 保存用户对某个操作的跟随、追加或改写 | `(user_id, operation)` 唯一；只覆盖创作层。任务事实和 JSON 输出契约由 `compilePrompt` 注入，不能写进这张表来绕过 |
+
+启动时 `EnsureDefaultPromptTemplates` 只为尚无任何版本的操作写入内置默认稿。新增操作（当前包括短剧大纲 `short_drama_outline` 和技能草稿 `skill_draft`）会在下次启动补种，不改已有操作的启用版本。
 
 ## 短剧分镜生产
 
@@ -59,6 +169,9 @@ description: 影策后端核心持久化表与状态边界
 | `shot_asset_references` | 将镜头绑定到具体资产版本 | 修改引用时只使该镜头的下游产物过期，不影响其他镜头 |
 | `shot_artifacts` | 保存分镜图、动作预演、首尾帧、视频等版本化产物 | `selected` 表示当前采用版本；上游变化后状态转为 `stale`，历史资源继续保留 |
 | `production_task_links` | 显式记录生成任务所属的领域项目、画布、章节、镜头和工作流步骤 | `Task.project_id` 仍兼容画布任务身份，不再用它单独推断短剧领域归属 |
+| `creation_runs` | 保存创作 Agent 的服务端权威状态、执行租约、已批准提案和画布快照 | `(user_id, client_key)` 唯一；客户端会话只作为输入，修订号、执行 epoch 和租约由 service 强校验，不能据前端状态跳过审批或重复执行 |
+| `creation_submissions` | 保存创作提案中每个生成项的请求、报价签名、审批和任务绑定 | `(run_id, item_key)` 与 `task_id` 分别唯一；相同提交只允许创建一个任务，过期、撤销或提案哈希不一致时拒绝执行 |
+| `tasks.creation_submission_id` | 将生成任务反向绑定到已批准的创作提交 | 字段可空以兼容普通任务和旧数据；非空值唯一，阻止同一提交产生多个任务 |
 | `workflow_template_versions` / `workflow_instances` / `workflow_step_instances` | 保存短剧生产模板和项目、章节实例 | 短剧分镜工作流 v2 顺序为剧情、资产、分镜、动作预演、视频、交付 |
 
 短剧项目状态以这些领域表为准。自由画布可以承载探索节点，但画布 metadata 不作为生产完成度、镜头版本或交付可用性的真相源。
@@ -74,7 +187,7 @@ description: 影策后端核心持久化表与状态边界
 | `GET /api/projects/:id/units` | 全部章节摘要与字数，不包含正文 |
 | `GET /api/projects/:id/units/:unitId` | 单章正文 |
 | `GET /api/projects/:id/units/:unitId/workspace` | 当前章节的镜头、版本、产物、引用、候选、相关任务和已绑定资产 |
-| `GET /api/projects/:id/canvases` | 项目画布与当前页章节关联，使用 `page`、`page_size` |
+| `GET /api/projects/:id/canvases` | 项目画布与当前页章节关联，使用 `page`、`pageSize` |
 | `GET /api/projects/:id/assets` | 项目资产分页、分类/目录计数，支持分类、媒体类型、目录和关键词筛选 |
 | `GET /api/projects/:id/asset-candidates` | 资产候选分页，支持章节、状态、分类和名称关键词筛选 |
 
@@ -107,10 +220,18 @@ description: 影策后端核心持久化表与状态边界
 
 | 表 | 用途 | 关键边界 |
 | --- | --- | --- |
-| `model_channels` | 保存系统渠道与用户渠道的连接配置 | 系统渠道密钥不进入公开目录；普通用户只能读取脱敏后的可用模型集合 |
-| `channel_models` | 保存系统渠道中的产品模型标识、上游模型 ID、显示名称、模型 Logo、能力、协议和版本状态 | `icon` 只用于模型选择器展示；能力、协议、启用状态和价格仍由 service 强校验 |
-| `channel_model_price_tiers` | 保存系统模型按规格匹配的上游 SKU 与价格 | 价格档与渠道模型同事务保存；未启用或未完成定价的规格不进入普通用户目录 |
-| `logical_models` | 保存前台模型的公开名称、Logo、能力类型和归档状态 | 前台模型与系统渠道模型分别维护展示信息；供应线路通过 revision 和 route 关联 |
+| `model_channels` | 保存系统渠道与用户渠道的连接配置，以及系统渠道前台别名和排序 | 系统渠道密钥不进入公开目录；公开名称优先使用 `public_alias`，为空时使用原名；按 `sort_order, created_at, id` 升序展示 |
+| `channel_models` | 保存系统渠道中的产品模型标识、上游模型 ID、显示名称、模型 Logo、排序、能力、协议和版本状态 | 模型排序独立保存，不递增价格或能力版本；能力、协议、启用状态和价格仍由 service 强校验 |
+| `channel_model_price_tiers` | 保存系统模型按规格匹配的上游 SKU 与价格 | 价格档与渠道模型同事务保存；未启用或未完成定价的规格不进入普通用户目录。档位 `provider_model_key` 非空时优先于渠道模型上游键发往供应商；管理端修改模型级上游 ID 时，与旧值相同的档位键自动级联跟随，其余显式 SKU 保持不变 |
+| `logical_models` | 保存前台模型的公开名称、Logo、能力类型和归档状态 | 前台模型与系统渠道模型分别维护展示信息；供应线路通过 revision 和 route 关联；`code` 仅在 `archived_at IS NULL` 的活动记录中唯一，归档后可用同 code 重建目录项 |
+
+图片分档尺寸保存在现有模型能力 JSON 的 `image.size.presets` 中，不新增表、列或 SQL 迁移。每项结构为 `{ tier, ratio, size, width, height }`，例如 `{ "tier": "1k", "ratio": "16:9", "size": "1824x1024", "width": 1824, "height": 1024 }`。
+
+- `tier` 仅允许 `1k`、`2k`、`4k`，管理员分别配置各档支持的比例；新增比例自动计算像素，原有精确尺寸不被重算。
+- 同档等价比例不能重复。比例须为正整数比且不超过 3:1；像素最长边不超过 3840，总像素为 655360–8294400，并与比例及 `size` 一致（允许 2.5% 比例取整误差）。这些档位是工作台预设，不保证上游返回完全相同的像素。
+- `parameter=size` 的支持值与请求使用精确像素；`parameter=aspect_ratio` 使用比例，独立分辨率由协议质量值映射。未允许自定义且质量值对应明确档位时，保存默认配置和创建任务均校验已声明的“档位 × 比例”组合，不能借用其他档位的比例。
+- `allowCustom` 只开放支持值之外的输入，不新增上游分辨率能力；比例协议未配置对应质量值时不开放该档位。模型声明的精确像素可不满足 16px 对齐；自定义像素仍须满足请求端的 16px 对齐及尺寸限制。
+- 未声明 `presets` 时，界面从已有支持值推导候选；禁用尺寸参数时清除分档配置。发布与回滚均无需数据库迁移，但旧程序不识别分档组合约束，回滚前应核对相关模型配置。
 
 ## 插件管理
 
@@ -121,17 +242,6 @@ description: 影策后端核心持久化表与状态边界
 
 有效状态由服务端计算为 `platform_available AND user_enabled`。官方应用插件没有平台状态记录时默认可用；用户没有个人记录时默认停用，历史上全局启用的工作流插件在用户首次保存个人选择前沿用旧状态。管理员上传包的来源和作用域由宿主覆盖，不能通过 Manifest 提权。
 
-## ComfyUI Bridge
-
-| 表 | 用途 | 关键边界 |
-| --- | --- | --- |
-| `comfy_bridges` | 保存用户注册的 Bridge 身份、Token 摘要、启用状态和心跳能力 | Token 明文只在注册时返回一次；查询和日志只使用摘要 |
-| `comfy_bridge_requests` | 保存云端任务交给本地 Bridge 的请求、领取状态和完成结果 | `id` 同时作为任务的 `provider_request_id`；状态按 `queued -> claimed -> succeeded/failed/cancelled` 单向流转 |
-
-`comfy_bridge_requests` 是 Bridge 交接的真相源。后端进程重启后，未领取请求继续从数据库投递；已领取请求的迟到结果先落库，任务 worker 恢复后使用原请求 ID 读取结果，不会创建第二次本地工作流执行。请求有效期当前为两小时，过期的排队或执行记录会转为失败。
-
-请求表保存工作流执行 payload 和结果，但不保存 Bridge Token。任务取消时，未领取请求可以确定取消；已经领取的本机工作流无法可靠中止，迟到结果会被丢弃并进入费用核对流程。
-
 ## 系统公告
 
 | 表 | 用途 | 关键边界 |
@@ -139,8 +249,17 @@ description: 影策后端核心持久化表与状态边界
 | `announcements` | 保存管理员发布的系统公告 | `pinned` 只改变排序；`image_resource_id` 只能绑定由当前管理员上传并在发布事务中消费的公告配图草稿 |
 | `announcement_image_drafts` | 标记尚未发布的公告配图资源 | 发布/更新事务消费草稿；取消编辑显式回收，超过 24 小时的异常遗留草稿由后台清理 |
 | `user_announcement_reads` | 保存用户已读状态 | 同一用户和公告唯一；公告重新发布时清除旧已读记录 |
+| `banner_announcements` | 保存首页顶部常驻展示的滚动通知条 | 与系统公告完全独立：只有标题、图标与跳转链接，无正文、无配图、无已读状态；`link` 仅接受 `http(s)` 外链或 `/` 开头的站内路径；`status` 为 `active` / `disabled`，`starts_at` / `ends_at` 构成生效窗口（可预约未来开始）；`title_runs` 以 JSON 文本保存标题的样式分段；`notice_type` 决定通知条底色，`icon` 是标题前的图标键 |
 
-活动公告按置顶状态优先、发布时间倒序返回；置顶不会绕过关闭状态或用户登录校验。替换或移除配图时，公告更新、旧资源记录删除和物理删除任务入队在同一数据库事务完成。
+活动公告按置顶状态优先、发布时间倒序返回；置顶不会绕过关闭状态或用户登录校验。公告只要求标题，正文和配图均可为空。用户首次进入工作区时会自动看到未读公告，可以只关闭本次或选择今日不再提醒；主动打开公告中心后才会写入服务端已读状态。替换或移除配图时，公告更新、旧资源记录删除和物理删除任务入队在同一数据库事务完成。
+
+常驻通知的标题支持按分段设置样式：`title_runs` 是可选的 JSON 数组，每项为 `{ text, fontSize?, fontWeight?, fontFamily?, color? }`，只在有分段时写入，历史数据与纯文本标题保持为空。后端在写入前统一收口取值——字号 10-20、字重 400/500/600/700、字体 `sans` / `serif` / `mono`、颜色 `#RRGGBB`，并合并相邻同样式分段；标题总字数上限 120 与纯文本标题一致。`title` 列始终保存由分段拼接出的纯文本，列表展示与关键字检索不受样式影响，通知条渲染分段时也不依赖该列。
+
+常驻通知的通知类型与标题图标同样是白名单枚举。`notice_type` 取 `notice`（公告）/ `activity`（活动）/ `update`（更新）/ `warning`（警告），决定通知条底色——四种类型在 `globals.css` 里各有一组明暗两档色值，浅色档按白字 4.5:1 反推，深色档统一压到 7:1 以上。`icon` 取前端 `lib/announcements/banner-notice` 图标库里的键（kebab-case，当前 42 个），前端按下标取 lucide 组件渲染。两个字段都允许为空，后端在写入时补齐默认值（`notice` / `megaphone`），保证行数据始终是可直接渲染的具体取值；白名单在 `backend/internal/app/announcement.go`，与前端注册表的一致性由 `web/test/banner-notice.test.ts` 双向校验，改任一侧都会让测试失败。
+
+常驻通知由管理后台「运营 → 常驻通知」维护，公开接口 `GET /api/banner-announcements` 按生效窗口返回 `active` 条目（`starts_at <= now <= ends_at`，空窗口视为长期有效），前台工作台顶部布局层轮播展示；点击按 `link` 跳转：外链新窗口打开，站内路径前端路由跳转，无链接则不可点击。
+
+后台编辑弹窗可选中通知类型（卡片上直接铺出该类型的真实底色）、选中标题文字直接调整样式，并通过工具栏「图标」按钮在光标处插入 emoji 素材（可插入多个、任意位置），全部实时联动到深浅两套主题的预览（含文字对比度提示）。预览与前台通知条共用 `components/layout/banner-announcement-content.tsx` 的展示单元，因此「预览即前台结果」；标题在通知条内固定单行展示，超长按可用宽度裁切。通知条默认不显示任何图标，是否带图标完全由标题内容决定。
 
 ## 资源存储
 
@@ -156,6 +275,16 @@ description: 影策后端核心持久化表与状态边界
 
 个人画布中的图片、视频和音频采用 `Asset -> Resource` 所有权约束：前端先提交素材，再提交带 `assetId` 的画布节点或时间线直连媒体；后端保存画布前校验资源属于当前用户、状态为 `ready`、素材存在且引用同一资源。素材更新、全量替换和删除也会反向检查已有画布，不能把仍在使用的资源从素材库中移除或替换成其他资源。登录历史账号时，前端会按资源键补建缺失素材并回写 `assetId`。这项修复复用现有表和 Outbox，不新增结构迁移。
 
-账号文件容量只统计 `ready` 资源，并按 Provider、Endpoint、Bucket、ObjectKey 对同一物理对象去重；上传中或失败记录不占用已存储容量，`session_files` 仍按实际大小计入。后台每小时检查资源生命周期：超过 1 小时的 `pending/failed` 记录，以及超过 24 小时仍没有任何素材、画布、任务或其他业务引用的 `ready` 记录，会在再次校验引用后删除数据库记录并写入 `resource_deletion_jobs`，由幂等 Worker 清理物理对象。
+账号文件容量只统计 `ready` 资源，并按 Provider、Endpoint、Bucket、ObjectKey 对同一物理对象去重。上传中或失败记录不占用已存储容量。后台每小时检查资源生命周期：超过 1 小时的 `pending/failed` 记录，以及超过 24 小时仍没有任何素材、画布、任务或其他业务引用的 `ready` 记录，会在再次校验引用后删除数据库记录并写入 `resource_deletion_jobs`，由幂等 Worker 清理物理对象。
 
 素材状态为 `archived` 时进入回收站。后台按“资源与请求策略”中的 `recycleBinRetentionDays` 定期扫描过期项；`0` 表示永久保留。自动清理与用户手动彻底删除复用同一 service 引用校验和 `resource_deletion_jobs` Outbox，仍被画布、项目、任务或其他业务记录引用的素材不会被删除。
+
+## 画布生成工具
+
+Schema 30 新增 `tools`，31 新增 `tool_favorites`；主分支已有 28（Agent 执行日志）、29（资源租约）编号和 checksum 不变。
+
+- `tools`：自增 `id`、类型 `type`、名称 `label/label_en`、描述/标签、`prompt`、预览 `cover/media_url/extra_info_json`、比例、`owner_id`、`source`、`enabled`、`visibility`、排序权重和时间。
+- `tool_favorites`：`id`、`user_id`、`tool_id`、收藏时间；用户和工具联合唯一。删除自己的自定义工具时事务清理收藏，不删除预览文件。
+- 启动幂等装载 87 个预设（风格 45、运镜 33、九宫格 9），不下载第三方媒体。显式 ID 与用户工具冲突时启动报错，不覆盖用户数据；PostgreSQL 同步自增序列。
+- 工具预览纳入资源引用检查；自定义预览必须是当前用户已上传完成的资源。公开工具暂不接受私人预览资源。
+- SQLite → PostgreSQL 迁移包含上述两表。首次启动前备份测试数据；回退旧代码不能视为数据库降级，应使用备份恢复，不手工重写迁移记录。

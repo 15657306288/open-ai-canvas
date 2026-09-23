@@ -2,7 +2,7 @@ import { localForageStorageForScope } from "@/lib/localforage-storage";
 import type { DirectorMode } from "@/lib/canvas/director/director-modes";
 
 /**
- * 导演台首次上手引导（P2）。
+ * 导演台首次上手引导。
  *
  * 为什么存在：导演台把模板、四个一级模式、对象操作、保存/导出堆在同一个工作台里，
  * 第一次进来的人没有任何线索该先做什么。引导给出一条确定的最短路径。
@@ -44,7 +44,7 @@ export type DirectorOnboardingStep = {
     mode?: DirectorMode;
 };
 
-/** 顺序与 Issue #305 的首次任务一致：添加演员 → 移动 → 调姿 → 轨迹 → CAM → 应用。 */
+/** 引导步骤按首次使用的最短操作路径排列：添加演员 → 移动 → 调姿 → 轨迹 → CAM → 应用。 */
 export const DIRECTOR_ONBOARDING_STEPS: DirectorOnboardingStep[] = [
     { id: "actor", title: "添加并选中演员", detail: "在左侧「快速添加」点演员；模板已有演员时，直接在场景树或视口选中它。", mode: "layout" },
     { id: "move", title: "把演员移动到表演位置", detail: "保持摆场模式，在底部 dock 选移动工具（W），拖动轴手柄；右栏可输入精确坐标。", mode: "layout" },
@@ -207,9 +207,8 @@ export async function advanceDirectorOnboarding(scope: string, progress: Directo
 }
 
 /**
- * 独立的重启 API。不依赖调用方持有当前内存进度 —— 未来工作台设置里的
- * 「重新开始引导」按钮不必先加载一次旧进度才能重置，直接落盘初始状态即可，
- * 对已 dismissed/completed 的账号同样生效。
+ * 独立的重启 API。不依赖调用方持有当前内存进度；设置页的「重新开始引导」
+ * 按钮可以直接落盘初始状态，对已 dismissed/completed 的账号同样生效。
  */
 export async function resetDirectorOnboardingProgress(scope: string, storage?: DirectorOnboardingStorage): Promise<DirectorOnboardingProgress> {
     const normalizedScope = requireScope(scope);

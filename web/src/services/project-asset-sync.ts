@@ -2,6 +2,7 @@ import { canvasNodeToAsset, declaredCanvasNodeAssetCategory, findCanvasNodeAsset
 import { canvasVideoAssetPreviewUrl } from "@/lib/canvas/canvas-media-preview";
 import { readImageMeta } from "@/lib/image-utils";
 import { parseBackendGenerationResult, type BackendGenerationResult } from "@/services/api/generation-task";
+import { ApiError } from "@/services/api/request";
 import { linkProjectAsset, moveProjectAsset, updateProjectAssetCategory } from "@/services/api/projects";
 import type { GenerationTask, GenerationTaskOutput } from "@/services/api/task-center";
 import { getMediaBlob, resolveMediaUrl, setMediaBlob } from "@/services/file-storage";
@@ -10,8 +11,8 @@ import { withGenerationArtifactCommitLock } from "@/services/generation-asset-re
 import { uploadGeneratedAssetToConfiguredSources } from "@/services/external-asset-sources";
 import { getImageBlob, resolveImageUrl, setImageBlob } from "@/services/image-storage";
 import { generationArtifactStorageKey, loadOrStoreGenerationArtifact } from "@/services/generation-artifact-sink";
-import { createLocalDreaminaTaskEffectStore } from "@/services/local-dreamina-generation";
 import { createProviderNeutralGenerationTaskEffectStore } from "@/services/provider-neutral-generation-effects";
+import { getCachedResourceBlob } from "@/services/resource-blob-cache";
 import { saveRemoteUserDataNow } from "@/services/user-data-sync";
 import { getActiveUserScope } from "@/lib/user-scope";
 import { normalizeAssetCategory } from "@/lib/asset-category";
@@ -41,6 +42,68 @@ export type CanvasNodeAssetResult = {
 };
 
 const pendingAssetSyncs = new Map<string, Promise<CanvasNodeAssetResult>>();
+const DEFAULT_RATE_LIMIT_RETRY_MS = 60_000;
+const MAX_RATE_LIMIT_RETRY_MS = 5 * 60_000;
+const DEFAULT_TRANSIENT_RETRY_MS = 1_000;
+
+type CanvasAssetSyncRetryOptions = {
+    signal?: AbortSignal;
+    maxRetries?: number;
+    wait?: (delayMs: number, signal?: AbortSignal) => Promise<void>;
+};
+
+function waitForCanvasAssetSyncRetry(delayMs: number, signal?: AbortSignal) {
+    return new Promise<void>((resolve, reject) => {
+        if (signal?.aborted) {
+            reject(new DOMException("The operation was aborted", "AbortError"));
+            return;
+        }
+        const timer = globalThis.setTimeout(() => {
+            signal?.removeEventListener("abort", onAbort);
+            resolve();
+        }, delayMs);
+        const onAbort = () => {
+            globalThis.clearTimeout(timer);
+            reject(new DOMException("The operation was aborted", "AbortError"));
+        };
+        signal?.addEventListener("abort", onAbort, { once: true });
+    });
+}
+
+// 资产入库与 429 之外还要覆盖网关 5xx（含 Cloudflare 520）和断网：这些是临时故障，
+// 丢掉一次入库请求会让用户看到「生成结果已保留，但项目资产同步失败」，但结果其实已经生成好了。
+// 只重试瞬时失败，鉴权/越权/参数错误等永久失败直接抛出。
+export async function retryCanvasAssetSyncOnTransientFailure<T>(operation: () => Promise<T>, options: CanvasAssetSyncRetryOptions = {}): Promise<T> {
+    const maxRetries = Math.max(0, options.maxRetries ?? 2);
+    const wait = options.wait ?? waitForCanvasAssetSyncRetry;
+    for (let attempt = 0; ; attempt += 1) {
+        throwIfAborted(options.signal);
+        try {
+            return await operation();
+        } catch (error) {
+            if (attempt >= maxRetries || !isTransientCanvasAssetSyncError(error)) throw error;
+            await wait(canvasAssetSyncRetryDelay(error, attempt), options.signal);
+        }
+    }
+}
+
+// 瞬时失败的判定复用 request() 已经算好的 ApiError.retryable（408/425/429/5xx），
+// 不在这里另立一套响应码规则，避免两处漂移。额外两类：
+//   - 429 限流（retryable 也为 true，但退避要用 Retry-After）；
+//   - status 缺失：请求根本没到达服务端（断网、DNS、CORS 预检失败），retryable 为 false 却最该重试。
+function isTransientCanvasAssetSyncError(error: unknown) {
+    if (!(error instanceof ApiError)) return false;
+    if (error.status === 429 || error.status === undefined) return true;
+    return error.retryable;
+}
+
+function canvasAssetSyncRetryDelay(error: unknown, attempt: number) {
+    // 限流要尊重服务端给的 Retry-After（默认退到分钟级）；其它瞬时故障用短指数退避。
+    if (error instanceof ApiError && error.status === 429) {
+        return Math.min(MAX_RATE_LIMIT_RETRY_MS, Math.max(0, error.retryAfterMs ?? DEFAULT_RATE_LIMIT_RETRY_MS));
+    }
+    return Math.min(MAX_RATE_LIMIT_RETRY_MS, DEFAULT_TRANSIENT_RETRY_MS * 2 ** attempt);
+}
 
 export function ensureCanvasNodeAsset(options: EnsureCanvasNodeAssetOptions) {
     const scope = getActiveUserScope();
@@ -224,6 +287,26 @@ async function storedGenerationMedia(dataUrl: string, effectKey: string, mediaTy
     };
 }
 
+async function cachedRemoteGenerationVideo(video: NonNullable<BackendGenerationResult["video"]>, signal?: AbortSignal) {
+    if (!video.storageKey) throw new Error("生成视频缺少云端资源标识");
+    throwIfAborted(signal);
+    const blob = await getCachedResourceBlob(video.storageKey);
+    throwIfAborted(signal);
+    if (!blob) throw new Error("生成视频资源缓存失败，未标记为成功");
+    const url = await resolveMediaUrl(video.storageKey, video.dataUrl);
+    throwIfAborted(signal);
+    if (!url) throw new Error("生成视频资源地址为空，未标记为成功");
+    return {
+        url,
+        storageKey: video.storageKey,
+        width: video.width || 0,
+        height: video.height || 0,
+        durationMs: video.durationMs,
+        bytes: video.bytes || blob.size,
+        mimeType: video.mimeType || blob.type || "video/mp4",
+    };
+}
+
 async function generationOutputAsset(input: Parameters<MaterializeGenerationTaskOutput>[0], scope: string): Promise<NewAsset> {
     throwIfAborted(input.signal);
     const result = generationTaskResult(input.task);
@@ -264,15 +347,7 @@ async function generationOutputAsset(input: Parameters<MaterializeGenerationTask
         const video = result.video;
         if (!video) throw new Error("生成任务缺少视频输出");
         const stored = video.storageKey
-            ? {
-                  url: await resolveMediaUrl(video.storageKey, video.dataUrl),
-                  storageKey: video.storageKey,
-                  width: video.width || 0,
-                  height: video.height || 0,
-                  durationMs: video.durationMs,
-                  bytes: video.bytes || 0,
-                  mimeType: video.mimeType || "video/mp4",
-              }
+            ? await cachedRemoteGenerationVideo(video, input.signal)
             : await storedGenerationMedia(
                   video.dataUrl,
                   input.effectKey,
@@ -349,13 +424,6 @@ async function generationOutputAsset(input: Parameters<MaterializeGenerationTask
     };
 }
 
-let generationTaskEffectStoreInstance: ReturnType<typeof createLocalDreaminaTaskEffectStore> | undefined;
-
-function generationTaskEffectStore() {
-    generationTaskEffectStoreInstance ??= createLocalDreaminaTaskEffectStore();
-    return generationTaskEffectStoreInstance;
-}
-
 const materializeGenerationOutput: MaterializeGenerationTaskOutput = createIdempotentMaterializeOutput({
     async insertOrReturnAsset(input) {
         const scope = getActiveUserScope();
@@ -386,16 +454,6 @@ const materializeGenerationOutput: MaterializeGenerationTaskOutput = createIdemp
     },
 });
 
-const dreaminaGenerationTaskMaterializer = createGenerationTaskMaterializer({
-    effects: {
-        claim: (effectKey, taskId) => generationTaskEffectStore().claim(effectKey, taskId),
-        renew: (effectKey, taskId) => generationTaskEffectStore().renew(effectKey, taskId),
-        complete: (effectKey, taskId, result) => generationTaskEffectStore().complete(effectKey, taskId, result),
-        release: (effectKey, taskId) => generationTaskEffectStore().release(effectKey, taskId),
-    },
-    materializeOutput: materializeGenerationOutput,
-});
-
 function remoteGenerationTaskMaterializer() {
     return createGenerationTaskMaterializer({
         // 每个页面实例持有自己的租约；共享浏览器 storage + Web Lock 提供跨标签原子权威。
@@ -405,22 +463,22 @@ function remoteGenerationTaskMaterializer() {
 }
 
 function generationTaskMaterializer(task: GenerationTask) {
-    return task.provider === "dreamina-cli" ? dreaminaGenerationTaskMaterializer : remoteGenerationTaskMaterializer();
+    return remoteGenerationTaskMaterializer();
 }
 
 export async function materializeGenerationTaskAssets(task: GenerationTask, signal?: AbortSignal): Promise<GenerationTask> {
     return generationTaskMaterializer(task).materialize(projectGenerationTaskResult(task), signal);
 }
 
-export function attachGenerationTaskNode(task: GenerationTask, nodeId: string, outputIndex: number, consumer: Parameters<typeof dreaminaGenerationTaskMaterializer.attachNode>[3], signal?: AbortSignal) {
+export function attachGenerationTaskNode(task: GenerationTask, nodeId: string, outputIndex: number, consumer: Parameters<ReturnType<typeof generationTaskMaterializer>["attachNode"]>[3], signal?: AbortSignal) {
     return generationTaskMaterializer(task).attachNode(task, nodeId, outputIndex, consumer, signal);
 }
 
-export function attachGenerationTaskMessage(task: GenerationTask, messageId: string, outputIndex: number, consumer: Parameters<typeof dreaminaGenerationTaskMaterializer.attachMessage>[3], signal?: AbortSignal) {
+export function attachGenerationTaskMessage(task: GenerationTask, messageId: string, outputIndex: number, consumer: Parameters<ReturnType<typeof generationTaskMaterializer>["attachMessage"]>[3], signal?: AbortSignal) {
     return generationTaskMaterializer(task).attachMessage(task, messageId, outputIndex, consumer, signal);
 }
 
-export function resumeGenerationTaskAgent(task: GenerationTask, continuationId: string, consumer: Parameters<typeof dreaminaGenerationTaskMaterializer.resumeAgent>[2], signal?: AbortSignal) {
+export function resumeGenerationTaskAgent(task: GenerationTask, continuationId: string, consumer: Parameters<ReturnType<typeof generationTaskMaterializer>["resumeAgent"]>[2], signal?: AbortSignal) {
     return generationTaskMaterializer(task).resumeAgent(task, continuationId, consumer, signal);
 }
 

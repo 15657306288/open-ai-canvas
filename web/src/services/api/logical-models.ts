@@ -1,13 +1,26 @@
-import { apiClient, request } from "@/services/api/request";
+import { http } from "@/services/api/request";
 
 export type InputConstraint = { min: number; max: number };
 export type OptionConstraint = { values?: unknown[]; min?: number; max?: number; step?: number };
+export type CapabilityImageSizePreset = {
+    size: string;
+    tier: "1k" | "2k" | "4k";
+    ratio: string;
+    width: number;
+    height: number;
+};
+export type CapabilityImageSize = {
+    parameter?: "size" | "aspect_ratio";
+    allowCustom?: boolean;
+    presets?: CapabilityImageSizePreset[];
+};
 export type CapabilitySpec = {
     version: 1;
     capability: "text" | "image" | "video" | "audio";
     operations?: string[];
     inputs?: Record<string, InputConstraint>;
     options?: Record<string, OptionConstraint>;
+    imageSize?: CapabilityImageSize;
 };
 
 export type ModelRequestIntent = {
@@ -31,7 +44,7 @@ export type PublicLogicalModel = {
     inputPriceMicrocredits: number;
     outputPriceMicrocredits: number;
     cachedPriceMicrocredits: number;
-	priceTiers: PublicLogicalModelPriceTier[];
+    priceTiers: PublicLogicalModelPriceTier[];
     legacyModelIds: string[];
     capabilitySpec: CapabilitySpec;
     capabilityProfiles: CapabilitySpec[];
@@ -40,14 +53,14 @@ export type PublicLogicalModel = {
 };
 
 export type PublicLogicalModelPriceTier = {
-	selector: Record<string, string>;
-	resolution: string;
-	videoSeconds: number;
-	billingMode: "fixed_request" | "per_second" | "token";
-	unitPriceMicrocredits: number;
-	inputTokenPriceMicrocredits: number;
-	outputTokenPriceMicrocredits: number;
-	cachedTokenPriceMicrocredits: number;
+    selector: Record<string, string>;
+    resolution: string;
+    videoSeconds: number;
+    billingMode: "fixed_request" | "per_second" | "token";
+    unitPriceMicrocredits: number;
+    inputTokenPriceMicrocredits: number;
+    outputTokenPriceMicrocredits: number;
+    cachedTokenPriceMicrocredits: number;
 };
 
 export type AdminLogicalRoute = {
@@ -119,21 +132,56 @@ export type LogicalModelQuote = {
     quantity: number;
     amountMicrocredits: number;
     estimated: boolean;
+    videoTokenEstimate?: {
+        formulaTokens: number;
+        reservedTokens: number;
+        outputWidth: number;
+        outputHeight: number;
+        framesPerSecond: number;
+        outputSeconds: number;
+        referenceSeconds: number;
+        referenceDurationEstimated: boolean;
+        dimensionsEstimated: boolean;
+        reservationMarginPercent: number;
+    };
 };
 
-export type ModelCatalogSource = "frontend" | "system";
+export type ModelQuoteRequest = {
+    logicalModelID?: string;
+    channelId?: string;
+    modelKey?: string;
+    intent: ModelRequestIntent;
+};
+
+export type ModelCatalogSource = "system";
+
+/** 可选渠道（如豆包 / Dola 账号池）的实时可用状态；普通渠道不带该字段。 */
+export type PublicChannelAvailability = {
+    state: "ready" | "empty" | "error";
+    readyAccounts: number;
+    totalAccounts: number;
+    detail?: string;
+};
 
 export type PublicChannelCatalog = {
     id: string;
     name: string;
     displayName: string;
+    sortOrder?: number;
     models: PublicChannelModel[];
+    // 可选渠道：目录里始终存在；是否默认进候选列表由 defaultEnabled 决定，用户可自行开关。
+    optional?: boolean;
+    defaultEnabled?: boolean;
+    availability?: PublicChannelAvailability;
 };
 
 export type PublicChannelModel = {
     id: string;
     modelKey: string;
     displayName: string;
+    channelLabel?: string;
+    description?: string;
+    sortOrder?: number;
     icon: string;
     capability: string;
     protocol?: string;
@@ -163,46 +211,39 @@ export type ModelCatalogResponse = {
     channels?: PublicChannelCatalog[];
 };
 
-// 统一模型目录接口 - 根据 frontendModelsEnabled 开关返回前台模型或系统渠道模型
+// 创作目录直接读取系统渠道模型，不使用逻辑模型及其功能开关。
 export function getModelCatalog() {
-    return request<ModelCatalogResponse>(apiClient.get("/model-catalog"));
-}
-
-export function getAvailableModelCatalog(intent: ModelRequestIntent) {
-    return request<ModelCatalogResponse>(apiClient.post("/model-catalog/available", intent));
-}
-
-// 旧接口，保持兼容
-export function listLogicalModels() {
-    return request<{ models: PublicLogicalModel[] }>(apiClient.get("/models"));
-}
-
-export function listAvailableLogicalModels(intent: ModelRequestIntent) {
-    return request<{ models: PublicLogicalModel[] }>(apiClient.post("/models/available", intent));
+    return http.get<ModelCatalogResponse>("/model-catalog");
 }
 
 export function quoteLogicalModel(id: string, intent: ModelRequestIntent, signal?: AbortSignal) {
-    return request<{ quote: LogicalModelQuote }>(apiClient.post(`/models/${encodeURIComponent(id)}/quote`, intent, { signal }));
+    return http.post<{ quote: LogicalModelQuote }>(`/models/${encodeURIComponent(id)}/quote`, intent, { signal });
+}
+
+export function quoteModel(request: ModelQuoteRequest, signal?: AbortSignal) {
+    if (request.logicalModelID) return quoteLogicalModel(request.logicalModelID, request.intent, signal);
+    if (!request.channelId || !request.modelKey) return Promise.reject(new Error("请选择需要报价的系统模型"));
+    return http.post<{ quote: LogicalModelQuote }>("/model-catalog/quote", { channelId: request.channelId, modelKey: request.modelKey, intent: request.intent }, { signal });
 }
 
 export function listAdminLogicalModels() {
-    return request<{ models?: AdminLogicalModel[] }>(apiClient.get("/admin/logical-models")).then((result) => ({
+    return http.get<{ models?: AdminLogicalModel[] }>("/admin/logical-models").then((result) => ({
         models: Array.isArray(result?.models) ? result.models.filter(Boolean).map(normalizeAdminLogicalModel) : [],
     }));
 }
 
 export function createAdminLogicalModel(input: LogicalModelMutation) {
-    return request<{ model: AdminLogicalModel }>(apiClient.post("/admin/logical-models", input));
+    return http.post<{ model: AdminLogicalModel }>("/admin/logical-models", input);
 }
 
 export function updateAdminLogicalModel(id: string, input: LogicalModelMutation) {
-    return request<{ model: AdminLogicalModel }>(apiClient.patch(`/admin/logical-models/${encodeURIComponent(id)}`, input));
+    return http.patch<{ model: AdminLogicalModel }>(`/admin/logical-models/${encodeURIComponent(id)}`, input);
 }
 
 export function deleteAdminLogicalModel(id: string) {
-    return request<{ ok: boolean }>(apiClient.delete(`/admin/logical-models/${encodeURIComponent(id)}`));
+    return http.delete<{ ok: boolean }>(`/admin/logical-models/${encodeURIComponent(id)}`);
 }
 
 export function simulateAdminLogicalModel(id: string, intent: ModelRequestIntent) {
-    return request<RouteSimulationResult>(apiClient.post(`/admin/logical-models/${encodeURIComponent(id)}/simulate`, intent));
+    return http.post<RouteSimulationResult>(`/admin/logical-models/${encodeURIComponent(id)}/simulate`, intent);
 }

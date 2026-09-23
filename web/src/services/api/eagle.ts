@@ -1,4 +1,4 @@
-import { apiBaseURL, apiClient, request } from "@/services/api/request";
+import { http, apiBaseURL } from "@/services/api/request";
 
 export type EagleFolder = {
     id: string;
@@ -38,11 +38,11 @@ export type EagleAddItemInput = {
 };
 
 export async function getEagleLibrary(baseUrl: string) {
-    return request<{ library: EagleLibrary }>(apiClient.get("/plugins/eagle/library", { params: { baseUrl } }));
+    return http.get<{ library: EagleLibrary }>("/plugins/eagle/library", { params: { baseUrl } });
 }
 
 export async function listEagleItems(input: { baseUrl: string; folderId?: string; keyword?: string; limit?: number; offset?: number }) {
-    return request<{ items: EagleItem[] }>(apiClient.get("/plugins/eagle/items", {
+    return http.get<{ items: EagleItem[] }>("/plugins/eagle/items", {
         params: {
             baseUrl: input.baseUrl,
             folderId: input.folderId || undefined,
@@ -50,7 +50,7 @@ export async function listEagleItems(input: { baseUrl: string; folderId?: string
             limit: input.limit,
             offset: input.offset,
         },
-    }));
+    });
 }
 
 export function eagleItemThumbnailUrl(itemId: string, baseUrl: string) {
@@ -77,9 +77,9 @@ export async function downloadEagleItem(itemId: string, baseUrl: string, signal?
 }
 
 export async function addEagleItem(baseUrl: string, input: EagleAddItemInput) {
-    return request<{ item: { id?: string } }>(apiClient.post(`/plugins/eagle/items?baseUrl=${encodeURIComponent(baseUrl)}`, input));
+    return http.post<{ item: { id?: string } }>(`/plugins/eagle/items?baseUrl=${encodeURIComponent(baseUrl)}`, input);
 }
 
 export async function createEagleFolder(baseUrl: string, input: { name: string; parentId?: string }) {
-    return request<{ created: boolean }>(apiClient.post(`/plugins/eagle/folders?baseUrl=${encodeURIComponent(baseUrl)}`, input));
+    return http.post<{ created: boolean }>(`/plugins/eagle/folders?baseUrl=${encodeURIComponent(baseUrl)}`, input);
 }
