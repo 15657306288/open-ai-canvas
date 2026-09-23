@@ -1113,6 +1113,10 @@ for (const [id, name, vendor, capability, baseUrl, createPath, pollPath, request
     auth = { type: "header", field: "apiKey", header: "api-key" };
     operationExtra = { query: { "api-version": coalesce(ref(`${optionPath}.api-version`), "2024-10-21") } };
   }
+  // MiniMax 原生图片接口把结果放在 data.image_urls；同类网关多数直接以 data 数组返回。
+  const syncResponseMedia = id === "minimax-image"
+    ? coalesce(ref("response.data.image_urls"), ref("response.data.image_url"), ref("response.data"), ref("response.output"), ref("response.url"))
+    : coalesce(ref("response.data"), ref("response.output"), ref("response.url"));
   add({
     id, providerId: id, name, vendor, capability, baseUrl, auth, params, configuration,
     notes: `该协议的模型级字段变化快或依赖云资源配置。插件固定线协议入口和统一字段，完整厂商对象通过 providerOptions.${id} 的 parameters/input/extra_body 传入；${requestShape}。云签名型入口在未配置对应鉴权驱动时会明确失败，不会伪装成 Bearer 成功。`,
@@ -1120,7 +1124,7 @@ for (const [id, name, vendor, capability, baseUrl, createPath, pollPath, request
     poll: pollPath ? { method: "GET", path: pollPath } : undefined,
     response: capability === "text"
       ? { status: "succeeded", textPaths: ["output.text", "output_text", "choices.0.message.content", "result"], reasoningPaths: ["reasoning_content"], usage: ref("response.usage"), errorPaths: ["error.code", "code"], messagePaths: ["error.message", "message"] }
-      : pollPath ? asyncResponse(capability) : { status: "succeeded", [capability + "s"]: coalesce(ref("response.data"), ref("response.output"), ref("response.url")), errorPaths: ["error.code", "code"], messagePaths: ["error.message", "message"] }
+      : pollPath ? asyncResponse(capability) : { status: "succeeded", [capability + "s"]: syncResponseMedia, errorPaths: ["error.code", "code"], messagePaths: ["error.message", "message"] }
   });
 }
 

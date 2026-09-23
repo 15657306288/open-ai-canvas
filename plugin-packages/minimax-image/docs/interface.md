@@ -53,7 +53,7 @@
 | 映射位置 | 上游路径或转换表达式 |
 | --- | --- |
 | `response.status` | `"succeeded"` |
-| `response.images` | `{"$coalesce":[{"$ref":"response.data"},{"$ref":"response.output"},{"$ref":"response.url"}]}` |
+| `response.images` | `{"$coalesce":[{"$ref":"response.data.image_urls"},{"$ref":"response.data.image_url"},{"$ref":"response.data"},{"$ref":"response.output"},{"$ref":"response.url"}]}` |
 | `response.errorPaths[0]` | `"error.code"` |
 | `response.errorPaths[1]` | `"code"` |
 | `response.messagePaths[0]` | `"error.message"` |
@@ -224,6 +224,12 @@
           "status": "succeeded",
           "images": {
             "$coalesce": [
+              {
+                "$ref": "response.data.image_urls"
+              },
+              {
+                "$ref": "response.data.image_url"
+              },
               {
                 "$ref": "response.data"
               },

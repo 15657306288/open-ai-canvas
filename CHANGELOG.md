@@ -80,6 +80,9 @@
 - 数据库迁移升至 v24；镜像推送 `ghcr.io/15657306288/open-ai-canvas-web:1.6.0` 与 `ghcr.io/15657306288/open-ai-canvas-backend:1.6.0`。
 
 ## Unreleased
+- 修复 MiniMax 原生图片协议 `minimax-image` 的结果映射：上游把生成结果放在 `data.image_urls`，旧映射只取 `data`，解析结果为空后模型测试报「连接模型服务失败」；改为按 `data.image_urls` → `data.image_url` → `data` → `output` → `url` 依次取值，网关返回 `data` 数组的形态保持可用，新增 `backend/internal/protocol/minimax_image_test.go` 覆盖这两种响应。
+- 云端画布登记两个系统渠道（密钥只写入云端数据库，不进仓库）：熊猫中转 `gpt-image-2.5` / `gpt-image-2`，MiniMax `MiniMax-M3`、`MiniMax-M2.7-highspeed`、`MiniMax-M2.5`、`MiniMax-M2.5-highspeed` 与 `image-01`。MiniMax 视频模型实测该密钥无权限（H3/H3-Max 报不支持、Hailuo 系列不被 `/v2/video_generation` 接受），未登记；免费共享密钥配额每 5 小时重置，按补充线路使用。
+- 本批改动的云端验证：backend 镜像重建、迁移退出码 0、schema 38/38、`/api/health` `ready=true`，两个渠道的图片/文本模型实测通过（`gpt-image-2.5` 22.7s、`gpt-image-2` 37.4s、`MiniMax-M3` 1.5s、`MiniMax-M2.5` 2.4s、`image-01` 60.4s），公开渠道目录已确认包含全部模型；本地 `go test ./internal/protocol`、`go test ./internal/app`、`go build ./...` 通过。
 
 ## v1.5.1
 

@@ -334,9 +334,43 @@ git status --short
 
 ## 第三方 API
 
+### 登记系统渠道（不改库、走应用自身接口）
+
+- 状态：2026-09-23 已在云端完成两个中转渠道的登记与实测，可复用。
+- 优先用管理 API 而不是直接写数据库：`POST/PATCH /api/admin/channels`、`/api/admin/channels/:id/models`、`POST /api/admin/channels/:id/models/test`；直写库会漏掉服务端校验与缓存刷新。
+- 图片与文本模型必须带 `capabilityConfig`（图片 `{"version":1,"image":{...}}`，文本 `{"version":1,"text":{"references":{...}}}`），否则接口报「请配置图片/文本模型能力参数」——渠道看着建好了，前台却不可用。
+- 需要管理员会话：临时插一条 `auth_sessions` 记录（`id` 用 `codexprobe` 前缀便于识别），用完立即删除。不要把长期管理员会话留在生产库。
+- 密钥只通过环境变量传入脚本，不写进仓库、日志或文档；渠道 `baseUrl` 用上游根地址，前台读到的是 `/api/ai/system/<CHANNEL_ID>` 代理地址。
+- 登记后必须验证两件事：管理端的模型连通性测试（`.../models/test`）和公开目录 `GET /api/channels/system` 能看到目标模型。只测通不算完成，前台看不到等于没配。
+- 共享免费额度的上游（例如 MiniMax 免费密钥）适合当补充线路：配额按 5 小时重置、人越多越快用完；同一密钥里列的模型不一定都有权限，例如该密钥的视频模型实测被拒，就不要登记成可用。
+
 ### 故障记录
 
-暂无已归档的第三方 API 故障。只记录协议、状态码、脱敏错误类别和可复现的最小请求形态；请求体中的密钥、Cookie、用户内容和签名参数必须删除或替换为占位符。
+#### RB-20260923-16 MiniMax 原生图片结果映射取错层级（2026-09-23）
+
+- 现象：渠道与模型都登记成功、密钥有效，但 `image-01` 的模型测试报「连接模型服务失败」（HTTP 502），上游其实已经生成出图片。
+- 影响范围：`minimax-image` 协议的所有调用方（模型测试、画布与创作页生成）。
+- 根本原因：MiniMax 原生接口把结果放在 `{"data":{"image_urls":[...]}}`，而 `plugin-packages/generate-catalog.mjs` 给非轮询媒体协议生成的统一映射是 `coalesce(response.data, response.output, response.url)`。`data` 命中了但不是媒体数组，里面没有 `url` 字段，解析结果为空后被当成失败。
+- 尝试过但失败的路线：
+  - 反复改渠道 `capabilityConfig` 与价格：不是配置问题，能力参数填得再全也解析不出结果。
+  - 通过 `providerOptions.minimax-image.body` 传额外响应格式参数：上游返回结构不变，仍然取不到 `image_urls`。
+- 已验证成功的正确路线：
+  1. 在 `plugin-packages/generate-catalog.mjs` 的通用映射处按插件 id 分支，`minimax-image` 用 `coalesce(response.data.image_urls, response.data.image_url, response.data, response.output, response.url)`，其余协议保持原表达式。
+  2. `node generate-catalog.mjs minimax-image` 重新生成 `manifest.json` 与 `docs/interface.md`，再用 `package-selected.ps1 minimax-image` 重打包 `.yingce-plugin`。
+  3. 后端部署后重跑模型测试：`image-01` 从 502 变为成功（本次约 60s，MiniMax 出图本身就慢）。
+- 可直接复制执行的命令：
+
+  ```bash
+  cd plugin-packages && node generate-catalog.mjs minimax-image
+  powershell -File package-selected.ps1 minimax-image
+  cd ../backend && go test -count=1 ./internal/protocol/
+  ```
+
+- 需要避免的操作：不要把解析为空当成功返回；不要在 `generate-catalog.mjs` 里改通用表达式去迁就单个厂商，那会连带影响其他协议。同步媒体响应要多层级取值时，按插件 id 分支。
+- 是否需要更新其他文档或配置：是；`CHANGELOG.md` 的 `Unreleased` 已记录，插件 `manifest.json` 与 `docs/interface.md` 由生成器同步。
+- 关联项目更新记录：`CHANGELOG.md` 的 `Unreleased`。
+
+其它未归档的第三方 API 问题按同样格式补充：只记录协议、状态码、脱敏错误类别和可复现的最小请求形态；请求体中的密钥、Cookie、用户内容和签名参数必须删除或替换为占位符。
 
 ## 前端构建
 
