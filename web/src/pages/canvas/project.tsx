@@ -73,7 +73,7 @@ import { CanvasShareModal } from "@/components/canvas/canvas-share-modal";
 import { CanvasScriptEditor, CanvasScriptNodeContent } from "@/components/canvas/canvas-script-node";
 import { CanvasBatchTableNodeContent } from "@/components/canvas/canvas-batch-table-node";
 import { BatchGenerationSettingsDialog } from "@/components/canvas/batch-generation-settings-dialog";
-import { batchReferenceColumns, promoteLegacyBatchTableSize } from "@/lib/canvas/canvas-batch-table";
+import { batchReferenceColumns, batchReferenceHandleId, promoteLegacyBatchTableSize } from "@/lib/canvas/canvas-batch-table";
 import { STORYBOARD_HEADER_HEIGHT, STORYBOARD_ROW_HEIGHT, storyboardMinNodeHeight, storyboardTableHeight } from "@/lib/canvas/canvas-storyboard-layout";
 import { CanvasDirectorNodePanel } from "@/components/canvas/director/canvas-director-node-panel";
 import { CanvasVersionCompareModal } from "@/components/canvas/canvas-version-compare-modal";
@@ -103,6 +103,7 @@ import { bindStoryboardKeyframes, storyboardKeyframeTime, storyboardRowsFromBatc
 import { stampCanvasNodeChanges, updateCanvasNode, updateCanvasNodes } from "@/lib/canvas/canvas-node-timestamps";
 import { canvasAssetHandoffAttempt, finalizeCanvasAssetHandoff, uninsertedCanvasAssetHandoffPayloads } from "@/lib/canvas/canvas-asset-handoff";
 import { batchSourceRestriction } from "@/lib/canvas/canvas-batch-connection";
+import { dispatchBatchReferenceCellDrop, dispatchBatchReferenceCellHover, findBatchReferenceCellAtPoint, toBatchReferenceCellRect } from "@/lib/canvas/canvas-batch-table-drop";
 import { deriveStoryboardPipelineProgress } from "@/lib/canvas/canvas-storyboard-progress";
 import { CanvasOperationChangeToast, CanvasMergeStatusToast, CanvasUploadStatusToast } from "./canvas-project-feedback";
 import { backendProviderConfig, getGenerationCount } from "@/lib/canvas/canvas-project-generation";
@@ -281,6 +282,8 @@ function InfiniteCanvasPage() {
     const shortDramaEnabled = useUserStore((state) => state.features.shortDramaEnabled);
     const directorOnboardingScope = useUserStore((state) => state.user?.id?.trim() || "");
     const nodesRef = useRef<CanvasNodeData[]>([]);
+    // 单元格落点同时写入表格行和画布连线，短时间内跳过一次按连线重算，避免覆盖精确落点。
+    const skipBatchRowSyncRef = useRef(false);
     const [nodes, setNodesState] = useState<CanvasNodeData[]>([]);
     const setNodes = useMemo(() => createCanvasStateWriter(nodesRef, setNodesState, stampCanvasNodeChanges), []);
     const [nodeStackOrder, setNodeStackOrder] = useState<CanvasNodeStackOrder>([]);
@@ -429,7 +432,22 @@ function InfiniteCanvasPage() {
         [cleanupAssetImages, getHistoryCleanupContext],
     );
 
-    const { loadError, retryLoad, addedSkills, agentCreatedNodes, clearCanvasFiles, createAndOpenProject, currentProject, deleteCurrentProject, renameCurrentProject, reloadLatestCanvasProject, restoreCanvasProjectVersion, saveCanvasProject, forceSaveCanvasProject, updateProject } = useCanvasProjectLifecycle({
+    const {
+        loadError,
+        retryLoad,
+        addedSkills,
+        agentCreatedNodes,
+        clearCanvasFiles,
+        createAndOpenProject,
+        currentProject,
+        deleteCurrentProject,
+        renameCurrentProject,
+        reloadLatestCanvasProject,
+        restoreCanvasProjectVersion,
+        saveCanvasProject,
+        forceSaveCanvasProject,
+        updateProject,
+    } = useCanvasProjectLifecycle({
         projectId,
         projectLoaded,
         nodes,
@@ -461,17 +479,27 @@ function InfiniteCanvasPage() {
     });
 
     const versions = useCanvasVersionHistory(projectId, restoreCanvasProjectVersion);
-    const openVersions = () => { closeAgent(); setVersionCompareRootId(null); versions.show(); };
-    const openAgent = useCallback(() => { versions.close(); openAssistant(); }, [versions.close, openAssistant]);
+    const openVersions = () => {
+        closeAgent();
+        setVersionCompareRootId(null);
+        versions.show();
+    };
+    const openAgent = useCallback(() => {
+        versions.close();
+        openAssistant();
+    }, [versions.close, openAssistant]);
 
-    const sendSelectionToAgent = useCallback((nodeId?: string) => {
+    const sendSelectionToAgent = useCallback(
+        (nodeId?: string) => {
         const ids = nodeId ? [nodeId] : Array.from(selectedNodeIdsRef.current);
         const references = ids.map((id) => agentMentionReferences.find((reference) => reference.nodeId === id)).filter((reference): reference is CanvasResourceReference => Boolean(reference));
         if (!references.length) return;
         setAgentPrefillPrompt(`${references.map(canvasResourceMentionToken).join(" ")} `);
         openAgent();
         setContextMenu(null);
-    }, [agentMentionReferences, openAgent]);
+        },
+        [agentMentionReferences, openAgent],
+    );
     // 修复素材关联仍遵守当前画布版本，不能替用户确认覆盖云端的新内容。
     const confirmForceSaveCanvas = useCallback(() => {
         modal.confirm({
@@ -1089,6 +1117,7 @@ function InfiniteCanvasPage() {
         connectionApproach,
         connectionReplaceHover,
         connectingParams,
+        connectNodesFromSource,
         createConnectedNode,
         getConnectionCreateDisabledReason,
         handleConnectStart,
@@ -1187,6 +1216,31 @@ function InfiniteCanvasPage() {
         [nodesRef],
     );
 
+    const handleBatchReferenceCellHover = useCallback((clientX: number, clientY: number, draggedNodes: CanvasNodeData[]) => {
+        if (!draggedNodes.some((node) => node.type === CanvasNodeType.Image)) {
+            dispatchBatchReferenceCellHover(null);
+            return;
+        }
+        const hit = findBatchReferenceCellAtPoint(clientX, clientY);
+        dispatchBatchReferenceCellHover(hit ? { rowId: hit.rowId, columnIndex: hit.columnIndex } : null);
+    }, []);
+
+    const handleBatchReferenceCellDrop = useCallback((clientX: number, clientY: number, draggedNodes: CanvasNodeData[]) => {
+        dispatchBatchReferenceCellHover(null);
+        const source = draggedNodes.find((node) => node.type === CanvasNodeType.Image);
+        const hit = source ? findBatchReferenceCellAtPoint(clientX, clientY) : null;
+        if (!source || !hit) return;
+        const sourceElement = Array.from(document.querySelectorAll<HTMLElement>("[data-node-id]")).find((element) => element.dataset.nodeId === source.id);
+        dispatchBatchReferenceCellDrop({
+            nodeId: source.id,
+            rowId: hit.rowId,
+            columnIndex: hit.columnIndex,
+            imageSrc: source.metadata?.previewContent || source.metadata?.content,
+            fromRect: sourceElement ? toBatchReferenceCellRect(sourceElement) : undefined,
+            toRect: toBatchReferenceCellRect(hit.element),
+        });
+    }, []);
+
     const handleCanvasDeselect = useCallback(() => {
         setContextMenu(null);
         setHoveredNodeId(null);
@@ -1210,6 +1264,8 @@ function InfiniteCanvasPage() {
         onNodeBringToFront: handleNodeBringToFront,
         onNodeClick: handleSelectedNodeClick,
         onNodeDragEnd: handleNodeDragEnd,
+        onBatchReferenceCellHover: handleBatchReferenceCellHover,
+        onBatchReferenceCellDrop: handleBatchReferenceCellDrop,
         onBatchConnectionTarget: handleBatchConnectionTargetClick,
         onLinkedFolderDrop: archiveNodesToLinkedFolder,
         onDeselect: handleCanvasDeselect,
@@ -1341,13 +1397,7 @@ function InfiniteCanvasPage() {
             const characterCover = asset.character?.representations.find((item) => item.role === "turnaround_sheet") || asset.character?.representations.find((item) => item.role === "primary") || asset.character?.representations[0];
             const type = asset.category === "character" || asset.mediaType === "image" ? CanvasNodeType.Image : asset.mediaType === "video" ? CanvasNodeType.Video : asset.mediaType === "audio" ? CanvasNodeType.Audio : CanvasNodeType.Text;
             const remoteResourceId = resourceIdFromStorageKey(asset.storageKey);
-            const storageKey = characterCover
-                ? `resource:${characterCover.resourceId}`
-                : local?.kind === "image" || local?.kind === "video" || local?.kind === "audio"
-                  ? local.data.storageKey
-                  : remoteResourceId
-                    ? asset.storageKey
-                    : undefined;
+            const storageKey = characterCover ? `resource:${characterCover.resourceId}` : local?.kind === "image" || local?.kind === "video" || local?.kind === "audio" ? local.data.storageKey : remoteResourceId ? asset.storageKey : undefined;
             const content = characterCover
                 ? resourceFileUrl(characterCover.resourceId)
                 : local?.kind === "image"
@@ -1455,7 +1505,8 @@ function InfiniteCanvasPage() {
     });
 
     const visibleDisplayConnections = useMemo(
-        () => filterCanvasDisplayConnections(displayConnections, {
+        () =>
+            filterCanvasDisplayConnections(displayConnections, {
             enabled: hideNodeConnections,
             hoveredNodeId,
             selectedNodeIds,
@@ -1777,9 +1828,7 @@ function InfiniteCanvasPage() {
                 // Resource-backed media must use the central access contract. This keeps
                 // copy operations on the configured CDN/OSS URL instead of copying the
                 // platform file endpoint or a stale URL persisted in canvas metadata.
-                const copySource = resourceId
-                    ? resolveResourceAccessURL((await getResourceAccess(`resource:${resourceId}`, "copy")).url)
-                    : content || "";
+                const copySource = resourceId ? resolveResourceAccessURL((await getResourceAccess(`resource:${resourceId}`, "copy")).url) : content || "";
                 if (!copySource) throw new Error("没有可复制的内容");
                 if (node.type === CanvasNodeType.Image) {
                     try {
@@ -1821,9 +1870,7 @@ function InfiniteCanvasPage() {
                 const content = node?.metadata?.content?.trim();
                 const resourceId = resourceIdFromStorageKey(storageKey);
                 const mediaPath = content && !content.startsWith("data:") && !content.startsWith("blob:") ? content : "";
-                const mediaURL = resourceId
-                    ? resolveResourceAccessURL((await getResourceAccess(`resource:${resourceId}`, "copy")).url)
-                    : mediaPath ? new URL(mediaPath, window.location.href).toString() : "";
+                const mediaURL = resourceId ? resolveResourceAccessURL((await getResourceAccess(`resource:${resourceId}`, "copy")).url) : mediaPath ? new URL(mediaPath, window.location.href).toString() : "";
                 if (!mediaURL) throw new Error("当前媒体只有本地内容，没有可复制的地址");
                 if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(mediaURL);
                 else if (!(await copyToClipboard(mediaURL))) throw new Error("当前浏览器不支持写入剪贴板");
@@ -1949,6 +1996,7 @@ function InfiniteCanvasPage() {
 
     const {
         addReferenceColumn: addBatchReferenceColumn,
+        addTextColumn: addBatchTextColumn,
         addRow: addBatchRow,
         batchGenDialogConfig,
         batchGenDialogConcurrency,
@@ -1974,6 +2022,24 @@ function InfiniteCanvasPage() {
         enqueueGenerationBatch,
     });
 
+    const handleClearBatchReference = useCallback(
+        (tableNodeId: string, rowId: string, columnIndex: number) => {
+            const tableNode = nodesRef.current.find((node) => node.id === tableNodeId);
+            const table = tableNode?.metadata?.batchTable;
+            if (!table) return;
+            const row = table.rows.find((item) => item.id === rowId);
+            if (!row?.inputNodeIds[columnIndex]) return;
+            const rows = table.rows.map((item) => {
+                if (item.id !== rowId) return item;
+                const inputNodeIds = [...item.inputNodeIds];
+                inputNodeIds[columnIndex] = "";
+                return { ...item, inputNodeIds, outputNodeId: undefined, outputNodeIds: undefined };
+            });
+            patchBatchTable(tableNodeId, { rows, manualRows: true });
+        },
+        [nodesRef, patchBatchTable],
+    );
+
     useEffect(() => {
         if (!projectLoaded) return;
         setNodes((current) => {
@@ -1985,12 +2051,19 @@ function InfiniteCanvasPage() {
             });
             return changed ? next : current;
         });
-        nodesRef.current.filter((node) => node.type === CanvasNodeType.BatchTable).forEach((node) => {
+        if (skipBatchRowSyncRef.current) {
+            skipBatchRowSyncRef.current = false;
+            return;
+        }
+        nodesRef.current
+            .filter((node) => node.type === CanvasNodeType.BatchTable)
+            .forEach((node) => {
             syncRowsFromConnections(node.id, true);
         });
     }, [connections, projectLoaded, setNodes, syncRowsFromConnections]);
 
-    const handleUploadBatchReference = useCallback(async (tableNodeId: string, rowId: string, columnIndex: number, file: File) => {
+    const handleUploadBatchReference = useCallback(
+        async (tableNodeId: string, rowId: string, columnIndex: number, file: File) => {
         const tableNode = nodesRef.current.find((item) => item.id === tableNodeId);
         const table = tableNode?.metadata?.batchTable;
         const row = table?.rows.find((item) => item.id === rowId);
@@ -2009,8 +2082,42 @@ function InfiniteCanvasPage() {
         const inputNodeIds = Array.from({ length: Math.max(batchReferenceColumns(table).length, columnIndex + 1) }, (_, index) => row.inputNodeIds[index] || "");
         inputNodeIds[columnIndex] = uploadedNodeId;
         updateBatchRow(tableNodeId, rowId, { inputNodeIds });
+            patchBatchTable(tableNodeId, { manualRows: true });
         message.success(`已上传并填入参考图 ${columnIndex + 1}`);
-    }, [createFileNode, message, nodesRef, replaceNodeMedia, updateBatchRow]);
+        },
+        [createFileNode, message, nodesRef, patchBatchTable, replaceNodeMedia, updateBatchRow],
+    );
+
+    const handleDropCanvasImageToBatchCell = useCallback(
+        (tableNodeId: string, imageNodeId: string, rowId: string, columnIndex: number) => {
+            const tableNode = nodesRef.current.find((item) => item.id === tableNodeId);
+            const table = tableNode?.metadata?.batchTable;
+            const row = table?.rows.find((item) => item.id === rowId);
+            const columns = table ? batchReferenceColumns(table) : [];
+            const column = columns[columnIndex];
+            const source = nodesRef.current.find((item) => item.id === imageNodeId);
+            if (!tableNode || !table || !row || !column) return;
+            if (!source?.metadata?.content && !source?.metadata?.storageKey) {
+                message.warning("这张素材还没有可用的图片");
+                return;
+            }
+            if (row.inputNodeIds[columnIndex] === imageNodeId) {
+                message.info(`${column.label} 这一格已经是这张素材`);
+                return;
+            }
+            skipBatchRowSyncRef.current = true;
+            window.setTimeout(() => {
+                skipBatchRowSyncRef.current = false;
+            }, 400);
+            connectNodesFromSource(imageNodeId, tableNodeId, batchReferenceHandleId(column.id));
+            const inputNodeIds = Array.from({ length: Math.max(columns.length, columnIndex + 1) }, (_, index) => row.inputNodeIds[index] || "");
+            inputNodeIds[columnIndex] = imageNodeId;
+            updateBatchRow(tableNodeId, rowId, { inputNodeIds, outputNodeId: undefined, outputNodeIds: undefined });
+            patchBatchTable(tableNodeId, { manualRows: true });
+            message.success(`已把素材放入${column.label}（第 ${table.rows.findIndex((item) => item.id === rowId) + 1} 行）并连接到表格`);
+        },
+        [connectNodesFromSource, message, nodesRef, patchBatchTable, updateBatchRow],
+    );
 
     const { addScriptRow, createAndGenerateScriptVideos, createScriptActionBoards, createScriptImageNodes, createScriptVideoNodes, generateScriptImages, generateScriptRows, generateScriptVideos, removeScriptRow, replaceScriptRows, updateScriptRow } =
         useCanvasStoryboard({
@@ -2024,36 +2131,37 @@ function InfiniteCanvasPage() {
             enqueueGenerationBatch,
         });
 
-    const createStoryboardFromBatchTable = useCallback(async (tableNodeId: string) => {
+    const createStoryboardFromBatchTable = useCallback(
+        async (tableNodeId: string) => {
         const tableNode = nodesRef.current.find((node) => node.id === tableNodeId && node.type === CanvasNodeType.BatchTable);
         const table = tableNode?.metadata?.batchTable;
         if (!tableNode || !table || table.contentKind !== "storyboard") return;
         const rows = storyboardRowsFromBatchTable(table);
         if (!rows.length) return message.warning("当前表格没有可用的分镜行");
-        const sourceIds = Array.from(new Set([
-            ...(table.storyboardSourceNodeIds || []),
-            ...connectionsRef.current.filter((connection) => connection.toNodeId === tableNodeId && connection.relation !== "batch-output").map((connection) => connection.fromNodeId),
-        ])).filter((id) => nodesRef.current.some((node) => node.id === id));
+            const sourceIds = Array.from(
+                new Set([...(table.storyboardSourceNodeIds || []), ...connectionsRef.current.filter((connection) => connection.toNodeId === tableNodeId && connection.relation !== "batch-output").map((connection) => connection.fromNodeId)]),
+            ).filter((id) => nodesRef.current.some((node) => node.id === id));
         const sourceVideo = sourceIds.map((id) => nodesRef.current.find((node) => node.id === id)).find((node): node is CanvasNodeData => node?.type === CanvasNodeType.Video);
         const keyframeTimesMs = rows.map(storyboardKeyframeTime).filter((value): value is number => value !== undefined);
         const useKeyframes = Boolean(sourceVideo && keyframeTimesMs.length);
         const scriptSpec = getNodeSpec(CanvasNodeType.Script);
-        const scriptNode = createCanvasNode(CanvasNodeType.Script, {
+            const scriptNode = createCanvasNode(
+                CanvasNodeType.Script,
+                {
             x: tableNode.position.x + tableNode.width + 160 + scriptSpec.width / 2,
             y: tableNode.position.y + Math.max(tableNode.height, scriptSpec.height) / 2,
-        }, {
+                },
+                {
             storyboard: { rows, visibleColumns: cinematicStoryboardColumns(), referenceNodeIds: sourceIds },
             storyboardVideoInputMode: useKeyframes ? "keyframe" : "direct",
             workflowKind: "storyboard",
             workflowTitle: table.storyboardTitle || "视频脚本",
             composerContent: table.storyboardTitle || "来自多维表格的视频分镜脚本",
             status: "idle",
-        });
+                },
+            );
         scriptNode.title = table.storyboardTitle || "视频脚本";
-        const nextConnections = [
-            ...connectionsRef.current,
-            ...sourceIds.map((sourceId) => ({ id: nanoid(), fromNodeId: sourceId, toNodeId: scriptNode.id, toHandleId: "storyboard:context", relation: "storyboard-asset-reference" as const })),
-        ];
+            const nextConnections = [...connectionsRef.current, ...sourceIds.map((sourceId) => ({ id: nanoid(), fromNodeId: sourceId, toNodeId: scriptNode.id, toHandleId: "storyboard:context", relation: "storyboard-asset-reference" as const }))];
         const nextNodes = [...nodesRef.current, scriptNode];
         nodesRef.current = nextNodes;
         connectionsRef.current = nextConnections;
@@ -2064,7 +2172,22 @@ function InfiniteCanvasPage() {
         if (sourceVideo && keyframeTimesMs.length) {
             const frameNodes = await extractVideoFrames(sourceVideo, { timesMs: keyframeTimesMs });
             if (frameNodes.length) {
-                const withFrames = nodesRef.current.map((node) => node.id === scriptNode.id ? { ...node, metadata: { ...node.metadata, storyboard: { ...node.metadata?.storyboard, rows: bindStoryboardKeyframes(node.metadata?.storyboard?.rows || rows, frameNodes, sourceVideo.id), visibleColumns: cinematicStoryboardColumns(), referenceNodeIds: sourceIds } } } : node);
+                    const withFrames = nodesRef.current.map((node) =>
+                        node.id === scriptNode.id
+                            ? {
+                                  ...node,
+                                  metadata: {
+                                      ...node.metadata,
+                                      storyboard: {
+                                          ...node.metadata?.storyboard,
+                                          rows: bindStoryboardKeyframes(node.metadata?.storyboard?.rows || rows, frameNodes, sourceVideo.id),
+                                          visibleColumns: cinematicStoryboardColumns(),
+                                          referenceNodeIds: sourceIds,
+                                      },
+                                  },
+                              }
+                            : node,
+                    );
                 nodesRef.current = withFrames;
                 setNodes(withFrames);
                 message.success(`已创建视频脚本并自动抽取 ${frameNodes.length} 个关键帧，点击“生成视频”继续`);
@@ -2074,7 +2197,9 @@ function InfiniteCanvasPage() {
         } else {
             message.success(`已创建视频脚本：${rows.length} 个镜头`);
         }
-    }, [connectionsRef, extractVideoFrames, message, nodesRef, setConnections, setDialogNodeId, setNodes, setSelectedNodeIds]);
+        },
+        [connectionsRef, extractVideoFrames, message, nodesRef, setConnections, setDialogNodeId, setNodes, setSelectedNodeIds],
+    );
 
     const handleRetryNode = useCanvasGenerationRetry({
         projectId,
@@ -2195,7 +2320,9 @@ function InfiniteCanvasPage() {
                     isRunning={isCanvasNodeGenerating(panelNode, runningNodeId)}
                     mentionReferences={[
                         ...(mentionReferencesByNodeId.get(panelNode.id) || EMPTY_RESOURCE_REFERENCES),
-                        ...buildCanvasResourceReferences(nodesRef.current, connectionsRef.current).filter((reference) => reference.kind === "text" && reference.nodeId !== panelNode.id && !(mentionReferencesByNodeId.get(panelNode.id) || []).some((active) => active.nodeId === reference.nodeId)),
+                        ...buildCanvasResourceReferences(nodesRef.current, connectionsRef.current).filter(
+                            (reference) => reference.kind === "text" && reference.nodeId !== panelNode.id && !(mentionReferencesByNodeId.get(panelNode.id) || []).some((active) => active.nodeId === reference.nodeId),
+                        ),
                     ]}
                     onAddReference={(nodeId, reference) => {
                         if (reference.active || reference.assetId || reference.kind === "skill") return reference;
@@ -2294,11 +2421,16 @@ function InfiniteCanvasPage() {
                         onCreateStoryboard={() => createStoryboardFromBatchTable(contentNode.id)}
                         onRetryItem={(batchId, itemId) => retryFailedBatchItems(contentNode.id, batchId, itemId)}
                         onAddReferenceColumn={() => addBatchReferenceColumn(contentNode.id)}
+                        onAddTextColumn={() => addBatchTextColumn(contentNode.id)}
                         onRemoveReferenceColumn={() => removeBatchReferenceColumn(contentNode.id)}
                         onFocusOutput={(nodeId) => focusCanvasImageNode(nodeId)}
                         onReorderReferenceColumns={(fromColumnId, toColumnId) => reorderBatchReferenceColumns(contentNode.id, fromColumnId, toColumnId)}
                         onMoveReferenceCell={(sourceRowId, sourceColumnIndex, targetRowId, targetColumnIndex) => moveBatchReferenceCell(contentNode.id, sourceRowId, sourceColumnIndex, targetRowId, targetColumnIndex)}
-                        onUploadReference={(rowId, columnIndex, file) => { void handleUploadBatchReference(contentNode.id, rowId, columnIndex, file); }}
+                        onDropCanvasNodeToCell={(imageNodeId, rowId, columnIndex) => handleDropCanvasImageToBatchCell(contentNode.id, imageNodeId, rowId, columnIndex)}
+                        onUploadReference={(rowId, columnIndex, file) => {
+                            void handleUploadBatchReference(contentNode.id, rowId, columnIndex, file);
+                        }}
+                        onRemoveReference={(rowId, columnIndex) => handleClearBatchReference(contentNode.id, rowId, columnIndex)}
                         onConnectStart={(event, handleId) => handleConnectStart(event, contentNode.id, "target", handleId)}
                         onConnectDrop={(event, handleId) => handleConnectDrop(event, contentNode.id, handleId)}
                     />
@@ -2386,6 +2518,7 @@ function InfiniteCanvasPage() {
             fillRowsFromConnections,
             focusCanvasImageNode,
             generateBatchRows,
+            handleDropCanvasImageToBatchCell,
             generateScriptImages,
             generateScriptRows,
             generateScriptVideos,
@@ -2551,25 +2684,53 @@ function InfiniteCanvasPage() {
                 跳转到画布主内容
             </a>
             <main id="canvas-main" tabIndex={-1} className="flex h-full min-h-0 overflow-hidden outline-none" style={{ background: resolvedCanvasAppearance.background, color: theme.node.text }}>
-                {!focusMode && !versions.preview ? <CanvasWorkspacePanel key={projectId} open={workspaceOpen} onOpen={() => setWorkspaceOpen(true)} onInsertAssets={handleProjectAssetsInsert} projectId={projectId} nodes={nodes} selectedNodeIds={selectedNodeIds} onClose={() => setWorkspaceOpen(false)} onAssets={() => openCanvasAssetLibrary()} onProjectAssets={currentProject?.projectId ? () => openProjectAssets() : undefined} onCancelTask={cancelCanvasTask} onFocus={nodeId => {
+                {!focusMode && !versions.preview ? (
+                    <CanvasWorkspacePanel
+                        key={projectId}
+                        open={workspaceOpen}
+                        onOpen={() => setWorkspaceOpen(true)}
+                        onInsertAssets={handleProjectAssetsInsert}
+                        projectId={projectId}
+                        nodes={nodes}
+                        selectedNodeIds={selectedNodeIds}
+                        onClose={() => setWorkspaceOpen(false)}
+                        onAssets={() => openCanvasAssetLibrary()}
+                        onProjectAssets={currentProject?.projectId ? () => openProjectAssets() : undefined}
+                        onCancelTask={cancelCanvasTask}
+                        onFocus={(nodeId) => {
                     const target = nodeById.get(nodeId);
                     const parent = target?.parentId ? nodeById.get(target.parentId) : null;
                     if (parent?.metadata?.frame?.collapsed) toggleFrameCollapsed(parent.id);
                     const batchRoot = target?.metadata?.batchRootId ? nodeById.get(target.metadata.batchRootId) : null;
                     if (batchRoot && !batchRoot.metadata?.imageBatchExpanded) toggleBatchExpanded(batchRoot.id);
-                    const selection = new Set([nodeId]); selectedNodeIdsRef.current = selection; setSelectedNodeIds(selection); setSelectedConnectionId(null); focusCanvasNode(nodeId);
-                }} /> : null}
+                            const selection = new Set([nodeId]);
+                            selectedNodeIdsRef.current = selection;
+                            setSelectedNodeIds(selection);
+                            setSelectedConnectionId(null);
+                            focusCanvasNode(nodeId);
+                        }}
+                    />
+                ) : null}
                 {!workspaceOpen && !focusMode && !versions.preview && shortDramaEnabled && currentProject?.projectId ? (
                     <CanvasProjectSidebar projectId={currentProject.projectId} detail={linkedProjectQuery.data} onAddChapter={handleProjectChapterInsert} onLocateStyle={locateProjectStyleNode} onOpenAssets={() => openProjectAssets()} />
                 ) : null}
                 <CanvasOverlayLayerProvider>
                     <div className="canvas-editor-shell relative flex min-w-0 flex-1">
-                    <section data-canvas-editor inert={Boolean(versions.preview)} style={{ visibility: versions.preview ? "hidden" : undefined, opacity: versions.preview ? 0 : undefined }} className="relative min-w-0 flex-1 flex flex-col min-h-0 overflow-hidden">
+                        <section
+                            data-canvas-editor
+                            inert={Boolean(versions.preview)}
+                            style={{ visibility: versions.preview ? "hidden" : undefined, opacity: versions.preview ? 0 : undefined }}
+                            className="relative min-w-0 flex-1 flex flex-col min-h-0 overflow-hidden"
+                        >
                         {!focusMode ? (
                             <CanvasTopBar
                                 syncStatus={<CanvasSyncStatus projectId={projectId} onLoadLatest={reloadLatestCanvasProject} onOpenVersions={openVersions} />}
                                 versionsOpen={versions.open}
-                                onToggleVersions={() => { closeAgent(); setVersionCompareRootId(null); versions.toggle(); }}
+                                    onToggleVersions={() => {
+                                        closeAgent();
+                                        setVersionCompareRootId(null);
+                                        versions.toggle();
+                                    }}
                                 title={currentProject?.title || "未命名画布"}
                                 titleDraft={titleDraft}
                                 isTitleEditing={titleEditing}
@@ -2763,7 +2924,10 @@ function InfiniteCanvasPage() {
                                     <CanvasFocusModeBar
                                         syncStatus={<CanvasSyncStatus projectId={projectId} onLoadLatest={reloadLatestCanvasProject} onOpenVersions={openVersions} />}
                                         versionsOpen={versions.open}
-                                        onToggleVersions={() => { closeAgent(); versions.toggle(); }}
+                                            onToggleVersions={() => {
+                                                closeAgent();
+                                                versions.toggle();
+                                            }}
                                         dockRevealed={focusDockRevealed}
                                         zoomPercent={viewport.k}
                                         onToggleDock={() => setFocusDockRevealed((value) => !value)}
@@ -2812,7 +2976,7 @@ function InfiniteCanvasPage() {
                                         onSaveAppearanceDefault={saveCanvasAppearanceDefault}
                                         onBackgroundModeChange={setBackgroundMode}
                                         onShowImageInfoChange={setShowImageInfo}
-                                        onOpenWorkspace={() => setWorkspaceOpen(value => !value)}
+                                            onOpenWorkspace={() => setWorkspaceOpen((value) => !value)}
                                         onOpenMyAssets={() => {
                                             openCanvasAssetLibrary();
                                         }}
@@ -2822,10 +2986,23 @@ function InfiniteCanvasPage() {
                             </div>
 
                             <div className={versions.open ? "hidden" : "contents"}>
-                            <CanvasCloudAgentPanel canvasId={projectId} domainProjectId={currentProject?.projectId} nodeCount={nodes.length} references={agentMentionReferences} prefillPrompt={agentPrefillPrompt} open={assistantOpen} onOpen={openAgent} onCollapse={closeAgent} onFocusNode={(nodeId) => {
-                                if (!nodesRef.current.some((node) => node.id === nodeId)) { message.info("该节点已删除或尚未同步到画布"); return; }
+                                    <CanvasCloudAgentPanel
+                                        canvasId={projectId}
+                                        domainProjectId={currentProject?.projectId}
+                                        nodeCount={nodes.length}
+                                        references={agentMentionReferences}
+                                        prefillPrompt={agentPrefillPrompt}
+                                        open={assistantOpen}
+                                        onOpen={openAgent}
+                                        onCollapse={closeAgent}
+                                        onFocusNode={(nodeId) => {
+                                            if (!nodesRef.current.some((node) => node.id === nodeId)) {
+                                                message.info("该节点已删除或尚未同步到画布");
+                                                return;
+                                            }
                                 focusCanvasNode(nodeId);
-                            }} />
+                                        }}
+                                    />
                             </div>
                         </div>
 
@@ -3304,7 +3481,10 @@ function InfiniteCanvasPage() {
                             onCloseAnnotation={() => setAnnotationNodeId(null)}
                             onCloseAnnotationEdit={() => setAnnotationEditNodeId(null)}
                             onCloseMaskEdit={() => setMaskEditNodeId(null)}
-                            onCloseImageEdit={() => { setImageEditNodeId(null); setImageEditPreset(null); }}
+                                onCloseImageEdit={() => {
+                                    setImageEditNodeId(null);
+                                    setImageEditPreset(null);
+                                }}
                             onCloseLayerDecomposition={() => setLayerDecompositionNodeId(null)}
                             onCloseTextEdit={() => setTextEditNodeId(null)}
                             onCloseUpscale={() => setUpscaleNodeId(null)}
@@ -3339,14 +3519,7 @@ function InfiniteCanvasPage() {
                             onConfirmClear={clearCanvas}
                         />
 
-                        <BatchGenerationSettingsDialog
-                            open={batchGenDialogOpen}
-                            config={batchGenDialogConfig}
-                            rowCount={batchGenDialogRowCount}
-                            concurrency={batchGenDialogConcurrency}
-                            onClose={closeBatchGenDialog}
-                            onConfirm={confirmBatchGenDialog}
-                        />
+                            <BatchGenerationSettingsDialog open={batchGenDialogOpen} config={batchGenDialogConfig} rowCount={batchGenDialogRowCount} concurrency={batchGenDialogConcurrency} onClose={closeBatchGenDialog} onConfirm={confirmBatchGenDialog} />
 
                         <AssetPickerModal open={assetPickerOpen} multiple={assetInsertScope === "canvas"} onInsert={handleLibraryAssetsInsert} onClose={closeAssetPicker} />
                         <CanvasProjectAssetModal

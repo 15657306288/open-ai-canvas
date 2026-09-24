@@ -3,7 +3,15 @@ import { useCallback, useEffect, useRef, useState, type Dispatch, type MouseEven
 import { applyCanvasNodeDragPreview, applyCanvasNodeSelectionPreview, applyCanvasSelectionPreview } from "@/lib/canvas/canvas-live-viewport";
 import { calculateNodeAlignment, createNodeAlignmentContext, sameStringSet, type NodeAlignmentContext } from "@/lib/canvas/canvas-project-domain";
 import { applyFrameDrop, buildCanvasFrameDropIndex, findFrameDropTargetFromIndex, getFrameChildIds, isFrameNode } from "@/lib/canvas/canvas-frame";
-import { applyCanvasSelectionStrategy, canvasSelectionHitsBounds, createCanvasSelectionBounds, createCanvasSelectionSpatialIndexCache, resolveCanvasSelectionHitMode, resolveCanvasSelectionPreviewDelta, resolveCanvasSelectionStrategy } from "@/lib/canvas/canvas-selection";
+import {
+    applyCanvasSelectionStrategy,
+    canvasSelectionHitsBounds,
+    createCanvasSelectionBounds,
+    createCanvasSelectionSpatialIndexCache,
+    resolveCanvasSelectionHitMode,
+    resolveCanvasSelectionPreviewDelta,
+    resolveCanvasSelectionStrategy,
+} from "@/lib/canvas/canvas-selection";
 import { canvasNodeBounds } from "@/lib/canvas/canvas-spatial-index";
 import type { CanvasNodeData, Position, SelectionBox, ViewportTransform } from "@/types/canvas";
 
@@ -23,6 +31,8 @@ type UseCanvasSelectionControllerOptions = {
     onNodeBringToFront?: (nodeId: string) => void;
     onNodeClick: (node: CanvasNodeData) => void;
     onNodeDragEnd?: (nodeId: string) => void;
+    onBatchReferenceCellHover?: (clientX: number, clientY: number, draggedNodes: CanvasNodeData[]) => void;
+    onBatchReferenceCellDrop?: (clientX: number, clientY: number, draggedNodes: CanvasNodeData[]) => void;
     onBatchConnectionTarget?: (event: ReactMouseEvent | ReactPointerEvent, nodeId: string) => boolean;
     onLinkedFolderDrop?: (folder: CanvasNodeData, nodes: CanvasNodeData[]) => void;
     onDeselect: () => void;
@@ -40,9 +50,7 @@ type DragState = {
     initialSelectedNodes: Array<{ id: string; x: number; y: number }>;
 };
 
-type SelectionGestureState =
-    | { phase: "idle" }
-    | { phase: "pending" | "selecting"; initialSelection: Set<string>; selection: SelectionBox };
+type SelectionGestureState = { phase: "idle" } | { phase: "pending" | "selecting"; initialSelection: Set<string>; selection: SelectionBox };
 
 const EMPTY_DRAG_STATE: DragState = {
     isDraggingNode: false,
@@ -72,6 +80,8 @@ export function useCanvasSelectionController({
     onNodeBringToFront,
     onNodeClick,
     onNodeDragEnd,
+    onBatchReferenceCellHover,
+    onBatchReferenceCellDrop,
     onBatchConnectionTarget,
     onLinkedFolderDrop,
     onDeselect,
@@ -126,7 +136,8 @@ export function useCanvasSelectionController({
         onDeselect();
     }, [cancelPendingConnectionCreate, cancelSelectionBox, onDeselect, selectedNodeIdsRef, setSelectedConnectionId, setSelectedNodeIds]);
 
-    const handleCanvasMouseDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const handleCanvasMouseDown = useCallback(
+        (event: ReactPointerEvent<HTMLDivElement>) => {
         cancelPendingConnectionCreate();
         onCanvasSelectionStart();
         if (event.button !== 0) return;
@@ -145,9 +156,12 @@ export function useCanvasSelectionController({
         selectionGestureRef.current = { phase: "pending", initialSelection, selection: nextSelectionBox };
         selectionSpatialIndexCacheRef.current.get(nodesRef.current);
         setSelectedConnectionId(null);
-    }, [cancelPendingConnectionCreate, nodesRef, onCanvasSelectionStart, screenToCanvas, selectedNodeIdsRef, setSelectedConnectionId]);
+        },
+        [cancelPendingConnectionCreate, nodesRef, onCanvasSelectionStart, screenToCanvas, selectedNodeIdsRef, setSelectedConnectionId],
+    );
 
-    const handleNodeMouseDown = useCallback((event: ReactMouseEvent | ReactPointerEvent, nodeId: string) => {
+    const handleNodeMouseDown = useCallback(
+        (event: ReactMouseEvent | ReactPointerEvent, nodeId: string) => {
         event.stopPropagation();
         if (event.button !== 0) return;
         if (onBatchConnectionTarget?.(event, nodeId)) return;
@@ -211,9 +225,12 @@ export function useCanvasSelectionController({
         setAlignmentGuides({});
         setDragPreview({ x: 0, y: 0, nodeIds: draggedRenderNodeIdSet });
         applyCanvasNodeDragPreview(containerRef.current, { x: 0, y: 0, nodeIds: draggedRenderNodeIdSet });
-    }, [containerRef, historyPausedRef, nodesRef, onBatchConnectionTarget, onNodeBringToFront, onNodeClick, onNodeInteractionStart, selectedNodeIdsRef, setSelectedConnectionId, setSelectedNodeIds]);
+        },
+        [containerRef, historyPausedRef, nodesRef, onBatchConnectionTarget, onNodeBringToFront, onNodeClick, onNodeInteractionStart, selectedNodeIdsRef, setSelectedConnectionId, setSelectedNodeIds],
+    );
 
-    const finishNodeDrag = useCallback((clientX?: number, clientY?: number) => {
+    const finishNodeDrag = useCallback(
+        (clientX?: number, clientY?: number) => {
         if (dragFrameRef.current) {
             cancelAnimationFrame(dragFrameRef.current);
             dragFrameRef.current = null;
@@ -235,8 +252,12 @@ export function useCanvasSelectionController({
         setDragPreview(null);
         setAlignmentGuides({});
         if (dragRef.current.hasMoved) {
+                if (clientX != null && clientY != null) onBatchReferenceCellDrop?.(clientX, clientY, draggedNodesRef.current);
             const draggedNodeIds = new Set(dragRef.current.draggedNodeIds);
-            const positioned = clientX == null || clientY == null ? nodesRef.current : nodesRef.current.map((node) => {
+                const positioned =
+                    clientX == null || clientY == null
+                        ? nodesRef.current
+                        : nodesRef.current.map((node) => {
                 const initial = initialById.get(node.id);
                 return initial ? { ...node, position: { x: initial.x + dx, y: initial.y + dy } } : node;
             });
@@ -245,7 +266,11 @@ export function useCanvasSelectionController({
             const linkedFolder = target?.metadata?.folder?.assetFolderId ? target : undefined;
             // 素材库文件夹只建立归档关系，不把画布节点变成其本地子节点。
             setNodes(linkedFolder ? positioned : applyFrameDrop(positioned, draggedNodeIds, targetId));
-            if (linkedFolder) onLinkedFolderDrop?.(linkedFolder, positioned.filter((node) => draggedNodeIds.has(node.id)));
+                if (linkedFolder)
+                    onLinkedFolderDrop?.(
+                        linkedFolder,
+                        positioned.filter((node) => draggedNodeIds.has(node.id)),
+                    );
             if (clickedNodeId) onNodeDragEnd?.(clickedNodeId);
         }
         setFrameDropTargetId(null);
@@ -256,10 +281,14 @@ export function useCanvasSelectionController({
             const clickedNode = nodesRef.current.find((node) => node.id === clickedNodeId);
             if (clickedNode) onNodeClick(clickedNode);
         }
-    }, [historyPausedRef, nodesRef, onLinkedFolderDrop, onNodeClick, onNodeDragEnd, setNodes, viewportRef]);
+        },
+        [historyPausedRef, nodesRef, onBatchReferenceCellDrop, onLinkedFolderDrop, onNodeClick, onNodeDragEnd, setNodes, viewportRef],
+    );
 
-    const handleNodeDragMove = useCallback((event: MouseEvent | PointerEvent) => {
+    const handleNodeDragMove = useCallback(
+        (event: MouseEvent | PointerEvent) => {
         if (!dragRef.current.isDraggingNode) return;
+            onBatchReferenceCellHover?.(event.clientX, event.clientY, draggedNodesRef.current);
         const currentViewport = viewportRef.current;
         pendingNodeDragRef.current = { x: (event.clientX - dragRef.current.startX) / currentViewport.k, y: (event.clientY - dragRef.current.startY) / currentViewport.k };
         if (Math.abs(event.clientX - dragRef.current.startX) > 3 || Math.abs(event.clientY - dragRef.current.startY) > 3) dragRef.current.hasMoved = true;
@@ -280,12 +309,15 @@ export function useCanvasSelectionController({
                 nodeIds: dragRef.current.draggedRenderNodeIdSet,
             });
             const nextGuides = dragRef.current.hasMoved ? pendingAlignmentGuidesRef.current : {};
-            setAlignmentGuides((current) => current.vertical === nextGuides.vertical && current.horizontal === nextGuides.horizontal ? current : nextGuides);
+                setAlignmentGuides((current) => (current.vertical === nextGuides.vertical && current.horizontal === nextGuides.horizontal ? current : nextGuides));
             dragFrameRef.current = null;
         });
-    }, [containerRef, viewportRef]);
+        },
+        [onBatchReferenceCellHover, containerRef, viewportRef],
+    );
 
-    const updateSelectionPreview = useCallback((world: Position, commit: boolean) => {
+    const updateSelectionPreview = useCallback(
+        (world: Position, commit: boolean) => {
         let gesture = selectionGestureRef.current;
         if (gesture.phase === "idle") return false;
         let selection = gesture.selection;
@@ -304,11 +336,13 @@ export function useCanvasSelectionController({
         selectionGestureRef.current = { phase: "selecting", initialSelection: gesture.initialSelection, selection };
         applyCanvasSelectionPreview(containerRef.current, selection);
         const queryBounds = { ...bounds, right: Math.max(bounds.right, bounds.left + 0.01), bottom: Math.max(bounds.bottom, bounds.top + 0.01) };
-        const hitNodeIds = new Set(selectionSpatialIndexCacheRef.current
+            const hitNodeIds = new Set(
+                selectionSpatialIndexCacheRef.current
             .get(nodesRef.current)
             .query(queryBounds)
             .filter((node) => canvasSelectionHitsBounds(queryBounds, canvasNodeBounds(node), selection.hitMode))
-            .map((node) => node.id));
+                    .map((node) => node.id),
+            );
         applyCanvasNodeSelectionPreview(containerRef.current, resolveCanvasSelectionPreviewDelta(gesture.initialSelection, hitNodeIds, selection.strategy));
         if (!commit) return true;
         const nextSelected = applyCanvasSelectionStrategy(gesture.initialSelection, hitNodeIds, selection.strategy);
@@ -317,9 +351,12 @@ export function useCanvasSelectionController({
             setSelectedNodeIds(nextSelected);
         }
         return true;
-    }, [containerRef, nodesRef, selectedNodeIdsRef, setSelectedNodeIds, viewportRef]);
+        },
+        [containerRef, nodesRef, selectedNodeIdsRef, setSelectedNodeIds, viewportRef],
+    );
 
-    const handlePointerMove = useCallback((event: PointerEvent) => {
+    const handlePointerMove = useCallback(
+        (event: PointerEvent) => {
         if (dragRef.current.isDraggingNode) {
             handleNodeDragMove(event);
             return;
@@ -333,9 +370,12 @@ export function useCanvasSelectionController({
             const world = pendingSelectionPointRef.current;
             if (world) updateSelectionPreview(world, false);
         });
-    }, [handleNodeDragMove, screenToCanvas, updateSelectionPreview]);
+        },
+        [handleNodeDragMove, screenToCanvas, updateSelectionPreview],
+    );
 
-    const finishSelection = useCallback((clientX: number, clientY: number) => {
+    const finishSelection = useCallback(
+        (clientX: number, clientY: number) => {
         const gesture = selectionGestureRef.current;
         const hadPendingSelection = gesture.phase !== "idle";
         const strategy = gesture.phase === "idle" ? null : gesture.selection.strategy;
@@ -344,7 +384,9 @@ export function useCanvasSelectionController({
         const wasSelection = hadPendingSelection && updateSelectionPreview(screenToCanvas(clientX, clientY), true);
         resetSelectionBox();
         if (hadPendingSelection && !wasSelection && strategy === "replace") deselectCanvas();
-    }, [deselectCanvas, resetSelectionBox, screenToCanvas, updateSelectionPreview]);
+        },
+        [deselectCanvas, resetSelectionBox, screenToCanvas, updateSelectionPreview],
+    );
 
     // 重渲染只更新回调，不能拆掉进行中的手势监听并清除 iframe 保护层 / 待执行帧。
     const gestureHandlersRef = useRef({ finishNodeDrag, finishSelection, cancelSelectionBox, handleNodeDragMove, handlePointerMove });

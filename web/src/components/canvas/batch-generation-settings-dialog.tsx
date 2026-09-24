@@ -44,6 +44,7 @@ export function BatchGenerationSettingsDialog({ open, config, rowCount, concurre
     };
 
     const imageModel = generationConfig.imageModel || generationConfig.model;
+    const outputCount = Math.max(1, Math.min(10, Number(generationConfig.count) || 1));
 
     return (
         <AppModal
@@ -57,7 +58,7 @@ export function BatchGenerationSettingsDialog({ open, config, rowCount, concurre
         >
             <div className="flex flex-col gap-4 py-2">
                 <div className="rounded-lg bg-black/5 px-3 py-2 text-sm dark:bg-white/[0.04]">
-                    共 <span className="font-semibold">{rowCount}</span> 个任务（每行 1 张） · 并发上限 <span className="font-semibold">{concurrency}</span>
+                    共 <span className="font-semibold">{rowCount}</span> 个任务（每行 {outputCount} 张） · 并发上限 <span className="font-semibold">{concurrency}</span>
                     <div className="mt-1 text-xs opacity-75">确认后将提交生成任务，可能消耗积分或产生外部模型费用。</div>
                 </div>
 
