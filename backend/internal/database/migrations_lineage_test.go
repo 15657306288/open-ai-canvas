@@ -117,3 +117,99 @@ func TestMigrateSchemaRejectsUnknownLegacyLineage(t *testing.T) {
 		})
 	}
 }
+
+func TestMigrateSchemaPreservesLegacyCloudLineage(t *testing.T) {
+	db, err := Open(Config{Driver: "sqlite", DSN: "file:legacy-cloud-migration-lineage?mode=memory&cache=shared"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	if err := MigrateSchema(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Where("version >= ?", 24).Delete(&schemaMigration{}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	for _, item := range schemaMigrations {
+		if item.version < 24 || item.version > 35 {
+			continue
+		}
+		switch item.version {
+		case 24:
+			item.name, item.checksum = "channel_model_description", legacyChannelModelDescriptionV24Checksum
+		case 28:
+			item.name, item.checksum = "channel_model_label", legacyChannelModelLabelV28Checksum
+		case 29, 30, 31, 32, 33:
+			if item.version == 33 {
+				continue
+			}
+			shifted := shiftedMigration(schemaMigrations, item.version-1, item.version)
+			item.name, item.checksum = shifted.name, shifted.checksum
+		case 34:
+			item.name, item.checksum = "canvas_collaboration_operations", "sha256:canvas-collaboration-v30-20260920"
+		case 35:
+			item.name, item.checksum = "canvas_durable_branches", "sha256:canvas-durable-branches-v31-20260920"
+		default:
+			continue
+		}
+		if err := db.Create(&schemaMigration{Version: item.version, Name: item.name, Checksum: item.checksum, AppliedAt: time.Now().UTC()}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	for version, name := range map[int64]string{
+		36: "canvas_media_grants",
+		37: "canvas_template_library",
+		38: "doubao_account_pool_and_network_proxy",
+	} {
+		if err := db.Create(&schemaMigration{Version: version, Name: name, Checksum: map[string]string{
+			"canvas_media_grants":                   "sha256:canvas-media-grants-v32-20260920",
+			"canvas_template_library":               "sha256:canvas-template-library-v28-20260919",
+			"doubao_account_pool_and_network_proxy": "sha256:doubao-account-pool-network-proxy-v38-20260921",
+		}[name], AppliedAt: time.Now().UTC()}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := MigrateSchema(db); err != nil {
+		t.Fatalf("legacy cloud migration: %v", err)
+	}
+	status, err := ReadSchemaStatus(db)
+	if err != nil || !status.Ready || status.Current != CurrentSchemaVersion {
+		t.Fatalf("schema = %#v, %v", status, err)
+	}
+	for version, expected := range map[int64]string{
+		24: "channel_model_description",
+		28: "channel_model_label",
+		29: "agent_execution_journal",
+		30: "agent_resource_leases",
+		31: "builtin_tools",
+		32: "tool_favorites",
+		34: "canvas_collaboration_operations",
+		35: "canvas_durable_branches",
+		36: "canvas_media_grants",
+		37: "canvas_template_library",
+		38: "doubao_account_pool_and_network_proxy",
+	} {
+		var record schemaMigration
+		if err := db.First(&record, "version = ?", version).Error; err != nil {
+			t.Fatal(err)
+		}
+		if record.Name != expected {
+			t.Fatalf("migration %d changed lineage: %#v", version, record)
+		}
+	}
+	if !db.Migrator().HasColumn(&model.ChannelModel{}, "Tags") {
+		t.Fatal("compatibility migration did not add channel model tags")
+	}
+	if !db.Migrator().HasColumn(&model.OAuthState{}, "AcceptedTerms") {
+		t.Fatal("compatibility migration did not add OAuth consent")
+	}
+	if !db.Migrator().HasColumn(&model.Task{}, "MediaRecoveryJSON") || !db.Migrator().HasColumn(&model.Task{}, "MediaStage") {
+		t.Fatal("compatibility migration did not add task media recovery fields")
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"infinite-canvas/backend/internal/model"
@@ -11,7 +12,12 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 35
+// v36-v38 belong to the older cloud deployment lineage. The current lineage
+// keeps those numbers unused because the upstream merge already adopted a
+// different v32-v35 sequence. When a database contains the old v24 record,
+// migrationsForDatabase injects the historical v36-v38 metadata before the
+// compatibility migrations below.
+const CurrentSchemaVersion int64 = 42
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -23,6 +29,8 @@ const assetLibraryFoldersChecksum = "sha256:asset-library-folders-v6-20260902"
 const logicalModelActiveCodeChecksum = "sha256:logical-model-active-code-v8-20260905"
 const creationRuntimeChecksum = "sha256:creation-runtime-v10-20260909"
 const authNotificationsChecksum = "sha256:auth-notifications-v35-20260924"
+const legacyChannelModelDescriptionV24Checksum = "sha256:channel-model-description-v24-20260918"
+const legacyChannelModelLabelV28Checksum = "sha256:channel-model-label-v28"
 
 const postgresSchemaMigrationLockID int64 = 73123910420260830
 
@@ -119,6 +127,14 @@ var schemaMigrations = []migration{
 		return nil
 	}},
 	{version: 35, name: "auth_notifications", checksum: authNotificationsChecksum, apply: migrateSchemaV35},
+	// A previous cloud deployment used v32-v38 for tool, collaboration,
+	// template, and Doubao tables. These four migrations replay the current
+	// upstream additions after that historical sequence. They are idempotent,
+	// so a fresh database that already applied v32-v35 is also safe.
+	{version: 39, name: "channel_model_tags_post_legacy_lineage", checksum: "sha256:channel-model-tags-v39-20260924", apply: migrateChannelModelTags},
+	{version: 40, name: "oauth_state_accepted_terms_post_legacy_lineage", checksum: "sha256:oauth-state-accepted-terms-v40-20260924", apply: migrateOAuthStateAcceptedTerms},
+	{version: 41, name: "task_media_recovery_post_legacy_lineage", checksum: "sha256:task-media-recovery-v41-20260924", apply: migrateTaskMediaRecovery},
+	{version: 42, name: "auth_notifications_post_legacy_lineage", checksum: "sha256:auth-notifications-v42-20260924", apply: migrateSchemaV35},
 }
 
 func migrateChannelModelTags(tx *gorm.DB) error {
@@ -133,6 +149,17 @@ func migrateOAuthStateAcceptedTerms(tx *gorm.DB) error {
 		return nil
 	}
 	return tx.Migrator().AddColumn(&model.OAuthState{}, "AcceptedTerms")
+}
+
+func migrateTaskMediaRecovery(tx *gorm.DB) error {
+	for _, field := range []string{"MediaRecoveryJSON", "MediaStage"} {
+		if !tx.Migrator().HasColumn(&model.Task{}, field) {
+			if err := tx.Migrator().AddColumn(&model.Task{}, field); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func migrateChannelCreditCost(tx *gorm.DB) error {
@@ -242,31 +269,93 @@ func migrateChannelPresentation(tx *gorm.DB) error {
 }
 
 func migrationsForDatabase(db *gorm.DB) ([]migration, error) {
+	plan := append([]migration(nil), schemaMigrations...)
 	var applied schemaMigration
 	err := db.First(&applied, "version = ?", 6).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return schemaMigrations, nil
-	}
-	if err != nil {
+		err = nil
+	} else if err != nil {
 		return nil, fmt.Errorf("读取数据库迁移 6：%w", err)
 	}
-	if applied.Name != "asset_library_folders" {
-		return schemaMigrations, nil
-	}
-	legacy := migration{version: 6, name: "asset_library_folders", checksum: assetLibraryFoldersChecksum, apply: migrateSchemaV7}
-	if err := validateMigrationRecord(applied, legacy); err != nil {
-		return nil, err
-	}
-	plan := append([]migration(nil), schemaMigrations...)
-	for index, item := range plan {
-		switch item.version {
-		case 6:
-			plan[index] = legacy
-		case 7:
-			plan[index] = migration{version: 7, name: "resource_playback_variant", checksum: resourcePlaybackChecksum, apply: migrateSchemaV6}
+	if err == nil && applied.Name == "asset_library_folders" {
+		legacy := migration{version: 6, name: "asset_library_folders", checksum: assetLibraryFoldersChecksum, apply: migrateSchemaV7}
+		if err := validateMigrationRecord(applied, legacy); err != nil {
+			return nil, err
+		}
+		for index, item := range plan {
+			switch item.version {
+			case 6:
+				plan[index] = legacy
+			case 7:
+				plan[index] = migration{version: 7, name: "resource_playback_variant", checksum: resourcePlaybackChecksum, apply: migrateSchemaV6}
+			}
 		}
 	}
+
+	var legacyV24 schemaMigration
+	err = db.First(&legacyV24, "version = ?", 24).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, fmt.Errorf("读取数据库迁移 24：%w", err)
+	}
+	if err == nil && (legacyV24.Name == "channel_model_description" || legacyV24.Checksum == legacyChannelModelDescriptionV24Checksum) {
+		legacyMigrations := map[int64]migration{
+			24: {version: 24, name: "channel_model_description", checksum: legacyChannelModelDescriptionV24Checksum, apply: migrateChannelModelDescription},
+			28: {version: 28, name: "channel_model_label", checksum: legacyChannelModelLabelV28Checksum, apply: migrateChannelModelLabel},
+			29: shiftedMigration(plan, 28, 29),
+			30: shiftedMigration(plan, 29, 30),
+			31: shiftedMigration(plan, 30, 31),
+			32: shiftedMigration(plan, 31, 32),
+			34: legacyRemovedMigration(34, "canvas_collaboration_operations", "sha256:canvas-collaboration-v30-20260920"),
+			35: legacyRemovedMigration(35, "canvas_durable_branches", "sha256:canvas-durable-branches-v31-20260920"),
+			36: legacyRemovedMigration(36, "canvas_media_grants", "sha256:canvas-media-grants-v32-20260920"),
+			37: legacyRemovedMigration(37, "canvas_template_library", "sha256:canvas-template-library-v28-20260919"),
+			38: legacyRemovedMigration(38, "doubao_account_pool_and_network_proxy", "sha256:doubao-account-pool-network-proxy-v38-20260921"),
+		}
+
+		filtered := make([]migration, 0, len(plan)+5)
+		for _, item := range plan {
+			// The old cloud lineage intentionally left v33 unused.
+			if item.version == 33 {
+				continue
+			}
+			if replacement, found := legacyMigrations[item.version]; found {
+				filtered = append(filtered, replacement)
+				delete(legacyMigrations, item.version)
+				continue
+			}
+			filtered = append(filtered, item)
+		}
+		for _, item := range legacyMigrations {
+			filtered = append(filtered, item)
+		}
+		sort.Slice(filtered, func(i, j int) bool {
+			return filtered[i].version < filtered[j].version
+		})
+		plan = filtered
+	}
 	return plan, nil
+}
+
+func shiftedMigration(plan []migration, from, to int64) migration {
+	for _, item := range plan {
+		if item.version == from {
+			item.version = to
+			return item
+		}
+	}
+	panic(fmt.Sprintf("缺少迁移定义 %d，无法兼容历史迁移谱系", from))
+}
+
+func legacyRemovedMigration(version int64, name, checksum string) migration {
+	return migration{
+		version:  version,
+		name:     name,
+		checksum: checksum,
+		// These tables belonged to removed runtime modules. The current
+		// application intentionally leaves their historical records untouched;
+		// the migration is metadata-only when replaying that old lineage.
+		apply: func(*gorm.DB) error { return nil },
+	}
 }
 
 func migrateSchemaV2(tx *gorm.DB) error {
