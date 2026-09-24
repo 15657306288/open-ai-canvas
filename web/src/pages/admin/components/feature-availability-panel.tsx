@@ -35,7 +35,7 @@ const workspaceFeatureRows: FeatureRow[] = [
     {
         key: "creditsEnabled",
         title: "积分计费",
-        description: "控制钱包入口及新任务的积分预授权与结算。",
+        description: "控制积分中心弹窗及新任务的积分预授权与结算。",
         icon: <Coins className="size-4" aria-hidden="true" />,
     },
     {

@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/protocol"
 
 	"github.com/google/uuid"
@@ -73,11 +74,15 @@ func runProtocolAdapterTaskWithPolicy(ctx context.Context, input canvasGeneratio
 		if err != nil {
 			return nil, err
 		}
-		body, err := executeProtocolRequest(withProviderRequestKind(ctx, "create"), input.Config, spec)
+		body, streamedResult, err := executeProtocolCreateRequest(withProviderRequestKind(ctx, "create"), input, spec)
 		if err != nil {
 			return nil, err
 		}
-		created, err = adapter.ParseCreate(ctx, body)
+		if streamedResult != nil {
+			created = protocol.CreateResult{Status: protocol.StatusSucceeded, Result: streamedResult}
+		} else {
+			created, err = adapter.ParseCreate(ctx, body)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -186,6 +191,10 @@ func protocolRequestFromInput(input canvasGenerationInput) protocol.GenerationRe
 			resolution = declared
 		}
 	}
+	aspectRatio := input.Config.Size
+	if input.Mode == "image" && strings.TrimSpace(input.Config.InterfaceType) == string(model.ChannelInterfaceOpenAIImage) {
+		aspectRatio = normalizePixelSize(aspectRatio)
+	}
 	request := protocol.GenerationRequest{
 		Capability:    protocol.Capability(input.Mode),
 		Model:         input.Config.Model,
@@ -194,7 +203,7 @@ func protocolRequestFromInput(input canvasGenerationInput) protocol.GenerationRe
 		Images:        protocolImageReferences(input),
 		Videos:        protocolMediaReferences(input.ReferenceVideos, "video"),
 		Audios:        protocolMediaReferences(input.ReferenceAudios, "audio"),
-		AspectRatio:   input.Config.Size,
+		AspectRatio:   aspectRatio,
 		Resolution:    resolution,
 		Quality:       input.Config.Quality,
 		GenerateAudio: parseBool(input.Config.VideoGenerateAudio, false),
@@ -779,6 +788,9 @@ func finishProtocolResult(ctx context.Context, config providerConfig, mode strin
 	}
 	if len(references) == 0 {
 		return nil, errors.New("声明式协议已完成但没有返回媒体地址")
+	}
+	if output, handled, err := recoverProtocolMedia(ctx, config, mode, references); handled {
+		return output, err
 	}
 	items := make([]interface{}, 0, len(references))
 	for _, reference := range references {

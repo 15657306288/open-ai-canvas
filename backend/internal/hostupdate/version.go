@@ -6,21 +6,44 @@ import (
 )
 
 type versionPart struct {
-	major, minor, patch int
-	pre                 []string
+	core []int
+	pre  []string
+}
+
+func IsReleaseVersion(raw string) bool {
+	_, ok := parseVersion(raw)
+	return ok
 }
 
 func CompareVersions(left, right string) int {
 	a, aok := parseVersion(left)
 	b, bok := parseVersion(right)
-	if !aok || !bok {
-		return strings.Compare(strings.TrimSpace(left), strings.TrimSpace(right))
+	if aok && bok {
+		return compareParsedVersions(a, b)
 	}
-	for _, pair := range [][2]int{{a.major, b.major}, {a.minor, b.minor}, {a.patch, b.patch}} {
-		if pair[0] < pair[1] {
+	// sha-5509b17、latest 等非正式标签不能按字典序和 v1.5.0 比，否则会被当成更新而不让升级。
+	if !aok && bok {
+		return -1
+	}
+	if aok && !bok {
+		return 1
+	}
+	return strings.Compare(strings.TrimSpace(left), strings.TrimSpace(right))
+}
+
+func compareParsedVersions(a, b versionPart) int {
+	for index := 0; index < len(a.core) || index < len(b.core); index++ {
+		left, right := 0, 0
+		if index < len(a.core) {
+			left = a.core[index]
+		}
+		if index < len(b.core) {
+			right = b.core[index]
+		}
+		if left < right {
 			return -1
 		}
-		if pair[0] > pair[1] {
+		if left > right {
 			return 1
 		}
 	}
@@ -62,16 +85,18 @@ func parseVersion(raw string) (versionPart, bool) {
 	value = strings.SplitN(value, "+", 2)[0]
 	parts := strings.SplitN(value, "-", 2)
 	core := strings.Split(parts[0], ".")
-	if len(core) != 3 {
+	if len(core) < 3 {
 		return versionPart{}, false
 	}
-	major, err1 := strconv.Atoi(core[0])
-	minor, err2 := strconv.Atoi(core[1])
-	patch, err3 := strconv.Atoi(core[2])
-	if err1 != nil || err2 != nil || err3 != nil {
-		return versionPart{}, false
+	coreNumbers := make([]int, len(core))
+	for index, value := range core {
+		number, err := strconv.Atoi(value)
+		if err != nil {
+			return versionPart{}, false
+		}
+		coreNumbers[index] = number
 	}
-	parsed := versionPart{major: major, minor: minor, patch: patch}
+	parsed := versionPart{core: coreNumbers}
 	if len(parts) == 2 && parts[1] != "" {
 		parsed.pre = strings.FieldsFunc(parts[1], func(r rune) bool { return r == '.' || r == '-' })
 	}

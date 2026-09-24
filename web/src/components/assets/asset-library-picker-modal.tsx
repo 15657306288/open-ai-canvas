@@ -13,7 +13,7 @@ import { PaginationBar } from "@/components/layout/workspace-page";
 import { cn } from "@/lib/utils";
 import type { ExternalAssetPickerReference } from "@/lib/plugins/plugin-types";
 import { flushAssetStorePersistence, useAssetStore, type Asset } from "@/stores/use-asset-store";
-import { deleteAssetWithRemoteSync, loadAssetLibraryPage, localSavedRemotePendingMessage, saveRemoteUserDataNow } from "@/services/user-data-sync";
+import { deleteAssetsWithRemoteSync, loadAssetLibraryPage, localSavedRemotePendingMessage, saveRemoteUserDataNow } from "@/services/user-data-sync";
 
 export type AssetPickerMediaKind = "image" | "video" | "audio" | "text";
 
@@ -291,14 +291,13 @@ export function AssetLibraryPickerModal({
         if (!archivedSelectedIds.length) return;
         setWorking(true);
         try {
-            for (const id of archivedSelectedIds) await deleteAssetWithRemoteSync(id);
+            await deleteAssetsWithRemoteSync(archivedSelectedIds);
             setSelected(new Set());
             message.success(`已彻底删除 ${archivedSelectedIds.length} 个素材`);
         } catch (err) {
             message.error(err instanceof Error ? err.message : "删除失败");
         } finally {
             setWorking(false);
-            if (remoteEnabled) void remoteQuery.refetch();
         }
     };
 
@@ -307,7 +306,7 @@ export function AssetLibraryPickerModal({
         if (!toDelete.length) return;
         setWorking(true);
         try {
-            for (const item of toDelete) await deleteAssetWithRemoteSync(item.id);
+            await deleteAssetsWithRemoteSync(toDelete.map((item) => item.id));
             setSelected(new Set());
             message.success(`已删除${remoteEnabled ? "当前页" : "回收站"} ${toDelete.length} 个素材`);
             setCategory("all");
@@ -315,7 +314,6 @@ export function AssetLibraryPickerModal({
             message.error(err instanceof Error ? err.message : "清空回收站失败");
         } finally {
             setWorking(false);
-            if (remoteEnabled) void remoteQuery.refetch();
         }
     };
 
@@ -488,7 +486,7 @@ export function AssetLibraryPickerModal({
                     </nav>
                     <div className="asset-picker-grid-wrap">
                         <div className="asset-picker-grid">
-                            {remoteEnabled && remoteQuery.isError ? <div role="alert">素材读取失败<Button onClick={() => void remoteQuery.refetch()}>重试</Button></div> : loading || (useRemoteItems && remoteQuery.isFetching) ? (
+                            {remoteEnabled && remoteQuery.isError && !localItems.length ? <div className="asset-picker-empty" role="alert"><FolderOpen /><strong>素材读取失败</strong><span>服务端暂时不可用，重试不会影响本地已保存素材。</span><Button onClick={() => void remoteQuery.refetch()}>重试</Button></div> : loading || (useRemoteItems && remoteQuery.isFetching) ? (
                                 <div className="asset-picker-empty">
                                     <LoaderCircle className="animate-spin" />
                                     <strong>正在读取素材</strong>
@@ -519,8 +517,8 @@ export function AssetLibraryPickerModal({
                                 </span>
                             </button>
                         </>
-                    ) : footerNote ? (
-                        <span className="asset-picker-footer-note">{footerNote}</span>
+                    ) : footerNote || (remoteEnabled && remoteQuery.isError) ? (
+                        <span className="asset-picker-footer-note">{remoteEnabled && remoteQuery.isError ? "云端素材暂时不可用，当前显示本地缓存" : footerNote}</span>
                     ) : (
                         <span />
                     )}
@@ -532,7 +530,7 @@ export function AssetLibraryPickerModal({
                     <div className="asset-picker-actions">
                         {isRecycleBin ? (
                             <>
-                                <Popconfirm title={remoteEnabled ? "确认删除当前页回收站素材？" : "确认清空回收站？"} description="仅删除当前列表中的素材；仍被引用的素材由服务端拒绝删除。删除不可恢复。" onConfirm={handleEmptyRecycleBin} okText="删除" okButtonProps={{ danger: true }} cancelText="取消">
+                                <Popconfirm title={remoteEnabled ? "确认删除当前页回收站素材？" : "确认清空回收站？"} description="仅删除当前列表中的素材；关联文件会直接释放，原画布或任务中的旧引用可能失效。删除不可恢复。" onConfirm={handleEmptyRecycleBin} okText="删除" okButtonProps={{ danger: true }} cancelText="取消">
                                     <Button type="text" danger disabled={working || !archivedCount}>
                                         {remoteEnabled ? "删除当前页" : "清空回收站"}
                                     </Button>

@@ -441,9 +441,11 @@ func TestNewAPIVideoGenerationsParsesNestedVideoResults(t *testing.T) {
 	tests := []struct {
 		name    string
 		payload string
+		wantURL string
 	}{
-		{name: "channel result URL", payload: `{"code":"success","data":{"task_id":"task-upstream","status":"SUCCESS","result_url":"https://cdn.example/channel-result.mp4"}}`},
-		{name: "provider nested video URL", payload: `{"code":"success","data":{"task_id":"task-upstream","status":"SUCCESS","data":{"status":"completed","video_url":"https://cdn.example/provider-result.mp4"}}}`},
+		{name: "channel result URL", payload: `{"code":"success","data":{"task_id":"task-upstream","status":"SUCCESS","result_url":"https://cdn.example/channel-result.mp4"}}`, wantURL: "https://cdn.example/channel-result.mp4"},
+		{name: "provider nested video URL", payload: `{"code":"success","data":{"task_id":"task-upstream","status":"SUCCESS","data":{"status":"completed","video_url":"https://cdn.example/provider-result.mp4"}}}`, wantURL: "https://cdn.example/provider-result.mp4"},
+		{name: "provider data array URL", payload: `{"created":1789773326,"data":[{"url":"https://cdn.example/seedance-result.mp4?preview=1"}],"id":"task-upstream","object":"video.generation","status":"completed","usage":{"completion_tokens":108872,"total_tokens":108872}}`, wantURL: "https://cdn.example/seedance-result.mp4?preview=1"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -454,8 +456,8 @@ func TestNewAPIVideoGenerationsParsesNestedVideoResults(t *testing.T) {
 			if state.Status != StatusSucceeded || state.Result == nil || len(state.Result.Videos) != 1 {
 				t.Fatalf("state = %#v, want one completed video", state)
 			}
-			if state.Result.Videos[0].URL == "" {
-				t.Fatalf("video = %#v, want a result URL", state.Result.Videos[0])
+			if state.Result.Videos[0].URL != test.wantURL {
+				t.Fatalf("video = %#v, want URL %q", state.Result.Videos[0], test.wantURL)
 			}
 		})
 	}
@@ -596,6 +598,36 @@ func TestOfficialArkSeedreamMapsAspectRatioToPixelSize(t *testing.T) {
 	}
 	if _, ok := manifestTestBody(t, create)["size"]; ok {
 		t.Fatalf("Seedream must omit size when no ratio is requested")
+	}
+}
+
+func TestOfficialArkAgentPlanPluginsUsePlanPaths(t *testing.T) {
+	image := officialPackageAdapter(t, "volcengine-ark-agent-plan-seedream.yingce-plugin", "volcengine-ark-agent-plan-image")
+	imageCreate, err := image.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{Model: "doubao-seedream-5-0-260128", Prompt: "circle", AspectRatio: "1:1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if imageCreate.Path != "/api/plan/v3/images/generations" {
+		t.Fatalf("agent plan image create = %#v", imageCreate)
+	}
+	if body := manifestTestBody(t, imageCreate); body["size"] != "2048x2048" {
+		t.Fatalf("agent plan image size = %#v", body["size"])
+	}
+
+	video := officialPackageAdapter(t, "volcengine-ark-agent-plan-seedance.yingce-plugin", "volcengine-ark-agent-plan-video")
+	videoCreate, err := video.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{Model: "doubao-seedance-2-0-260128", Prompt: "walk", AspectRatio: "16:9", Resolution: "720p", Duration: 5}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if videoCreate.Path != "/api/plan/v3/contents/generations/tasks" {
+		t.Fatalf("agent plan video create = %#v", videoCreate)
+	}
+	poll, err := video.BuildPoll(context.Background(), PollContext{TaskID: "task-1", Model: "doubao-seedance-2-0-260128"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if poll.Path != "/api/plan/v3/contents/generations/tasks/task-1" {
+		t.Fatalf("agent plan video poll = %#v", poll)
 	}
 }
 
@@ -750,6 +782,30 @@ func TestOfficialOpenAIAudioSpeedDefaultsInvalidAndZeroValues(t *testing.T) {
 			body := manifestTestBody(t, spec)
 			if got := body["speed"]; !reflect.DeepEqual(got, test.want) {
 				t.Fatalf("speed = %#v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestOfficialArkSeedreamParsesB64JSONAsDataURL(t *testing.T) {
+	for _, tc := range []struct {
+		packageName, providerID string
+	}{
+		{"volcengine-ark-seedream.yingce-plugin", "volcengine-ark-image"},
+		{"volcengine-ark-agent-plan-seedream.yingce-plugin", "volcengine-ark-agent-plan-image"},
+	} {
+		t.Run(tc.providerID, func(t *testing.T) {
+			adapter := officialPackageAdapter(t, tc.packageName, tc.providerID)
+			result, err := adapter.ParseCreate(context.Background(), []byte(`{"created":1,"data":[{"b64_json":"aW1hZ2U=","output_format":"jpeg","size":"1824x1024"}]}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Result == nil || len(result.Result.Images) != 1 {
+				t.Fatalf("result = %#v", result.Result)
+			}
+			dataURL := result.Result.Images[0].DataURL
+			if dataURL != "data:image/jpeg;base64,aW1hZ2U=" {
+				t.Fatalf("DataURL = %q, want jpeg data URL from b64_json + output_format", dataURL)
 			}
 		})
 	}

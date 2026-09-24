@@ -20,6 +20,20 @@ func (s *Service) finishCloudAgentCleanup(ctx context.Context, run *model.CloudA
 	if decodeErr == nil {
 		activeID, mediaID, canvasID = state.ActiveTaskID, state.MediaTaskID, state.Request.CanvasID
 	}
+	// 本轮若正停在压缩上（被取消/失败收尾），要在取消子任务之前把保底检查点落盘并清掉压缩态：
+	// 终态轮次不会再被调度器推进，否则 ContextCompaction 会永远挂在"正在压缩"、检查点永久丢失。
+	// keepTerminal=true：收尾只落检查点与事件，绝不把 failed/cancelled 复活成 completed。
+	if decodeErr == nil && state.ContextCompaction != nil {
+		if err := s.finalizeCloudAgentInterruptedCompaction(run, &state, "本轮在压缩期间结束，已使用服务端保底检查点"); err != nil && !errors.Is(err, errCloudAgentCheckpoint) {
+			return err
+		}
+		// 收尾那一步要再写一次控制面，必须先重新读：上面的检查点写入推进了 revision。
+		refreshed, readErr := s.repo.CloudAgent(run.UserID, run.ID)
+		if readErr != nil {
+			return readErr
+		}
+		run = refreshed
+	}
 	seen := map[string]bool{}
 	for _, id := range []string{run.ID, activeID, mediaID} {
 		if id == "" || seen[id] {
@@ -37,7 +51,11 @@ func (s *Service) finishCloudAgentCleanup(ctx context.Context, run *model.CloudA
 			return err
 		}
 		if task.Status == model.TaskStatusQueued || task.Status == model.TaskStatusRunning {
-			if _, err = s.CancelTask(ctx, run.UserID, id); err != nil {
+			source := model.TaskCancellationParentFailed
+			if run.Status == "cancelled" {
+				source = model.TaskCancellationParentCancelled
+			}
+			if _, err = s.taskLifecycle().cancelTaskWithIntent(ctx, run.UserID, id, model.TaskCancellationIntent{Source: source}); err != nil {
 				// Completion may win the cancellation race. Re-read rather than
 				// treating a truthful terminal result as a permanent cleanup error.
 				latest, readErr := s.repo.TaskForUser(run.UserID, id)
@@ -83,16 +101,23 @@ func (s *Service) finishCloudAgentCleanup(ctx context.Context, run *model.CloudA
 	defer s.storageMu.Unlock()
 	return s.repo.MutateCloudAgent(run.UserID, run.ID, run.Revision, func(current *model.CloudAgentExecution, repo *repository.Repository) error {
 		if mediaTask != nil {
-			if _, err := completeCloudAgentMediaNode(repo, run.UserID, canvasID, mediaTask, policy); err != nil {
+			targetNodeID := ""
+			if taskContext := taskClientContext(mediaTask.InputJSON); taskContext != nil {
+				targetNodeID = taskContext.NodeID
+			}
+			if _, err := completeCloudAgentMediaNode(repo, run.UserID, canvasID, targetNodeID, mediaTask, policy); err != nil {
 				var appErr *AppError
 				if !errors.Is(err, gorm.ErrRecordNotFound) && !(errors.As(err, &appErr) && (appErr.Status == 400 || appErr.Status == 409)) {
 					return err
 				}
-				current.FailureMessage = "生成节点已删除、被修改或结果不可用；任务结果保留在任务中心"
+				current.FailureMessage = cloudAgentSafeToolError(err) + "；任务记录保留在任务中心"
 			}
 		}
 		current.CleanupPending = false
 		current.ActiveTaskID, current.MediaTaskID = "", ""
+		if err := repo.ReleaseCloudAgentResourceLeasesByRun(run.UserID, run.ID); err != nil {
+			return err
+		}
 		return nil
 	})
 }

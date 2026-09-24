@@ -3,6 +3,7 @@ package service
 import "infinite-canvas/backend/internal/app"
 
 const (
+	Live2DMaxBytes                     = app.Live2DMaxBytes
 	AnnouncementImageMaxBytes          = app.AnnouncementImageMaxBytes
 	AppearanceAssetDarkLogo            = app.AppearanceAssetDarkLogo
 	AppearanceAssetLogo                = app.AppearanceAssetLogo
@@ -43,7 +44,6 @@ const (
 	FeatureSystemPlugins               = app.FeatureSystemPlugins
 	FeatureTaskCenter                  = app.FeatureTaskCenter
 	FeatureTimelineTranscription       = app.FeatureTimelineTranscription
-	ModelCatalogSourceFrontend         = app.ModelCatalogSourceFrontend
 	ModelCatalogSourceSystem           = app.ModelCatalogSourceSystem
 	PaymentPluginAlipayPage            = app.PaymentPluginAlipayPage
 	PaymentPluginWeChatNative          = app.PaymentPluginWeChatNative
@@ -66,6 +66,7 @@ const (
 	PluginScopeSystem                  = app.PluginScopeSystem
 	PluginScopeUser                    = app.PluginScopeUser
 	ReasonBadGateway                   = app.ReasonBadGateway
+	ReasonUpstreamDNSFailed            = app.ReasonUpstreamDNSFailed
 	ReasonConflict                     = app.ReasonConflict
 	ReasonFailedPrecondition           = app.ReasonFailedPrecondition
 	ReasonForbidden                    = app.ReasonForbidden

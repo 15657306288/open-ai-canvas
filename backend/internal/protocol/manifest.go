@@ -243,6 +243,13 @@ func loadDeclarativeManifestProvider(manifest Manifest, index int) (Adapter, err
 }
 
 func ValidateManifest(manifest Manifest) error {
+	seenSMS := map[string]bool{}
+	for _, provider := range manifest.Contributes.SMSProviders {
+		if !validManifestIdentifier(provider.ID) || strings.TrimSpace(provider.Label) == "" || seenSMS[provider.ID] {
+			return fmt.Errorf("invalid or duplicate SMS provider contribution")
+		}
+		seenSMS[provider.ID] = true
+	}
 	if version := strings.TrimSpace(manifest.APIVersion); version != "yingce.plugin/v1" && version != "yingce.plugin/v2" {
 		return fmt.Errorf("unsupported protocol manifest apiVersion %q", manifest.APIVersion)
 	}
@@ -402,6 +409,9 @@ func normalizeManifestForProvider(manifest *Manifest, index int) error {
 }
 
 func hasNonProviderContribution(contributes ManifestContributions) bool {
+	if len(contributes.SMSProviders) > 0 {
+		return true
+	}
 	return len(contributes.PaymentProviders) > 0 || len(contributes.Workflows) > 0 || len(contributes.CanvasNodes) > 0 || len(contributes.Transforms) > 0 || len(contributes.Commands) > 0 || len(contributes.AssetSources) > 0 || len(contributes.UsageObservers) > 0 || len(contributes.AICapabilities) > 0 || len(contributes.Agents) > 0 || len(contributes.ImportExport) > 0
 }
 
@@ -711,12 +721,58 @@ func mediaReferencesFromManifestValue(value any, kind string, ephemeral bool) []
 			if reference.DataURL == "" {
 				reference.DataURL = firstString(typed, "data_url", "b64_json")
 			}
+			// OpenAI / Ark 等渠道常直接返回裸 b64_json；声明式结果下载要求 data URL。
+			reference.DataURL = normalizeManifestInlineDataURL(reference.DataURL, reference.Kind, firstString(typed, "output_format", "mime_type", "mimeType"))
 			if reference.URL != "" || reference.DataURL != "" {
 				result = append(result, reference)
 			}
 		}
 	}
 	return result
+}
+
+func normalizeManifestInlineDataURL(value, kind, formatHint string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.HasPrefix(value, "data:") {
+		return value
+	}
+	return "data:" + manifestInlineMediaMIME(kind, formatHint) + ";base64," + value
+}
+
+func manifestInlineMediaMIME(kind, formatHint string) string {
+	hint := strings.ToLower(strings.TrimSpace(formatHint))
+	switch hint {
+	case "image/png", "image/jpeg", "image/webp", "image/gif", "audio/mpeg", "audio/wav", "audio/ogg", "video/mp4", "video/webm":
+		return hint
+	case "image/jpg":
+		return "image/jpeg"
+	case "audio/mp3":
+		return "audio/mpeg"
+	case "png":
+		return "image/png"
+	case "jpeg", "jpg":
+		return "image/jpeg"
+	case "webp":
+		return "image/webp"
+	case "gif":
+		return "image/gif"
+	case "mp3", "mpeg":
+		return "audio/mpeg"
+	case "wav":
+		return "audio/wav"
+	case "mp4":
+		return "video/mp4"
+	case "webm":
+		return "video/webm"
+	}
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "audio":
+		return "audio/mpeg"
+	case "video":
+		return "video/mp4"
+	default:
+		return "image/png"
+	}
 }
 
 var (
@@ -802,7 +858,11 @@ func buildManifestOperation(operation ManifestOperation, auth ManifestAuth, requ
 		return RequestSpec{}, fmt.Errorf("evaluate request path: %w", err)
 	}
 	path := strings.ReplaceAll(manifestString(evaluatedPath), "{{taskId}}", url.PathEscape(taskID))
-	path = strings.ReplaceAll(path, "{{model}}", url.PathEscape(request.Model))
+	// Model identifiers from async aggregators commonly contain path segments
+	// (for example openai/gpt-image/edit). Escape each segment while preserving
+	// the provider's intentional slash separators in the manifest path.
+	escapedModel := strings.ReplaceAll(url.PathEscape(request.Model), "%2F", "/")
+	path = strings.ReplaceAll(path, "{{model}}", escapedModel)
 	path = interpolateManifestString(path, env)
 	if !isRelativePath(path) {
 		return RequestSpec{}, fmt.Errorf("evaluated request path must be relative: %q", path)
@@ -1038,6 +1098,10 @@ func manifestRequestValues(request GenerationRequest) map[string]any {
 	output.GenerateAudio = output.GenerateAudio || request.GenerateAudio
 	output.Watermark = output.Watermark || request.Watermark
 	outputValue, _ := requestAsManifestValue(output)
+	providerOptionsValue, _ := requestAsManifestValue(request.ProviderOptions)
+	if providerOptionsValue == nil {
+		providerOptionsValue = map[string]any{}
+	}
 
 	return map[string]any{
 		"capability":      request.Capability,
@@ -1058,7 +1122,7 @@ func manifestRequestValues(request GenerationRequest) map[string]any {
 		"watermark":       request.Watermark,
 		"operation":       request.Operation,
 		"output":          outputValue,
-		"providerOptions": request.ProviderOptions,
+		"providerOptions": providerOptionsValue,
 		"extra":           request.Extra,
 	}
 }

@@ -7,7 +7,7 @@ import type { CanvasNodeData, CanvasNodeMetadata, CanvasNodeTypeId, CanvasToolMo
 
 /** 工具栏标识——每个工具栏有独立的注册表与偏好 */
 export type ToolbarId = "main" | "selection" | "node-hover" | "add-node-menu";
-export type NodeToolbarGroup = "primary" | "portrait" | "viewpoint" | "lighting" | "panorama" | "process" | "workspace" | "utility" | "more";
+export type NodeToolbarGroup = "primary" | "portrait" | "viewpoint" | "lighting" | "panorama" | "process" | "nine_grid" | "workspace" | "utility" | "more";
 
 /** 工具分类——用于分组渲染、危险隔离与 separator 自动插入 */
 export type ToolCategory =
@@ -50,6 +50,7 @@ export type ToolbarHandlers = {
     onOpenDirector: () => void;
     // 主工具栏——资源
     onUpload: () => void;
+    onOpenWorkspace?: () => void;
     onOpenMyAssets: () => void;
     onOpenProjectCharacters: () => void;
     // 主工具栏——外观
@@ -83,6 +84,8 @@ export type ToolbarHandlers = {
     onNodeDownload: (node: CanvasNodeData) => void;
     onNodeSaveAsset: (node: CanvasNodeData) => void;
     onNodeMaskEdit: (node: CanvasNodeData) => void;
+    onNodeImageEdit: (node: CanvasNodeData) => void;
+    onNodeRemoveBackground: (node: CanvasNodeData) => void;
     onNodeEmotion: (node: CanvasNodeData) => void;
     onNodePortraitTexture: (node: CanvasNodeData) => void;
     onNodeCrop: (node: CanvasNodeData) => void;
@@ -184,7 +187,7 @@ export type ToolDefinition = {
     /** 互斥开关：在 dock 中渲染为分段切换，而不是两个独立按钮 */
     switchGroup?: {
         value: (ctx: ToolContext) => string;
-        options: Array<{ id: string; label: string; icon: ReactNode; value: string }>;
+        options: Array<{ id: string; label: string; displayLabel?: string; icon: ReactNode; value: string }>;
         onChange: (ctx: ToolContext, value: string) => void;
     };
     /** 上下文可见性谓词——返回 false 时工具不渲染（不受 prefs 控制） */

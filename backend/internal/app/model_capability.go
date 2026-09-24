@@ -23,8 +23,13 @@ type ModelCapabilityConfig struct {
 type TextCapabilityConfig struct {
 	// Streaming controls whether this model accepts upstream SSE text responses.
 	// A nil value is treated as true for backwards compatibility with older configs.
-	Streaming  *bool               `json:"streaming,omitempty"`
-	References TextReferenceConfig `json:"references"`
+	Streaming *bool `json:"streaming,omitempty"`
+	// ContextWindowTokens is the provider's total input plus output context window.
+	// It is a model contract, not an application transport ceiling.
+	ContextWindowTokens int `json:"contextWindowTokens"`
+	// MaxOutputTokens is the provider's maximum completion/reasoning budget.
+	MaxOutputTokens int                 `json:"maxOutputTokens"`
+	References      TextReferenceConfig `json:"references"`
 }
 
 type TextReferenceConfig struct {
@@ -153,7 +158,7 @@ func DefaultImageCapabilityConfig(protocol string, modelName string) *ImageCapab
 		image.ResponseFormat = ParameterSupport{Supported: true}
 		image.OutputFormat = ParameterSupport{Supported: false}
 		image.MaxOutputs = 1
-	case model.ChannelInterfaceVolcengineArkImage:
+	case model.ChannelInterfaceVolcengineArkImage, model.ChannelInterfaceVolcengineArkAgentPlanImage:
 		image.References.MaskSupported = false
 		image.Quality.Supported = false
 		image.TransparentBackground.Supported = false
@@ -209,7 +214,7 @@ func legacyImageSizeValues() []string {
 func DefaultModelCapabilityConfigForModel(protocol string, modelName string) *ModelCapabilityConfig {
 	// 文本模型是否支持视觉输入不能从协议或模型名可靠推断，默认关闭，由管理员按真实上游能力开启。
 	streaming := true
-	text := &TextCapabilityConfig{Streaming: &streaming, References: TextReferenceConfig{PromptMaxChars: 32000}}
+	text := &TextCapabilityConfig{Streaming: &streaming, ContextWindowTokens: 128000, MaxOutputTokens: 16384, References: TextReferenceConfig{PromptMaxChars: 32000}}
 	video := &VideoCapabilityConfig{
 		References:        VideoReferenceConfig{PromptMaxChars: DefaultVideoPromptMaxChars, MinImages: 0, MaxImages: 9, MaxImageBytes: 30 * 1024 * 1024, MaxVideos: 0, MaxVideoBytes: 0, MaxVideoDuration: 0, MaxAudios: 0, MaxAudioBytes: 0, MaxAudioDuration: 0},
 		Duration:          VideoDurationConfig{Selection: "range", Min: 1, Max: 15, Step: 1, Default: 6},
@@ -229,7 +234,7 @@ func DefaultModelCapabilityConfigForModel(protocol string, modelName string) *Mo
 	case model.ChannelInterfaceGeminiVeo:
 		video.Duration = VideoDurationConfig{Selection: "enum", Values: []int{4, 6, 8}, Default: 6}
 		video.Resolutions = []string{"720p", "1080p"}
-	case model.ChannelInterfaceVolcengineArkVideo:
+	case model.ChannelInterfaceVolcengineArkVideo, model.ChannelInterfaceVolcengineArkAgentPlanVideo:
 		video.Operations = append(video.Operations, "reference_to_video", "audio_to_video")
 		video.References.MaxVideos, video.References.MaxAudios = 3, 3
 		video.References.MaxVideoBytes, video.References.MaxAudioBytes = 200*1024*1024, 15*1024*1024
@@ -326,6 +331,12 @@ func NormalizeModelCapabilityConfigForModel(capability string, protocol string, 
 		if text.Streaming == nil {
 			streaming := true
 			text.Streaming = &streaming
+		}
+		if text.ContextWindowTokens == 0 {
+			text.ContextWindowTokens = 128000
+		}
+		if text.MaxOutputTokens == 0 {
+			text.MaxOutputTokens = 16384
 		}
 		value := &ModelCapabilityConfig{Version: 1, Text: &text}
 		if err := validateTextCapabilityConfig(value.Text); err != nil {
@@ -534,6 +545,12 @@ func addInputConstraint(inputs map[string]InputConstraint, name string, min int,
 }
 
 func validateTextCapabilityConfig(value *TextCapabilityConfig) error {
+	if value.ContextWindowTokens < 4096 || value.ContextWindowTokens > 10000000 {
+		return BadAuthRequest("文本模型上下文窗口必须在 4096-10000000 Token 之间")
+	}
+	if value.MaxOutputTokens < 256 || value.MaxOutputTokens > 1000000 || value.MaxOutputTokens >= value.ContextWindowTokens {
+		return BadAuthRequest("文本模型最大输出 Token 必须小于上下文窗口且在 256-1000000 之间")
+	}
 	if value.References.PromptMaxChars < 1 || value.References.PromptMaxChars > 1000000 {
 		return BadAuthRequest("提示词最大字符数必须在 1-1000000 之间")
 	}
@@ -798,7 +815,7 @@ func validateVideoTask(profile *VideoCapabilityConfig, input canvasGenerationInp
 	if len(input.ReferenceImages) > profile.References.MaxImages || len(input.ReferenceVideos) > profile.References.MaxVideos || len(input.ReferenceAudios) > profile.References.MaxAudios {
 		return BadAuthRequest("参考素材数量超过当前模型限制")
 	}
-	if input.Config.InterfaceType == string(model.ChannelInterfaceVolcengineArkVideo) && len(input.ReferenceAudios) > 0 && len(input.ReferenceImages) == 0 && len(input.ReferenceVideos) == 0 {
+	if model.IsVolcengineArkVideoProtocol(model.ChannelInterfaceType(input.Config.InterfaceType)) && len(input.ReferenceAudios) > 0 && len(input.ReferenceImages) == 0 && len(input.ReferenceVideos) == 0 {
 		return BadAuthRequest("火山方舟全模态参考不支持纯音频或文本+音频，请同时添加参考图片或参考视频")
 	}
 	if len(input.ReferenceImages) < profile.References.MinImages {

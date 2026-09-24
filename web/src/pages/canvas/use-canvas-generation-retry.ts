@@ -2,6 +2,7 @@ import { useCallback, type Dispatch, type SetStateAction } from "react";
 import { App } from "antd";
 
 import { buildNodeGenerationContext, hydrateNodeGenerationContext } from "@/components/canvas/canvas-node-generation";
+import { producedModelCandidateForGeneration } from "@/lib/canvas/produced-model";
 import type { CanvasNodeGenerationMode } from "@/components/canvas/canvas-node-prompt-panel";
 import { buildEmotionImageArtifacts, emotionGenerationSize, emotionProviderMask, normalizeEmotionPromptForProvider, resolveEmotionEditPlan } from "@/lib/canvas/canvas-emotion";
 import {
@@ -30,7 +31,7 @@ import { modelCapabilityConfigFor } from "@/lib/model-capabilities";
 import { navigateToSettings } from "@/lib/settings-navigation";
 import type { Skill } from "@/services/api/skills";
 import { skillRuntime, type SkillRuntimeMetadata } from "@/services/skill-runtime";
-import type { GenerationTask } from "@/services/api/task-center";
+import { queryGenerationTask, recoverGenerationTaskMedia, waitForGenerationTask, type GenerationTask } from "@/services/api/task-center";
 import { resolveImageUrl } from "@/services/image-storage";
 import { resolveModelRequestConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import type { Asset } from "@/stores/use-asset-store";
@@ -75,6 +76,35 @@ export function useCanvasGenerationRetry({
 
     return useCallback(
         async (node: CanvasNodeData) => {
+            // Canvas caches may predate the failure. Consult the original task
+            // before deciding to submit another paid generation.
+            let sourceTask: GenerationTask | undefined;
+            if (node.metadata?.taskId) {
+                try {
+                    sourceTask = await queryGenerationTask(node.metadata.taskId);
+                } catch (error) {
+                    message.error(error instanceof Error ? error.message : "无法核对原任务，请稍后重试");
+                    return;
+                }
+            }
+            if (sourceTask?.mediaStage && sourceTask.status !== "cancelled") {
+                const controller = startGenerationRequest(node.id, node.id, node.id);
+                try {
+                    const initialTask = sourceTask.status === "failed" ? await recoverGenerationTaskMedia(sourceTask.id) : sourceTask;
+                    if (controller.signal.aborted) return;
+                    bindGenerationTask(node.id, initialTask);
+                    const completed = await waitForGenerationTask(initialTask.id, {
+                        initialTask, signal: controller.signal, timeoutMs: 25 * 60_000,
+                        onTaskUpdate: (task) => bindGenerationTask(node.id, task),
+                    });
+                    await applyGenerationTaskResult(node.id, completed);
+                } catch (error) {
+                    if (!controller.signal.aborted) message.error(error instanceof Error ? error.message : "恢复作品保存失败");
+                } finally {
+                    finishGenerationRequest(node.id, controller);
+                }
+                return;
+            }
             const retryMode = retryModeForNode(node.type);
             if (!retryMode) {
                 message.warning("当前节点不能使用通用生成重试");
@@ -260,6 +290,7 @@ export function useCanvasGenerationRetry({
                                           ...item.metadata,
                                           prompt: mediaPrompt,
                                           model: generationConfig.model,
+                                          producedModelCandidate: producedModelCandidateForGeneration(generationConfig),
                                           size: generationConfig.size,
                                           seconds: generationConfig.videoSeconds,
                                           vquality: generationConfig.vquality,
@@ -359,6 +390,7 @@ export function useCanvasGenerationRetry({
                     ? {
                           generationType: savedImageMetadata.generationType,
                           model: generationConfig.model,
+                          producedModelCandidate: producedModelCandidateForGeneration(generationConfig),
                           size: generationConfig.size,
                           quality: generationConfig.quality,
                           transparentBackground: generationConfig.transparentBackground,

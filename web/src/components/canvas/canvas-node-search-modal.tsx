@@ -2,9 +2,10 @@ import { memo, useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { Input, Modal } from "antd";
 import { AudioLines, BookOpenText, Clock3, FileText, Image, Pencil, Search, Video } from "lucide-react";
 
+import { CanvasVideoPreviewImage } from "@/components/canvas/canvas-video-preview-image";
 import { WorkspaceState } from "@/components/layout/workspace-state";
 import { canvasNodeMaterialSummary, canvasNodeSearchContext, canvasNodeSearchTimes, searchCanvasNodes } from "@/lib/canvas/canvas-node-search";
-import { canvasNodeVideoPreviewUrl } from "@/lib/canvas/canvas-media-preview";
+import { useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { getNodeListLabel } from "@/lib/canvas/node-registry";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 
@@ -13,7 +14,8 @@ const RESULT_LIST_ID = "canvas-node-search-results";
 export function CanvasNodeSearchModal({ open, nodes, onClose, onFocus }: { open: boolean; nodes: CanvasNodeData[]; onClose: () => void; onFocus: (nodeId: string) => void }) {
     const [query, setQuery] = useState("");
     const [activeIndex, setActiveIndex] = useState(0);
-    const results = useMemo(() => searchCanvasNodes(nodes, query), [nodes, query]);
+    const config = useEffectiveConfig();
+    const results = useMemo(() => searchCanvasNodes(nodes, query, 80, config), [config, nodes, query]);
 
     useEffect(() => setActiveIndex(0), [query, open]);
     useEffect(() => setActiveIndex((current) => Math.min(current, Math.max(0, results.length - 1))), [results.length]);
@@ -69,6 +71,7 @@ export function CanvasNodeSearchModal({ open, nodes, onClose, onFocus }: { open:
                     <CanvasNodeSearchResult
                         key={node.id}
                         node={node}
+                        config={config}
                         active={index === activeIndex}
                         onActivate={() => setActiveIndex(index)}
                         onSelect={() => focusNode(node)}
@@ -79,9 +82,9 @@ export function CanvasNodeSearchModal({ open, nodes, onClose, onFocus }: { open:
     );
 }
 
-const CanvasNodeSearchResult = memo(function CanvasNodeSearchResult({ node, active, onActivate, onSelect }: { node: CanvasNodeData; active: boolean; onActivate: () => void; onSelect: () => void }) {
+const CanvasNodeSearchResult = memo(function CanvasNodeSearchResult({ node, config, active, onActivate, onSelect }: { node: CanvasNodeData; config: AiConfig; active: boolean; onActivate: () => void; onSelect: () => void }) {
     const times = canvasNodeSearchTimes(node);
-    const materialSummary = canvasNodeMaterialSummary(node);
+    const materialSummary = canvasNodeMaterialSummary(node, config);
     const context = canvasNodeSearchContext(node);
     return (
         <button
@@ -125,12 +128,17 @@ const CanvasNodeSearchResult = memo(function CanvasNodeSearchResult({ node, acti
 
 function CanvasNodeSearchThumbnail({ node }: { node: CanvasNodeData }) {
     const [failed, setFailed] = useState(false);
-    const mediaSource = node.type === CanvasNodeType.Video ? canvasNodeVideoPreviewUrl(node) : node.metadata?.drawingPreviewUrl
+    const mediaSource = node.metadata?.drawingPreviewUrl
         || node.metadata?.characterCoverUrl
         || node.metadata?.folder?.themeCover
         || ((node.type === CanvasNodeType.Image || node.type === CanvasNodeType.Panorama || node.type === CanvasNodeType.ColorGrade) ? node.metadata?.content : undefined);
     const commonClass = "h-11 w-16 rounded-[var(--r-sm)] border object-cover";
     const commonStyle = { borderColor: "color-mix(in srgb, var(--foreground) 9%, transparent)", background: "color-mix(in srgb, var(--foreground) 5%, transparent)" };
+
+    if (node.type === CanvasNodeType.Video) {
+        const fallback = <span aria-hidden="true" className="grid h-11 w-16 place-items-center rounded-[var(--r-sm)] border text-foreground/48" style={commonStyle}><Video className="size-4" /></span>;
+        return <CanvasVideoPreviewImage node={node} alt="" width={64} height={44} loading="lazy" decoding="async" className={commonClass} style={commonStyle} fallback={fallback} />;
+    }
 
     if (mediaSource && !failed) {
         return <img src={mediaSource} alt="" width={64} height={44} loading="lazy" decoding="async" className={commonClass} style={commonStyle} onError={() => setFailed(true)} />;

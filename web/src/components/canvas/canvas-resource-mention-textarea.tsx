@@ -1,7 +1,8 @@
 import { forwardRef, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ClipboardEvent, DragEvent, KeyboardEvent, MouseEvent, PointerEvent, TextareaHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeft, ChevronRight, FileText, Folder, Image as ImageIcon, Music2, Pencil, Search, UserRound, Video, Workflow } from "lucide-react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { ArrowLeft, Brush, Camera, Clapperboard, ChevronRight, Clock, Contrast, FastForward, FileText, Folder, Globe2, Grid2x2, Grid3x3, Image as ImageIcon, Music2, Package, Pencil, Palette, PersonStanding, Rewind, ScanFace, Search, SlidersHorizontal, Sparkles, Sun, UserRound, Video, Workflow } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { ASSET_CATEGORY_LABELS } from "@/lib/asset-category";
@@ -42,13 +43,22 @@ type Props = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "onChange" | "val
     containerClassName?: string;
     highlightLabels?: boolean;
     mentionMenuWidth?: number;
-    sendOnEnter?: boolean;
+    sendOnEnter?: boolean | "both";
     onContentSizeChange?: (height: number) => void;
     includeAssetLibrary?: boolean;
     activeDropReferenceId?: string | null;
     onReferenceFilesDrop?: (reference: CanvasResourceReference, files: File[]) => void;
     autoLinkEnabled?: boolean;
 };
+
+// 回车提交语义由调用方决定：false 只在 ⌘/Ctrl+Enter 提交，"both" 两种都提交；Shift+Enter 始终换行。
+function shouldSubmitOnEnter(event: { key: string; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }, sendOnEnter: boolean | "both") {
+    if (event.key !== "Enter" || event.shiftKey) return false;
+    const modifier = event.ctrlKey || event.metaKey;
+    if (sendOnEnter === false) return modifier;
+    if (sendOnEnter === "both") return true;
+    return !modifier;
+}
 
 export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Props>(function CanvasResourceMentionTextarea(
     { value, references, onSelectReference, onChange, onSubmit, onKeyDown, className, containerClassName, style, highlightLabels = true, mentionMenuWidth = 320, sendOnEnter = true, onContentSizeChange, includeAssetLibrary = false, activeDropReferenceId, onReferenceFilesDrop, autoLinkEnabled = false, ...props },
@@ -75,13 +85,16 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
     const rawAssetReferences = useMemo(() => includeAssetLibrary ? buildAssetMentionReferences(assets) : [], [assets, includeAssetLibrary]);
     const assetReferences = useResolvedCanvasResourceReferences(rawAssetReferences);
     const activeCanvasReferences = useMemo(() => canvasReferences.filter((item) => item.active), [canvasReferences]);
-    const availableReferences = useMemo(() => [...(onSelectReference ? canvasReferences : activeCanvasReferences), ...assetReferences], [onSelectReference, canvasReferences, activeCanvasReferences, assetReferences]);
+    // 工具标签只能经九宫格等面板入口插入，@ 引用菜单不再重复展示。
+    const mentionCanvasReferences = useMemo(() => canvasReferences.filter((item) => item.kind !== "tool"), [canvasReferences]);
+    const activeMentionCanvasReferences = useMemo(() => mentionCanvasReferences.filter((item) => item.active), [mentionCanvasReferences]);
+    const availableReferences = useMemo(() => [...(onSelectReference ? mentionCanvasReferences : activeMentionCanvasReferences), ...assetReferences], [onSelectReference, mentionCanvasReferences, activeMentionCanvasReferences, assetReferences]);
     const candidates = useMemo(() => {
         if (!mention) return [];
         const query = mention.query.trim().toLowerCase();
-        if (!query) return onSelectReference ? canvasReferences : activeCanvasReferences;
+        if (!query) return onSelectReference ? mentionCanvasReferences : activeMentionCanvasReferences;
         return availableReferences.filter((item) => `${item.label} ${item.title} ${item.kind} ${item.category || ""} ${item.text || ""}`.toLowerCase().includes(query));
-    }, [onSelectReference, canvasReferences, activeCanvasReferences, availableReferences, mention]);
+    }, [onSelectReference, mentionCanvasReferences, activeMentionCanvasReferences, availableReferences, mention]);
     const activeReferences = useMemo(() => {
         if (!highlightLabels) return [];
         return [...activeCanvasReferences, ...assetReferences.filter((item) => value.includes(canvasResourceMentionToken(item)))];
@@ -318,7 +331,7 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
     const menu = mention && availableReferences.length && menuAnchor ? (
         <MentionMenu
             anchor={menuAnchor}
-            connectedReferences={activeCanvasReferences}
+            connectedReferences={activeMentionCanvasReferences}
             assetReferences={assetReferences}
             filteredReferences={candidates}
             query={mention.query}
@@ -350,7 +363,15 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
                     spellCheck={props.spellCheck}
                     tabIndex={props.tabIndex}
                     className={`${className || ""} relative z-10 cursor-text select-text whitespace-pre-wrap break-words`}
-                    style={{ ...mergedStyle, color: style?.color || theme.node.text }}
+                    style={{
+                        ...mergedStyle,
+                        color: style?.color || theme.node.text,
+                        height: "100%",
+                        minHeight: 0,
+                        maxHeight: "100%",
+                        overflowY: "auto",
+                        overflowX: "hidden",
+                    }}
                     onInput={syncEditableValue}
                     onCompositionStart={(event) => {
                         composingRef.current = true;
@@ -425,7 +446,7 @@ if (event.key === "Enter" && (event.nativeEvent.isComposing || composingRef.curr
                         }
                         if (event.key === "Enter") {
                             event.preventDefault();
-                            const shouldSubmit = sendOnEnter ? !event.ctrlKey && !event.metaKey && !event.shiftKey : (event.ctrlKey || event.metaKey) && !event.shiftKey;
+                            const shouldSubmit = shouldSubmitOnEnter(event, sendOnEnter);
                             if (onSubmit && shouldSubmit) {
                                 onSubmit();
                                 return;
@@ -489,7 +510,7 @@ if (event.key === "Enter" && (event.nativeEvent.isComposing || composingRef.curr
                 }}
                 value={value}
                 className={`${className || ""} relative z-10`}
-                style={mergedStyle}
+                style={{ ...mergedStyle, height: "100%", minHeight: 0, maxHeight: "100%", overflowY: "auto", overflowX: "hidden" }}
                 onChange={(event) => {
                     const next = event.target.value;
                     onChange(next);
@@ -539,7 +560,7 @@ if (event.key === "Enter" && (event.nativeEvent.isComposing || composingRef.curr
                             return;
                         }
                     }
-                    const shouldSubmit = event.key === "Enter" && (sendOnEnter ? !event.ctrlKey && !event.metaKey && !event.shiftKey : (event.ctrlKey || event.metaKey) && !event.shiftKey);
+                    const shouldSubmit = shouldSubmitOnEnter(event, sendOnEnter);
                     if (shouldSubmit && onSubmit) {
                         event.preventDefault();
                         onSubmit();
@@ -574,25 +595,40 @@ if (event.key === "Enter" && (event.nativeEvent.isComposing || composingRef.curr
     );
 });
 
+export const TOOL_ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
+    Brush, Camera, Clapperboard, Clock, Contrast, FastForward, Globe2, Grid2x2, Grid3x3, Package, Palette, PersonStanding, Rewind, ScanFace, SlidersHorizontal, Sparkles, Sun,
+};
+
+function toolIconSvg(iconName: string): string {
+    const Icon = TOOL_ICON_MAP[iconName];
+    if (!Icon) return "🔧";
+    return renderToStaticMarkup(<Icon className="size-3" />);
+}
+
 function createInlineMentionChip(reference: CanvasResourceReference, token: string) {
     const chip = document.createElement("span");
     chip.contentEditable = "false";
     chip.dataset.mentionToken = token;
     chip.dataset.mentionReferenceId = reference.id;
-    chip.className = `canvas-resource-inline-mention ${reference.kind === "skill" ? "is-skill" : ""}`;
+    const isDecorated = reference.kind === "skill" || reference.kind === "tool";
+    chip.className = `canvas-resource-inline-mention ${isDecorated ? `is-${reference.kind}` : ""}`;
     chip.title = "双击放大预览";
     if (reference.kind === "skill") chip.style.setProperty("--canvas-skill-mention-color", skillMentionColor(reference));
+    if (reference.kind === "tool") chip.style.setProperty("--canvas-skill-mention-color", skillMentionColor(reference));
 
     const prefix = document.createElement("span");
-    prefix.className = reference.kind === "skill" ? "canvas-resource-inline-skill-icon" : "canvas-resource-inline-at";
-    // “/” is an input command, not part of the selected Skill name. Keep the
-    // command token in the serialized value, but render the chip as a normal
-    // icon + label so it remains readable after selection and submission.
-    prefix.textContent = reference.kind === "skill" ? "✦" : "@";
+    prefix.className = isDecorated ? "canvas-resource-inline-skill-icon" : "canvas-resource-inline-at";
+    if (reference.kind === "skill") {
+        prefix.textContent = "✦";
+    } else if (reference.kind === "tool") {
+        prefix.innerHTML = toolIconSvg(reference.toolIcon ?? "Grid3x3");
+    } else {
+        prefix.textContent = "@";
+    }
     chip.appendChild(prefix);
 
-    // Skill chip 的前缀已经承担图标职责，不再追加 fallback preview，避免出现两个星标。
-    if (reference.kind !== "skill") chip.appendChild(createInlinePreview(reference));
+    // Skill/tool chip 的前缀已经承担图标职责，不再追加 fallback preview，避免出现两个图标。
+    if (!isDecorated) chip.appendChild(createInlinePreview(reference));
 
     const label = document.createElement("span");
     label.className = "canvas-resource-inline-label";

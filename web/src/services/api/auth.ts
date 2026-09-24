@@ -4,14 +4,14 @@ import type { GenerationTask, TaskStatus } from "@/services/api/task-center";
 import type { CanvasDrawingEngineSetting } from "@/lib/canvas/canvas-drawing-engine";
 import type { FeatureAvailability } from "@/stores/use-user-store";
 import { http, apiBaseURL } from "@/services/api/request";
-import type { PublicLogicalModel } from "@/services/api/logical-models";
 import type { OSSConnectionTestInput, OSSConnectionTestResult, OSSProvider, S3Preset } from "@/lib/oss-settings";
+import type { VerificationPolicy } from "./verification";
 
 
 let authSessionRequest: Promise<AuthSessionPayload> | null = null;
 let authSessionCache: { payload: AuthSessionPayload; expiresAt: number } | null = null;
 
-function invalidateAuthSessionCache() {
+export function invalidateAuthSessionCache() {
     authSessionCache = null;
 }
 
@@ -19,6 +19,9 @@ export type LocalUser = {
     id: string;
     username: string;
     email?: string;
+    phone?: string;
+    emailVerifiedAt?: string;
+    phoneVerifiedAt?: string;
     displayName: string;
     avatarUrl?: string;
     identityProvider?: string;
@@ -38,7 +41,6 @@ export type AdminUser = LocalUser & {
 
 export type AuthSessionPayload = {
     user: LocalUser | null;
-    logicalModels?: PublicLogicalModel[];
     runtimeLimits?: RuntimeLimits;
     drawingEngine?: CanvasDrawingEngineSetting;
     features?: FeatureAvailability;
@@ -59,6 +61,7 @@ export type ApiCallLog = {
     channelName: string;
     taskId?: string;
     taskStatus?: TaskStatus;
+    mediaStage?: GenerationTask["mediaStage"];
     billingOrderId?: string;
     billingStatus?: BillingOrder["status"];
     billingAmountMicrocredits: number;
@@ -66,7 +69,7 @@ export type ApiCallLog = {
     source: string;
     capability: "text" | "image" | "video" | "audio" | "";
     operation?: string;
-    requestKind: "create" | "poll" | "download" | "repair" | "";
+    requestKind: "create" | "poll" | "download" | "upload" | "local_save" | "register" | "repair" | "";
     billable: boolean;
     apiFormat: string;
     method: string;
@@ -87,6 +90,8 @@ export type ApiCallLog = {
     videoSeconds: number;
     providerRequestId?: string;
     estimatedCostMicros: number;
+    creditCostConfigured?: boolean;
+    creditCostMicrocredits?: number;
     costAvailable: boolean;
     currency?: string;
     errorCode?: string;
@@ -158,7 +163,16 @@ export type AnalyticsFilters = {
 
 export type AdminReferenceData = {
     users: Array<{ id: string; username: string; displayName: string }>;
-    channels: Array<{ id: string; name: string; enabled: boolean; models: string[] }>;
+    channels: Array<{ id: string; name: string; enabled: boolean; models: string[]; modelDisplayNames?: string[] }>;
+};
+
+export type AnalyticsFinance = {
+    settledOrders: number;
+    costedOrders: number;
+    revenueMicrocredits: number;
+    costMicrocredits: number;
+    profitMicrocredits: number | null;
+    profitMargin: number | null;
 };
 
 export type AdminAnalytics = {
@@ -174,9 +188,7 @@ export type AdminAnalytics = {
         successRate: number;
         p95DurationMs: number;
         currentQueuedTasks: number;
-        estimatedCostMicros: number;
-        costAvailable: boolean;
-        currency?: string;
+        finance?: AnalyticsFinance | null;
     };
     trend: Array<{ day: string; tasks: number; requests: number; activeUsers: number; requestSuccessRate: number }>;
     models: Array<{
@@ -195,9 +207,7 @@ export type AdminAnalytics = {
         usageAvailable: boolean;
         mediaCount: number;
         videoSeconds: number;
-        estimatedCostMicros: number;
-        costAvailable: boolean;
-        currency?: string;
+        finance?: AnalyticsFinance | null;
     }>;
     users: Array<{ userId: string; name: string; activeDays: number; tasks: number; agentMessages: number; canvasDays: number; assets: number; resources: number; commonModel?: string }>;
     failures: Array<{ type: string; model: string; count: number; lastError?: string; lastSeenAt: string }>;
@@ -271,6 +281,9 @@ export type AdminOSSSetting = {
     region: string;
     endpoint: string;
     cdnBaseUrl: string;
+    cdnAuthMode: "" | "public" | "qiniu" | string;
+    requireCDN: boolean;
+    allowPrivateProxy: boolean;
     bucket: string;
     accessKeyId: string;
     accessKeySecret?: string;
@@ -326,6 +339,10 @@ export type RuntimeTaskPolicy = {
     videoTimeoutMinutes: number;
     storyboardTimeoutMinutes: number;
     defaultTimeoutMinutes: number;
+    /** 画布 Agent 单步模型调用的输出上限（思考 + 正文 + 工具参数）；0 表示不限制。 */
+    agentStepMaxOutputTokens: number;
+    /** 画布 Agent 单步模型调用的秒级墙钟；0 表示沿用文本任务超时。 */
+    agentStepTimeoutSeconds: number;
 };
 
 export type RuntimeRequestPolicy = {
@@ -361,12 +378,13 @@ export type RuntimePolicySetting = {
 };
 
 export function getAuthSettings() {
-    return http.get<{ firstUser: boolean; registrationEnabled: boolean; linuxdoEnabled: boolean; emailEnabled: boolean; emailCodeRequired: boolean }>("/auth/settings");
+    return http.get<VerificationPolicy & { firstUser: boolean; registrationEnabled: boolean; linuxdoEnabled: boolean; emailEnabled: boolean; emailCodeRequired: boolean; smsBindingAvailable: boolean; emailBindingAvailable: boolean }>("/auth/settings");
 }
 
-export function linuxDOLoginURL(next: string) {
+export function linuxDOLoginURL(next: string, acceptedTerms?: boolean) {
     const base = String(apiBaseURL).replace(/\/$/, "");
-    return `${base}/auth/linuxdo/start?next=${encodeURIComponent(next)}`;
+    const termsQuery = acceptedTerms === undefined ? "" : `&acceptedTerms=${acceptedTerms ? "true" : "false"}`;
+    return `${base}/auth/linuxdo/start?next=${encodeURIComponent(next)}${termsQuery}`;
 }
 
 export function getAuthSession() {
@@ -419,8 +437,10 @@ export function resetPassword(input: { email: string; emailCode: string; passwor
     return http.post<{ reset: boolean }>("/auth/password-reset", input);
 }
 
-export function register(input: { username: string; email?: string; emailCode?: string; displayName?: string; password: string }) {
-    return http.post<{ user: LocalUser }>("/auth/register", input);
+export async function register(input: { username: string; email?: string; emailCode?: string; phone?: string; smsCode?: string; ticket?: string; displayName?: string; password: string; acceptedTerms: boolean }) {
+    const result = await http.post<{ user: LocalUser }>("/auth/register", input);
+    invalidateAuthSessionCache();
+    return result;
 }
 
 export async function logout() {

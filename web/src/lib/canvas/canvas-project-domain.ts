@@ -10,8 +10,10 @@ import { nodeSizeFromRatio } from "@/lib/canvas/canvas-node-size";
 import { canvasNodeMentionToken, canvasResourceMentionToken, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { getNodeDefinition } from "@/lib/canvas/node-registry";
 import { batchReferenceHandleY } from "@/lib/canvas/canvas-batch-table";
+import { reconcileImageBatchRoot } from "@/lib/canvas/canvas-image-batch-retry";
 import { scopedLocalStorage } from "@/lib/user-scope";
 import type { GenerationTask } from "@/services/api/task-center";
+import { synchronizeGenerationSpec } from "@/lib/canvas/generation-contract";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData, type CanvasNodeMetadata, type CanvasNodeTypeId, type ConnectionHandle, type Position, type StoryboardColumn, type StoryboardRow } from "@/types/canvas";
 
 export function createCanvasNode(type: CanvasNodeTypeId, position: Position, metadata?: CanvasNodeMetadata): CanvasNodeData {
@@ -137,25 +139,72 @@ function parseStoryboardRowsPayload(raw: string): { title?: string; rows?: Array
             }
         }
     }
+    if (parsed.text && typeof parsed.text === "object") {
+        try {
+            const nested = parseStoryboardRowsPayload(JSON.stringify(parsed.text));
+            if (Array.isArray(nested.rows)) return nested;
+        } catch {
+            // 对象形式的 text 不是分镜载荷时，交由统一缺行校验报错。
+        }
+    }
     return parsed;
+}
+
+function normalizeStoryboardText(value: unknown): string {
+    if (typeof value === "string") return value;
+    if (typeof value === "number" || typeof value === "boolean") return String(value);
+    if (Array.isArray(value)) return value.map(normalizeStoryboardText).filter(Boolean).join("、");
+    if (!value || typeof value !== "object") return "";
+    const record = value as Record<string, unknown>;
+    for (const key of ["text", "content", "value", "description", "name"]) {
+        if (!(key in record)) continue;
+        const nested = normalizeStoryboardText(record[key]);
+        if (nested) return nested;
+    }
+    return "";
+}
+
+function normalizeStoryboardRow(row: Partial<StoryboardRow>): Partial<StoryboardRow> {
+    return {
+        ...row,
+        plotDescription: normalizeStoryboardText(row.plotDescription),
+        dialogue: normalizeStoryboardText(row.dialogue),
+        narrativeIntent: normalizeStoryboardText(row.narrativeIntent),
+        viewerPOV: normalizeStoryboardText(row.viewerPOV),
+        performanceBlocking: normalizeStoryboardText(row.performanceBlocking),
+        shotSize: normalizeStoryboardText(row.shotSize),
+        emotion: normalizeStoryboardText(row.emotion),
+        lightingAndAtmosphere: normalizeStoryboardText(row.lightingAndAtmosphere),
+        audioEffects: normalizeStoryboardText(row.audioEffects),
+        camera: normalizeStoryboardText(row.camera),
+        motion: normalizeStoryboardText(row.motion),
+        timeBeats: normalizeStoryboardText(row.timeBeats),
+        imageGenerationPrompt: normalizeStoryboardText(row.imageGenerationPrompt),
+        videoMotionPrompt: normalizeStoryboardText(row.videoMotionPrompt),
+        continuityOut: normalizeStoryboardText(row.continuityOut),
+        negativePrompt: normalizeStoryboardText(row.negativePrompt),
+    };
 }
 
 export function storyboardRowsFromTask(task: GenerationTask) {
     const result = parseStoryboardRowsPayload(task.resultJson || "{}");
     if (!Array.isArray(result.rows) || !result.rows.length) throw new Error("分镜任务没有返回镜头行");
     return {
-        title: result.title?.trim(),
+        // 旧任务和部分模型会把 title 返回成对象/数组；恢复路径必须只接受字符串，
+        // 否则可选链只能防 undefined，仍会在对象上调用 trim 使整页恢复失败。
+        title: typeof result.title === "string" ? result.title.trim() : undefined,
         rows: result.rows.map((row, index) => {
+            const source = row && typeof row === "object" ? row : {};
             const next = createStoryboardRow(index + 1, {
-                ...row,
+                ...normalizeStoryboardRow(source),
                 id: `shot-${Date.now()}-${index + 1}-${Math.random().toString(36).slice(2, 6)}`,
                 shotNumber: index + 1,
                 status: "idle",
-                assetBindings: normalizeStoryboardAssetBindings(row.assetBindings),
+                assetBindings: normalizeStoryboardAssetBindings(Array.isArray(source.assetBindings) ? source.assetBindings : undefined),
             });
-            next.characters = Array.isArray(row.characters) ? row.characters : [];
-            next.mustHave = Array.isArray(row.mustHave) ? row.mustHave : [];
-            next.optionalDetails = Array.isArray(row.optionalDetails) ? row.optionalDetails : [];
+            next.characters = Array.isArray(source.characters) ? source.characters : [];
+            next.mustHave = Array.isArray(source.mustHave) ? source.mustHave : [];
+            next.optionalDetails = Array.isArray(source.optionalDetails) ? source.optionalDetails : [];
             return next;
         }),
     };
@@ -182,7 +231,7 @@ const NODE_MODEL_GENERATION_PARAMS: ReadonlyArray<keyof CanvasNodeMetadata> = [
 export function applyNodeConfigPatch(node: CanvasNodeData, patch: Partial<CanvasNodeMetadata>) {
     const safePatch = patch || {};
     const nextPatch = resetGenerationParamsOnModelSwitch(node, safePatch);
-    const next = { ...node, metadata: { ...node.metadata, ...nextPatch } };
+    const next = synchronizeGenerationSpec(node, nextPatch);
     const spec = node.type === CanvasNodeType.Video ? NODE_DEFAULT_SIZE[CanvasNodeType.Video] : NODE_DEFAULT_SIZE[CanvasNodeType.Image];
     const size = typeof safePatch.size === "string" && !node.metadata?.content ? nodeSizeFromRatio(safePatch.size, spec.width, spec.height) : null;
     return size && (node.type === CanvasNodeType.Image || node.type === CanvasNodeType.Video) ? { ...next, ...size, position: { x: node.position.x + node.width / 2 - size.width / 2, y: node.position.y + node.height / 2 - size.height / 2 } } : next;
@@ -430,7 +479,7 @@ export function removeCanvasNodes(nodes: CanvasNodeData[], requestedIds: Set<str
         if (requestedIds.has(node.id)) node.metadata?.batchChildIds?.forEach((childId) => removedIds.add(childId));
     });
     const remainingNodes = nodes.filter((node) => !removedIds.has(node.id));
-    const nextNodes = remainingNodes.map((node) => {
+    const cleanedNodes = remainingNodes.map((node) => {
         const detached = node.parentId && removedIds.has(node.parentId) ? { ...node, parentId: undefined } : node;
         const storyboard = detached.metadata?.storyboard;
         const cleaned = storyboard
@@ -458,6 +507,7 @@ export function removeCanvasNodes(nodes: CanvasNodeData[], requestedIds: Set<str
         const batchRoot = { ...cleaned, metadata: { ...cleaned.metadata, batchChildIds: childIds, primaryImageId } };
         return primaryNode ? applyBatchPrimaryImage(batchRoot, primaryNode) : batchRoot;
     });
+    const nextNodes = cleanedNodes.map((node) => reconcileImageBatchRoot(node, cleanedNodes));
     return { removedIds, nodes: nextNodes };
 }
 

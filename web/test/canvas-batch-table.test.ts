@@ -1,18 +1,54 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+    batchGenerationRows,
+    batchRowReady,
+    batchPromptForRow,
+    batchReferenceColumns,
     batchReferenceHandleAtY,
     batchReferenceHandleId,
     batchReferenceMentionToken,
     createBatchRowsFromColumns,
     createBatchRowsFromInputs,
     createInheritedBatchRow,
+    moveBatchReferenceCell,
+    promoteLegacyBatchTableSize,
+    removeLastBatchReferenceColumn,
+    reorderBatchReferenceColumns,
+    BATCH_REFERENCE_HANDLE_GAP,
+    BATCH_REFERENCE_HANDLE_TOP,
     TRY_ON_BATCH_PROMPT,
 } from "@/lib/canvas/canvas-batch-table";
 import { createCanvasNode } from "@/lib/canvas/canvas-project-domain";
 import { CanvasNodeType } from "@/types/canvas";
 
 describe("batch creation table", () => {
+    test("bulk skips persisted results while explicit regeneration remains available", () => {
+        const input = createCanvasNode(CanvasNodeType.Image, { x: 0, y: 0 }, { storageKey: "input" });
+        const output = createCanvasNode(CanvasNodeType.Image, { x: 0, y: 0 }, { storageKey: "output" });
+        const row = { id: "row", enabled: true, inputNodeIds: [input.id, ""], prompt: "create", outputNodeId: output.id };
+        const table = { operation: "creative" as const, concurrency: 1, rows: [row] };
+        const source = createCanvasNode(CanvasNodeType.BatchTable, { x: 0, y: 0 }, { batchTable: table });
+        const nodes = [source, input, output];
+        expect(batchGenerationRows(source, nodes)).toEqual([]);
+        expect(batchGenerationRows(source, nodes, [row.id])).toEqual([row]);
+        expect(batchGenerationRows(source, nodes, [])).toEqual([]);
+        expect(batchGenerationRows(source, [source, output], [row.id])).toEqual([]);
+        expect(batchRowReady({ ...row, enabled: false }, table, new Map(nodes.map((node) => [node.id, node])))).toBe(false);
+        expect(batchGenerationRows(source, nodes.map((node) => node.id === input.id ? { ...node, type: CanvasNodeType.Video } : node), [row.id])).toEqual([]);
+        source.metadata!.generationBatches = [{ id: "batch", projectId: "project", sourceNodeId: source.id, mode: "batch_image", status: "running", createdAt: "", updatedAt: "", items: [{ id: "item", rowId: row.id, nodeId: output.id, retryCount: 0, status: "running" }] }];
+        expect(batchGenerationRows(source, nodes, [row.id])).toEqual([]);
+    });
+
+    test("sync preserves dynamic cells, text references and distinct manual row identities", () => {
+        const first = { id: "first", enabled: true, inputNodeIds: ["image", "old"], prompt: "first", cells: { detail: "edited" }, textNodeIds: ["text"] };
+        const second = { ...first, id: "second", prompt: "manual" };
+        const rows = createBatchRowsFromColumns("creative", [["image"], ["new"]], [first, second]);
+        expect(rows.map((row) => row.id)).toEqual(["first", "second"]);
+        expect(rows[0].cells).toEqual(first.cells);
+        expect(rows[0].textNodeIds).toEqual(first.textNodeIds);
+        expect(rows[1]).toEqual(second);
+    });
     test("creates one try-on row per person with the final image as the shared garment", () => {
         const rows = createBatchRowsFromInputs("try_on", ["person-1", "person-2", "person-3", "garment"]);
 
@@ -67,8 +103,44 @@ describe("batch creation table", () => {
         const node = createCanvasNode(CanvasNodeType.BatchTable, { x: 500, y: 300 });
 
         expect(node.title).toBe("批量创作表");
+        expect(node.width).toBe(1280);
+        expect(node.height).toBe(560);
         expect(node.metadata?.batchTable).toEqual({ operation: "try_on", concurrency: 10, referenceColumns: [{ id: "reference-1", label: "参考图 1" }, { id: "reference-2", label: "参考图 2" }, { id: "reference-3", label: "参考图 3" }], rows: [] });
     });
+
+    test("promotes the previous 900-wide default without touching resized tables", () => {
+        const node = createCanvasNode(CanvasNodeType.BatchTable, { x: 500, y: 300 });
+        const legacy = { ...node, width: 900, height: 520 };
+        const resized = { ...node, width: 1100, height: 480 };
+
+        expect(promoteLegacyBatchTableSize(legacy)).toEqual({ ...legacy, width: 1280, height: 560 });
+        expect(promoteLegacyBatchTableSize(resized)).toBe(resized);
+    });
+    test("keeps a single explicitly stored reference column", () => {
+        const node = createCanvasNode(CanvasNodeType.BatchTable, { x: 500, y: 300 });
+        node.metadata = { ...node.metadata, batchTable: { operation: "creative", concurrency: 10, referenceColumns: [{ id: "reference-1", label: "参考图 1" }], rows: [] } };
+
+        expect(batchReferenceColumns(node.metadata.batchTable).map((column) => column.id)).toEqual(["reference-1"]);
+    });
+
+    test("removes the last reference column down to one and trims row inputs", () => {
+        const table = {
+            operation: "creative" as const,
+            concurrency: 10,
+            referenceColumns: [
+                { id: "reference-1", label: "参考图 1" },
+                { id: "reference-2", label: "参考图 2" },
+                { id: "reference-3", label: "参考图 3" },
+            ],
+            rows: [{ id: "row-1", enabled: true, inputNodeIds: ["a", "b", "c"], prompt: "x" }],
+        };
+
+        const next = removeLastBatchReferenceColumn(table);
+        expect(next?.referenceColumns?.map((column) => column.id)).toEqual(["reference-1", "reference-2"]);
+        expect(next?.rows[0].inputNodeIds).toEqual(["a", "b"]);
+        expect(removeLastBatchReferenceColumn({ ...table, referenceColumns: [{ id: "reference-1", label: "参考图 1" }] })).toBeNull();
+    });
+
     test("keeps the second reference handle addressable", () => {
         const node = createCanvasNode(CanvasNodeType.BatchTable, { x: 500, y: 300 });
         const referenceColumns = [
@@ -77,12 +149,52 @@ describe("batch creation table", () => {
         ];
         node.metadata = { ...node.metadata, batchTable: { operation: "try_on", concurrency: 10, referenceColumns, rows: [] } };
 
-        expect(batchReferenceHandleAtY(node, node.position.y + 112 + 38)).toBe(batchReferenceHandleId("reference-2"));
+        expect(batchReferenceHandleAtY(node, node.position.y + BATCH_REFERENCE_HANDLE_TOP + BATCH_REFERENCE_HANDLE_GAP)).toBe(batchReferenceHandleId("reference-2"));
     });
 
     test("chooses the nearest reference handle when magnetic hit areas overlap", () => {
         const node = createCanvasNode(CanvasNodeType.BatchTable, { x: 500, y: 300 });
 
-        expect(batchReferenceHandleAtY(node, node.position.y + 112 + 38, 90)).toBe(batchReferenceHandleId("reference-2"));
+        expect(batchReferenceHandleAtY(node, node.position.y + BATCH_REFERENCE_HANDLE_TOP + BATCH_REFERENCE_HANDLE_GAP, 90)).toBe(batchReferenceHandleId("reference-2"));
+    });
+
+    test("reorders reference columns and keeps row inputs aligned", () => {
+        const table = {
+            operation: "try_on" as const,
+            concurrency: 10,
+            referenceColumns: [
+                { id: "reference-1", label: "参考图 1" },
+                { id: "reference-2", label: "参考图 2" },
+                { id: "reference-3", label: "参考图 3" },
+            ],
+            rows: [{ id: "row-1", enabled: true, inputNodeIds: ["a", "b", "c"], prompt: "x" }],
+        };
+        const next = reorderBatchReferenceColumns(table, "reference-1", "reference-3");
+        expect(next.referenceColumns?.map((column) => column.id)).toEqual(["reference-2", "reference-3", "reference-1"]);
+        expect(next.rows[0].inputNodeIds).toEqual(["b", "c", "a"]);
+    });
+
+    test("swaps reference cells across rows and columns", () => {
+        const table = {
+            operation: "creative" as const,
+            concurrency: 10,
+            referenceColumns: [
+                { id: "reference-1", label: "参考图 1" },
+                { id: "reference-2", label: "参考图 2" },
+            ],
+            rows: [
+                { id: "row-1", enabled: true, inputNodeIds: ["a", "b"], prompt: "one" },
+                { id: "row-2", enabled: true, inputNodeIds: ["c", "d"], prompt: "two" },
+            ],
+        };
+        const next = moveBatchReferenceCell(table, "row-1", 0, "row-2", 1);
+        expect(next.rows[0].inputNodeIds).toEqual(["d", "b"]);
+        expect(next.rows[1].inputNodeIds).toEqual(["c", "a"]);
+    });
+
+    test("uses a non-empty global prompt instead of the row prompt", () => {
+        const table = { operation: "creative" as const, concurrency: 10, globalPrompt: " 全局覆盖 ", rows: [{ id: "row-1", enabled: true, inputNodeIds: ["a"], prompt: "行提示词" }] };
+        expect(batchPromptForRow(table, table.rows[0])).toBe("全局覆盖");
+        expect(batchPromptForRow({ ...table, globalPrompt: "   " }, table.rows[0])).toBe("行提示词");
     });
 });

@@ -3,9 +3,9 @@ import { nanoid } from "nanoid";
 
 import { getActiveUserScope } from "@/lib/user-scope";
 import { captureVideoPoster, detectVideoAudioTrackFromBlob } from "@/lib/video-poster";
-import { resourceFileUrl, resourceIdFromStorageKey, resourceStorageKey, ResourceUploadError, uploadResourceFile } from "@/services/api/resources";
+import { getResourceAccess, resolveResourceAccessURL, resourceFileUrl, resourceIdFromStorageKey, resourceStorageKey, ResourceUploadError, uploadResourceFile } from "@/services/api/resources";
 import { uploadImage, type UploadedImage } from "@/services/image-storage";
-import { getCachedResourceBlob, getCachedResourceObjectUrl, primeResourceBlobCache } from "@/services/resource-blob-cache";
+import { getCachedResourceBlob, primeResourceBlobCache } from "@/services/resource-blob-cache";
 
 export type UploadedFile = {
     url: string;
@@ -115,8 +115,8 @@ export async function resolveMediaUrl(storageKey?: string, fallback = "") {
     if (!storageKey) return fallback;
     const resourceId = resourceIdFromStorageKey(storageKey);
     if (resourceId) {
-        const cached = await getCachedResourceObjectUrl(storageKey).catch(() => "");
-        return cached || resourceFileUrl(resourceId);
+        // 展示直接命中 OSS/CDN；平台资源文件接口只保留给私有源站代理或本地存储兜底。
+        return resolveResourceAccessURL((await getResourceAccess(storageKey, "display")).url);
     }
     const cached = objectUrls.get(storageKey);
     if (cached) return cached;

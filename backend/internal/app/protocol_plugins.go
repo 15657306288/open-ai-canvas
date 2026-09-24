@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -91,6 +92,15 @@ type pluginRegistryRecord struct {
 }
 
 func newPluginRuntime(dataDir string) (*pluginRuntime, error) {
+	dataDir = strings.TrimSpace(dataDir)
+	if dataDir == "" {
+		return nil, errors.New("plugin data directory is empty")
+	}
+	var err error
+	dataDir, err = filepath.Abs(dataDir)
+	if err != nil {
+		return nil, fmt.Errorf("plugin data directory is invalid: %w", err)
+	}
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create plugin registry directory: %w", err)
 	}
@@ -181,6 +191,7 @@ func (c *pluginRuntime) bootstrapBuiltInPlugins() error {
 		byID[id] = record
 	}
 	bundledManifests := append(bundledWorkflowPluginManifests(), bundledPaymentPluginManifests()...)
+	bundledManifests = append(bundledManifests, bundledSMSPluginManifests()...)
 	for _, bundled := range bundledManifests {
 		builtInIDs[bundled.Metadata.ID] = struct{}{}
 		if existing, exists := byID[bundled.Metadata.ID]; exists && existing.PackagePath != "" && isSystemPaymentPluginID(bundled.Metadata.ID) {
@@ -210,6 +221,9 @@ func (c *pluginRuntime) bootstrapBuiltInPlugins() error {
 		}
 		source := PluginOriginOfficial
 		if _, systemPayment := systemPaymentPolicies[bundled.Metadata.ID]; systemPayment {
+			source = PluginOriginSystem
+		}
+		if isSystemSMSPluginID(bundled.Metadata.ID) {
 			source = PluginOriginSystem
 		}
 		record.UpdatedAt = now
@@ -333,7 +347,12 @@ func (c *pluginRuntime) reload() error {
 				continue
 			}
 		}
-		if len(manifest.Contributes.PaymentProviders) > 0 && len(manifest.Contributes.Providers) == 0 {
+		if len(manifest.Contributes.SMSProviders) > 0 && (record.Source == PluginOriginUploaded || !isSystemSMSPluginID(id)) {
+			record.Metadata.Enabled, record.Status, record.Error = false, "invalid", "短信插件仅支持系统宿主适配器"
+			plugins[id] = record
+			continue
+		}
+		if (len(manifest.Contributes.PaymentProviders) > 0 || len(manifest.Contributes.SMSProviders) > 0) && len(manifest.Contributes.Providers) == 0 {
 			if record.Metadata.Enabled {
 				record.Status = "enabled"
 			} else {
@@ -519,8 +538,24 @@ func paymentRuntimeReady(root, digest, backendEntry string) bool {
 	if err != nil || strings.TrimSpace(string(ready)) != digest {
 		return false
 	}
-	entry, err := os.Stat(filepath.Join(root, filepath.FromSlash(backendEntry)))
-	return err == nil && !entry.IsDir()
+	return protocol.HasAnyPaymentRPCBackend(backendEntry, paymentRuntimeBackendFiles(root))
+}
+
+func paymentRuntimeBackendFiles(root string) map[string][]byte {
+	files := map[string][]byte{}
+	backendRoot := filepath.Join(root, "backend")
+	_ = filepath.WalkDir(backendRoot, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return nil
+		}
+		files[filepath.ToSlash(rel)] = []byte{1}
+		return nil
+	})
+	return files
 }
 
 func (c *pluginRuntime) list() []PluginView {

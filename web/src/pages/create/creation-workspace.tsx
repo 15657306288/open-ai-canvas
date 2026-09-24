@@ -1,9 +1,11 @@
 import { ImageSizePicker } from "@/components/image-size-picker";
 import { imageResolutionUsesQuality } from "@/lib/image-size-presets";
+import { createPortal } from "react-dom";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode, type RefObject } from "react";
 import { App, Button, Dropdown, Popover } from "antd";
 import { AppDrawer } from "@/components/ui/product/app-drawer";
 import { AppModal } from "@/components/ui/product/app-modal";
+import { useWorkspaceTopBarMount } from "@/components/layout/workspace-top-bar-extension";
 import { Tooltip } from "@/components/ui/base/tooltip";
 import { Reorder, LayoutGroup, motion, useReducedMotion } from "motion/react";
 import { ArrowDown, ArrowUp, Brain, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Clock3, Copy, Download, FileText, Film, History, Image as ImageIcon, LoaderCircle, Maximize2, MessageSquareText, Minimize2, MoreHorizontal, Music2, Pencil, Plus, RefreshCw, Search, SlidersHorizontal, Sparkles, Trash2, UserRound, WandSparkles, Waves, X } from "lucide-react";
@@ -31,7 +33,9 @@ import { useCopyText } from "@/hooks/use-copy-text";
 import { buildImageResolutionOptions, formatImageResolutionSize, supportsImageResolutionPresets } from "@/lib/image-resolution-tiers";
 import { modelCapabilityConfigFor, normalizeVideoValue, videoDurationOptions, type ImageCapabilityConfig, type VideoCapabilityConfig } from "@/lib/model-capabilities";
 import { mergedImageCapabilityConfig, type ModelRequirements } from "@/lib/model-selection";
+import { modelQuoteDescription, modelQuoteRequest } from "@/lib/model-pricing";
 import type { Skill } from "@/services/api/skills";
+import { quoteModel, type LogicalModelQuote } from "@/services/api/logical-models";
 import { resolveResourceUrl } from "@/services/api/resources";
 import { modelOptionName, resolveModelChannel, type AiConfig } from "@/stores/use-config-store";
 import { useAppearanceStore } from "@/stores/use-appearance-store";
@@ -42,6 +46,7 @@ import { creationAttachmentKind, creationMediaAspectRatio, removeCreationAttachm
 import { conversationTimestamp, isImageAttachment, isVideoAttachment } from "./creation-conversations";
 import { conversationTimeFormatter, countOptions, historyDayFormatter, messageTimeFormatter, modeLabels, qualityOptions, ratioOptions, resolutionOptions, shotScriptLabels, type CreationConversation, type CreationMessage, type CreationShotRailEntry, type CreationStatus } from "./creation-types";
 import "./creation-product.css";
+import "./creation-scrollbars.css";
 import { creationFeaturedWorks, inspirationSource } from "./creation-inspirations";
 
 const CanvasPromptOptimizerDrawer = lazy(() => import("@/components/canvas/canvas-prompt-optimizer-drawer").then((module) => ({ default: module.CanvasPromptOptimizerDrawer })));
@@ -174,7 +179,8 @@ export function CreationWorkspaceToolbar({ shots, onJumpToShot, onNewConversatio
         window.addEventListener("mousedown", onPointerDown);
         return () => window.removeEventListener("mousedown", onPointerDown);
     }, [railOpen]);
-    return <header className="creation-thread-toolbar">
+    const mount = useWorkspaceTopBarMount();
+    const toolbar = <header className="creation-thread-toolbar">
         <div className="creation-toolbar-shots" ref={railRef}>
             <button type="button" className="creation-rail-trigger" aria-expanded={railOpen} aria-haspopup="listbox" onClick={() => setRailOpen((open) => !open)}><Clapperboard />镜头时间线{shots.length > 0 ? <em className="creation-rail-count">{shots.length}</em> : null}</button>
             {railOpen ? <div className="creation-rail-pop" role="listbox" aria-label="镜头时间线">
@@ -196,6 +202,9 @@ export function CreationWorkspaceToolbar({ shots, onJumpToShot, onNewConversatio
             <Tooltip title="历史对话"><button type="button" aria-label="查看历史对话" className="creation-toolbar-action" onClick={onOpenHistory}><History /></button></Tooltip>
         </div>
     </header>;
+    if (mount) return createPortal(toolbar, mount);
+    if (mount === null) return null;
+    return toolbar;
 }
 
 export function CreationMessageView({ item, shotNumber, onRetryFailure, onCreateVariant, onEditUserMessage, onContinueCanvas, openingCanvas }: { item: CreationMessage; shotNumber: number; onRetryFailure: () => void; onCreateVariant: () => void; onEditUserMessage: (text: string) => void; onContinueCanvas: (ids?: string[]) => void; openingCanvas: boolean }) {
@@ -361,6 +370,8 @@ export function CreationComposer(props: ComposerProps) {
     const canSubmit = Boolean(props.prompt.trim()) && !interactionBusy;
     const creditsEnabled = useUserStore((state) => state.features.creditsEnabled);
     const priceChannel = resolveModelChannel(props.config, props.model);
+    const quoteRequest = useMemo(() => modelQuoteRequest(props.config, props.model, props.mode, props.modelRequirements), [props.config, props.mode, props.model, props.modelRequirements]);
+    const [routeQuote, setRouteQuote] = useState<LogicalModelQuote | null>(null);
     const canOptimizePrompt = Boolean(props.promptOptimizerProvider) && (props.mode === "image" || props.mode === "video");
     const optimizerReferences = props.references.filter((reference) => reference.active && reference.kind !== "skill");
     const credits = requestCreditCost({
@@ -369,10 +380,28 @@ export function CreationComposer(props: ComposerProps) {
         model: modelOptionName(props.model),
         count: props.mode === "image" ? props.count : 1,
         seconds: props.mode === "video" ? props.seconds : 1,
+        capability: props.mode,
+        config: props.config,
+        requirements: props.modelRequirements,
     });
-    const showCost = creditsEnabled && credits !== null;
-    const formattedCredits = credits?.toLocaleString("zh-CN", { maximumFractionDigits: 6 });
-    const actionLabel = props.referenceReplacementBusy ? "正在替换参考图" : interactionBusy || (props.generationActive && !canSubmit) ? "生成中" : showCost ? `预计消耗 ${formattedCredits} 积分，发送` : "发送";
+    useEffect(() => {
+        if (!creditsEnabled || !quoteRequest) {
+            setRouteQuote(null);
+            return;
+        }
+        const controller = new AbortController();
+        setRouteQuote(null);
+        quoteModel(quoteRequest, controller.signal)
+            .then(({ quote }) => setRouteQuote(quote))
+            .catch(() => {
+                if (!controller.signal.aborted) setRouteQuote(null);
+            });
+        return () => controller.abort();
+    }, [creditsEnabled, quoteRequest]);
+    const generationCredits = routeQuote ? routeQuote.amountMicrocredits / 1_000_000 : credits;
+    const showCost = creditsEnabled && generationCredits !== null && generationCredits !== undefined;
+    const formattedCredits = generationCredits?.toLocaleString("zh-CN", { maximumFractionDigits: 6 });
+    const actionLabel = props.referenceReplacementBusy ? "正在替换参考图" : interactionBusy || (props.generationActive && !canSubmit) ? "生成中" : showCost ? `${routeQuote?.estimated ? "预估" : "消耗"} ${formattedCredits} 积分，发送` : "发送";
     // Send-button working state must span the WHOLE generation (not just the
     // submit-lock window): spinner + glow stay while a message is pending and
     // the composer is empty; typing a next prompt returns the arrow so the
@@ -386,7 +415,7 @@ export function CreationComposer(props: ComposerProps) {
             : "描述镜头内容、运动、光线与节奏";
     const emptyPlaceholder = "输入你的镜头、画面或故事。也可以添加参考图开始创作";
     const imageReferencesSupported = props.imageProfile.references.maxImages > 0;
-    const referencesSupported = props.mode === "image" ? imageReferencesSupported : props.mode !== "video" || props.videoProfile.operations.includes("image_to_video");
+    const referencesSupported = props.mode === "image" ? imageReferencesSupported : props.mode !== "video" || props.maxReferences > 0;
     const canAddMoreReferences = referencesSupported && props.attachments.length < props.maxReferences;
     const addReferenceLabel = interactionBusy ? (props.referenceReplacementBusy ? "正在替换参考图" : "生成中暂不能添加参考内容") : canAddMoreReferences ? "添加更多参考内容" : `已达到当前模型的参考内容上限（${props.maxReferences} 个）`;
     const referenceCounts = useMemo(() => props.attachments.reduce((counts, attachment) => {
@@ -492,7 +521,6 @@ export function CreationComposer(props: ComposerProps) {
             spotlightColor="color-mix(in srgb, var(--user-ink) 12%, transparent)"
             spotlightRadius={280}
         >
-        {props.variant === "thread" ? <div className="creation-composer-mode-row"><ModePicker mode={props.mode} onModeChange={props.onModeChange} /></div> : null}
         <div className="creation-chat-writing-surface">
             <div className="creation-chat-editor">
                 <CanvasResourceMentionTextarea ref={props.composerFocusRef} value={props.prompt} references={props.references} mentionMenuWidth={400} sendOnEnter onFocus={props.onPromptFocus} onChange={props.setPrompt} onSubmit={props.onSubmit} containerClassName="creation-chat-mention-container" className="creation-chat-mention-editor creation-scrollbar" style={{ color: "var(--creation-text)" }} placeholder={props.placeholderOverride || (props.variant === "empty" ? emptyPlaceholder : placeholder)} aria-label="创作提示词，可使用 @ 引用当前参考内容或技能；回车发送，Shift+回车换行" spellCheck disabled={interactionBusy} activeDropReferenceId={dropTargetReferenceId} onReferenceFilesDrop={(reference, files) => { const target = props.references.find((item) => item.id === reference.id); if (target?.attachmentId) props.onReplaceReferenceFiles(target.attachmentId, files); }} />
@@ -564,6 +592,7 @@ export function CreationComposer(props: ComposerProps) {
         </div>
         <footer className="creation-chat-dock">
             <div className="creation-chat-controls">
+                {props.variant === "thread" ? <ModePicker mode={props.mode} onModeChange={props.onModeChange} /> : null}
                 <VoiceRecordingButton
                     className="creation-voice-trigger"
                     disabled={interactionBusy}
@@ -604,7 +633,7 @@ export function CreationComposer(props: ComposerProps) {
                 title={!canSubmit && !interactionBusy ? "输入创作想法后即可生成" : actionLabel}
             >
                 {showWorkingGlow ? <WorkingGlow active color="var(--creation-text)" radius="999px" /> : null}
-                {showCost ? <span className="creation-submit-cost"><CreditSymbol /><span>{formattedCredits}</span></span> : null}
+                {showCost ? <span className="creation-submit-cost" title={routeQuote ? modelQuoteDescription(routeQuote) : undefined}><CreditSymbol /><span>{routeQuote?.estimated ? `预估:${formattedCredits}` : formattedCredits}</span></span> : null}
                 <span className="creation-submit-action" aria-hidden>{showWorkingSpinner ? <LoaderCircle className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}<span>{showWorkingSpinner ? "生成中" : "开始创作"}</span></span>
             </Button>
         </footer>
@@ -663,7 +692,7 @@ export function CreationModeTabs({ mode, onModeChange, agentActive = false, onAg
 }
 
 function ModePicker({ mode, onModeChange }: { mode: CreationMode; onModeChange: (mode: CreationMode) => void }) {
-    return <CreationModeTabs mode={mode} onModeChange={onModeChange} orientation="vertical" />;
+    return <CreationModeTabs mode={mode} onModeChange={onModeChange} />;
 }
 
 function GenerationSettingsMenu(props: ComposerProps) {

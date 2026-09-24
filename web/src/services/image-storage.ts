@@ -3,8 +3,8 @@ import localforage from "localforage";
 import { nanoid } from "nanoid";
 import { readImageMeta } from "@/lib/image-utils";
 import { getActiveUserScope } from "@/lib/user-scope";
-import { importResourceFromUrl, isResourceUrl, resourceFileUrl, resourceIdFromStorageKey, resourceStorageKey, ResourceUploadError, uploadResourceFile } from "@/services/api/resources";
-import { cacheResourceObjectUrl, getCachedResourceBlob, getCachedResourceObjectUrl, primeResourceBlobCache } from "@/services/resource-blob-cache";
+import { getResourceAccess, importResourceFromUrl, isResourceUrl, resolveResourceAccessURL, resourceFileUrl, resourceIdFromStorageKey, resourceStorageKey, ResourceUploadError, uploadResourceFile } from "@/services/api/resources";
+import { getCachedResourceBlob, primeResourceBlobCache } from "@/services/resource-blob-cache";
 
 export type UploadedImage = {
     url: string;
@@ -81,13 +81,8 @@ export async function resolveImageUrl(storageKey?: string, fallback = "", option
     if (!storageKey) return fallback;
     const resourceId = resourceIdFromStorageKey(storageKey);
     if (resourceId) {
-        const cached = await getCachedResourceObjectUrl(storageKey).catch(() => "");
-        if (cached) return cached;
-        if (options?.cacheMiss) {
-            const populated = await cacheResourceObjectUrl(storageKey).catch(() => "");
-            if (populated) return populated;
-        }
-        return resourceFileUrl(resourceId);
+        // 远程资源展示直接使用 OSS/CDN 授权地址，不把媒体内容读进浏览器 Blob。
+        return resolveResourceAccessURL((await getResourceAccess(storageKey, "display")).url);
     }
     const cached = objectUrls.get(storageKey);
     if (cached) return cached;

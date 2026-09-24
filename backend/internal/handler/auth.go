@@ -10,7 +10,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -22,6 +21,7 @@ import (
 
 func RegisterAuthRoutes(r *gin.RouterGroup, svc *service.Service) {
 	registerChannelOrderRoutes(r, svc)
+	registerNotificationRoutes(r, svc)
 	r.GET("/auth/settings", func(c *gin.Context) {
 		settings, err := svc.PublicAuthSettings()
 		if err != nil {
@@ -139,7 +139,8 @@ func RegisterAuthRoutes(r *gin.RouterGroup, svc *service.Service) {
 		if !enforceRateLimit(c, "linuxdo-start:"+c.ClientIP(), 20, 10*time.Minute) {
 			return
 		}
-		target, err := svc.BeginLinuxDOLogin(c.Query("next"))
+		acceptedTerms := c.Query("acceptedTerms") == "true"
+		target, err := svc.BeginLinuxDOLogin(c.Query("next"), acceptedTerms)
 		if err != nil {
 			failService(c, err)
 			return
@@ -163,11 +164,6 @@ func RegisterAuthRoutes(r *gin.RouterGroup, svc *service.Service) {
 			failService(c, err)
 			return
 		}
-		logicalModels, logicalModelsErr := svc.PublicLogicalModels(nil)
-		if logicalModelsErr != nil {
-			failService(c, logicalModelsErr)
-			return
-		}
 		limits, err := svc.PublicRuntimeLimits()
 		if err != nil {
 			failService(c, err)
@@ -183,7 +179,7 @@ func RegisterAuthRoutes(r *gin.RouterGroup, svc *service.Service) {
 			failService(c, err)
 			return
 		}
-		ok(c, gin.H{"user": publicUser, "logicalModels": logicalModels, "runtimeLimits": limits, "drawingEngine": drawingEngine, "features": features})
+		ok(c, gin.H{"user": publicUser, "runtimeLimits": limits, "drawingEngine": drawingEngine, "features": features})
 	})
 	r.GET("/channels/system", func(c *gin.Context) {
 		actor, err := currentUser(c, svc)
@@ -731,49 +727,16 @@ func RegisterAdminRoutes(r *gin.RouterGroup, svc *service.Service) {
 			failService(c, err)
 			return
 		}
-		delivery, err := svc.PrepareAdminAPICallLogMediaDelivery(user, c.Param("id"), c.GetHeader("Range"))
+		delivery, err := svc.PrepareAdminAPICallLogMediaDelivery(user, c.Param("id"), resourceAccessOptions(c), c.GetHeader("Range"))
 		if err != nil {
 			failService(c, err)
 			return
 		}
-		if delivery.RedirectURL != "" {
-			c.Header("Cache-Control", "private, no-store")
-			c.Header("Referrer-Policy", "no-referrer")
-			c.Header("X-Content-Type-Options", "nosniff")
-			c.Redirect(http.StatusTemporaryRedirect, delivery.RedirectURL)
-			return
-		}
-		stream := delivery.Stream
-		defer stream.Body.Close()
-		resource := stream.Resource
-		mimeType := resource.MimeType
-		if mimeType == "" {
-			mimeType = "application/octet-stream"
-		}
-		c.Header("Cache-Control", "private, no-cache")
-		c.Header("Accept-Ranges", "bytes")
-		c.Header("X-Content-Type-Options", "nosniff")
+		var disposition string
 		if c.Query("download") == "1" {
-			extension := filepath.Ext(resource.ObjectKey)
-			if len(extension) > 12 {
-				extension = ""
-			}
-			c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=api-log-media%s", extension))
+			disposition = "attachment"
 		}
-		if resource.Provider == "local" {
-			if seeker, ok := stream.Body.(io.ReadSeeker); ok {
-				c.Header("Content-Type", mimeType)
-				http.ServeContent(c.Writer, c.Request, resource.ID, resource.UpdatedAt, seeker)
-				return
-			}
-		}
-		if stream.ContentRange != "" {
-			c.Header("Content-Range", stream.ContentRange)
-		}
-		if stream.AcceptRanges != "" {
-			c.Header("Accept-Ranges", stream.AcceptRanges)
-		}
-		c.DataFromReader(stream.StatusCode, stream.ContentLength, mimeType, stream.Body, nil)
+		serveResourceDelivery(c, delivery, "private, no-cache", disposition)
 	})
 	r.GET("/admin/api-logs/:id", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
@@ -884,7 +847,7 @@ func shortSystemProxyPath(rawPath string) (string, string, bool) {
 // as a channel request when a business route returns 404.
 func isReservedAPIPathPrefix(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "admin", "agent", "ai", "announcements", "assets", "auth", "canvas-projects", "channels", "diagnostics", "features", "files", "model-catalog", "models", "oauth", "plugins", "projects", "public", "resources", "sessions", "settings", "skills", "style-profiles", "tasks", "timeline", "user-data", "voice-profiles", "wallet":
+	case "admin", "agent", "ai", "announcements", "banner-announcements", "assets", "auth", "canvas-projects", "channels", "diagnostics", "features", "files", "model-catalog", "models", "oauth", "plugins", "projects", "public", "resources", "sessions", "settings", "skills", "style-profiles", "tasks", "timeline", "user-data", "voice-profiles", "wallet":
 		return true
 	default:
 		return false

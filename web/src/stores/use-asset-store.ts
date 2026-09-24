@@ -13,6 +13,7 @@ import { cleanupUnusedImages, collectImageStorageKeys, resolveImageUrl, uploadIm
 import { cleanupUnusedMedia, collectMediaStorageKeys, resolveMediaUrl } from "@/services/file-storage";
 import { flushGenerationAssetStorageLocks, insertOrReturnGenerationAsset, withGenerationArtifactCommitLock, withGenerationAssetStorageLock } from "@/services/generation-asset-repository";
 import { CANVAS_STORE_KEY, commitPendingCanvasStorePersistenceLocked, pendingCanvasStorePersistence, withCanvasStorePersistenceLock } from "@/stores/canvas/use-canvas-store";
+import { readAllCanvasSyncDrafts } from "@/services/canvas-sync-drafts";
 
 export type AssetKind = "text" | "image" | "video" | "audio" | "model" | "entity";
 export type { AssetCategory } from "@/lib/asset-category";
@@ -58,6 +59,7 @@ type AssetStore = {
     addGenerationAsset: (effectKey: string, asset: NewAsset, signal?: AbortSignal) => Promise<string>;
     updateAsset: (id: string, patch: Partial<Omit<Asset, "id" | "createdAt">>) => void;
     removeAsset: (id: string) => Promise<void>;
+    removeAssets: (ids: string[]) => Promise<void>;
     replaceAssets: (assets: Asset[]) => void;
     cleanupImages: (extra?: unknown) => Promise<void>;
 };
@@ -94,7 +96,7 @@ function recordAssetStorageDocument(scope: string, document: AssetStorageDocumen
     });
 }
 
-function withAssetStorePersistenceSuppressed<T>(operation: () => T) {
+export function withAssetStorePersistenceSuppressed<T>(operation: () => T) {
     suppressAssetStorePersistence += 1;
     try {
         return operation();
@@ -392,18 +394,23 @@ export const useAssetStore = create<AssetStore>()(
                 set((state) => ({
                     assets: state.assets.map((asset) => (asset.id === id ? parseAssetRecord({ ...asset, ...patch, updatedAt: new Date().toISOString() }) : asset)),
                 })),
-            removeAsset: async (id) => {
+            removeAsset: async (id) => get().removeAssets([id]),
+            removeAssets: async (ids) => {
+                const removedIds = new Set(ids);
                 let remainingAssets: Asset[] = [];
-                let removedAsset: Asset | undefined;
+                let hasLocalMedia = false;
                 set((state) => {
-                    removedAsset = state.assets.find((asset) => asset.id === id);
-                    const assets = state.assets.filter((asset) => asset.id !== id);
+                    const assets = state.assets.filter((asset) => {
+                        if (!removedIds.has(asset.id)) return true;
+                        hasLocalMedia ||= !!collectImageStorageKeys(asset).size || !!collectMediaStorageKeys(asset).size;
+                        return false;
+                    });
                     remainingAssets = assets;
                     return { assets };
                 });
                 // 没有本地媒体定位时没有需要由该删除动作回收的 Blob；跳过全库扫描，
                 // 避免纯文本/远程资源删除依赖浏览器 IndexedDB 驱动。
-                if (!removedAsset || (!collectImageStorageKeys(removedAsset).size && !collectMediaStorageKeys(removedAsset).size)) return;
+                if (!hasLocalMedia) return;
                 await get().cleanupImages({ assets: remainingAssets });
             },
             replaceAssets: (assets) => set({ assets: assets.map(parseAssetRecord) }),
@@ -414,6 +421,7 @@ export const useAssetStore = create<AssetStore>()(
                 await new Promise<void>((resolve, reject) => {
                     window.setTimeout(() =>
                         withGenerationArtifactCommitLock(scope, async () => {
+                            const syncDrafts = await readAllCanvasSyncDrafts(scope);
                             // 固定锁序：artifact -> Canvas（释放）-> Asset，避免跨 store 锁重入。
                             const canvasProjects = await withCanvasStorePersistenceLock(scope, async () => {
                                 await commitPendingCanvasStorePersistenceLocked(scope);
@@ -423,7 +431,7 @@ export const useAssetStore = create<AssetStore>()(
                             await withGenerationAssetStorageLock(scope, async () => {
                                 await commitPendingAssetStorePersistenceLocked(scope);
                                 const durableAssets = (await readPersistedAssetDocumentForScope(scope)).state.assets;
-                                const references = { projects: canvasProjects, assets: durableAssets };
+                                const references = { projects: canvasProjects, assets: durableAssets, syncDrafts };
                                 const imageKeys = new Set([...frozenExtraImageKeys, ...collectImageStorageKeys(references)]);
                                 const mediaKeys = new Set([...frozenExtraMediaKeys, ...collectMediaStorageKeys(references)]);
                                 await cleanupUnusedImages(

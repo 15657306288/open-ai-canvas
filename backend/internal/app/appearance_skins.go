@@ -96,6 +96,35 @@ type AppearanceSkinTokens struct {
 	Light      AppearanceSkinModeTokens      `json:"light"`
 	Dark       AppearanceSkinModeTokens      `json:"dark"`
 	Components AppearanceSkinComponentTokens `json:"components"`
+	Buttons    AppearanceSkinButtons         `json:"buttons"`
+}
+
+type AppearanceSkinButtons struct {
+	Light AppearanceSkinButtonFill `json:"light"`
+	Dark  AppearanceSkinButtonFill `json:"dark"`
+}
+
+type AppearanceSkinButtonFill struct {
+	Mode        string `json:"mode"`
+	Angle       int    `json:"angle"`
+	Start       string `json:"start"`
+	End         string `json:"end"`
+	HoverStart  string `json:"hoverStart"`
+	HoverEnd    string `json:"hoverEnd"`
+	ActiveStart string `json:"activeStart"`
+	ActiveEnd   string `json:"activeEnd"`
+	Foreground  string `json:"foreground"`
+}
+
+func defaultAppearanceSkinButtons(gradient bool) AppearanceSkinButtons {
+	fill := AppearanceSkinButtonFill{
+		Mode: "solid", Angle: 115, Start: "#6554df", End: "#386fbc",
+		HoverStart: "#5744cf", HoverEnd: "#356bbb", ActiveStart: "#4938b8", ActiveEnd: "#2c5da5", Foreground: "#ffffff",
+	}
+	if gradient {
+		fill.Mode = "gradient"
+	}
+	return AppearanceSkinButtons{Light: fill, Dark: fill}
 }
 
 type AppearanceSkinTheme struct {
@@ -114,7 +143,7 @@ func defaultAppearanceSkinThemes() []AppearanceSkinTheme {
 		primary: "#087f76", primaryHover: "#076d66", primaryActive: "#095c57", primaryForeground: "#ffffff", selected: "#dff4f0", selectedHover: "#ccebe6", selectedActive: "#b9e3dd", selectedForeground: "#075f59", info: "#dd7a38",
 		switchChecked: "#087f76", switchCheckedHover: "#076d66", switchCheckedHandle: "#ffffff", switchUnchecked: "#a8b7b9", switchUncheckedHover: "#899b9e", switchUncheckedHandle: "#ffffff",
 		success: "#16866f", warning: "#c46722", danger: "#c83f3a", dangerHover: "#ad3532", dangerActive: "#922e2c", dangerForeground: "#ffffff",
-		workspace: "#ffffff", grid: "#e8f2f0", adminBackground: "#eef3f4", adminSurface: "#ffffff", adminSubtle: "#f5f9f9", adminStrong: "#dce9e8", authBackground: "#071a1d", authPanel: "#0b2226", authCard: "#0d272b", authAccent: "#72eadc", authMuted: "#8db9b4",
+		workspace: "#ffffff", grid: "#e8f2f0", adminBackground: "#eef3f4", adminSurface: "#ffffff", adminSubtle: "#f5f9f9", adminStrong: "#dce9e8", authBackground: "#f6f8f9", authPanel: "#edf4f3", authCard: "#ffffff", authAccent: "#087f76", authMuted: "#607079",
 	})
 	studio.Tokens.Dark = tintAppearanceSkinMode(studio.Tokens.Dark, appearanceSkinPalette{
 		canvas: "#0b1215", surface: "#121d21", subtle: "#142428", raised: "#203a3b", overlay: "#172328", text: "#e7f4f2", muted: "#8ca6a7", border: "#294044",
@@ -131,7 +160,7 @@ func defaultAppearanceSkinThemes() []AppearanceSkinTheme {
 		primary: "#b94f2f", primaryHover: "#9e4128", primaryActive: "#843621", primaryForeground: "#fffaf6", selected: "#f8e0cf", selectedHover: "#f1d1bb", selectedActive: "#e9c1a6", selectedForeground: "#8c3d25", info: "#c58a3b",
 		switchChecked: "#a84a2f", switchCheckedHover: "#bd5b3c", switchCheckedHandle: "#fffaf6", switchUnchecked: "#c7b3a7", switchUncheckedHover: "#aa9182", switchUncheckedHandle: "#fffdf9",
 		success: "#4d7f50", warning: "#bd6819", danger: "#bd3d32", dangerHover: "#a33229", dangerActive: "#892a23", dangerForeground: "#fffaf6",
-		workspace: "#fffdf9", grid: "#f3e9e1", adminBackground: "#f6eee7", adminSurface: "#fffdf9", adminSubtle: "#faf3ed", adminStrong: "#ead8ca", authBackground: "#1f1410", authPanel: "#291813", authCard: "#361f17", authAccent: "#ffc08b", authMuted: "#b99d89",
+		workspace: "#fffdf9", grid: "#f3e9e1", adminBackground: "#f6eee7", adminSurface: "#fffdf9", adminSubtle: "#faf3ed", adminStrong: "#ead8ca", authBackground: "#fbf7f2", authPanel: "#f6ebe3", authCard: "#fffdf9", authAccent: "#b94f2f", authMuted: "#806b61",
 	})
 	warm.Tokens.Dark = tintAppearanceSkinMode(warm.Tokens.Dark, appearanceSkinPalette{
 		canvas: "#1b1210", surface: "#291a16", subtle: "#33211b", raised: "#493027", overlay: "#31201a", text: "#f8e9df", muted: "#b89c8c", border: "#50372e",
@@ -148,7 +177,7 @@ func defaultAppearanceSkinThemes() []AppearanceSkinTheme {
 		primary: "#6656d9", primaryHover: "#5847c7", primaryActive: "#4939b2", primaryForeground: "#ffffff", selected: "#ebe8ff", selectedHover: "#ded9ff", selectedActive: "#d0c9ff", selectedForeground: "#4f3fb5", info: "#8f61e8",
 		switchChecked: "#6656d9", switchCheckedHover: "#5847c7", switchCheckedHandle: "#ffffff", switchUnchecked: "#b4afc5", switchUncheckedHover: "#9891ae", switchUncheckedHandle: "#ffffff",
 		success: "#2f966e", warning: "#b96f16", danger: "#c73559", dangerHover: "#ac2c4b", dangerActive: "#912640", dangerForeground: "#ffffff",
-		workspace: "#ffffff", grid: "#f0eef8", adminBackground: "#f1f0f7", adminSurface: "#ffffff", adminSubtle: "#f7f6fb", adminStrong: "#e4e0f1", authBackground: "#110d20", authPanel: "#17112b", authCard: "#211936", authAccent: "#b4a8ff", authMuted: "#958dad",
+		workspace: "#ffffff", grid: "#f0eef8", adminBackground: "#f1f0f7", adminSurface: "#ffffff", adminSubtle: "#f7f6fb", adminStrong: "#e4e0f1", authBackground: "#f8f7fc", authPanel: "#f0eefb", authCard: "#ffffff", authAccent: "#6656d9", authMuted: "#716a86",
 	})
 	violet.Tokens.Dark = tintAppearanceSkinMode(violet.Tokens.Dark, appearanceSkinPalette{
 		canvas: "#0f0c19", surface: "#171321", subtle: "#201a2f", raised: "#302746", overlay: "#1c1734", text: "#f2efff", muted: "#a9a2bd", border: "#39304d",
@@ -159,6 +188,9 @@ func defaultAppearanceSkinThemes() []AppearanceSkinTheme {
 	})
 	violet.Tokens.Components = appearanceSkinComponentPreset(7, 7, 12, 14, 9, 4)
 
+	studio.Tokens.Buttons = defaultAppearanceSkinButtons(false)
+	warm.Tokens.Buttons = defaultAppearanceSkinButtons(false)
+	violet.Tokens.Buttons = defaultAppearanceSkinButtons(false)
 	return []AppearanceSkinTheme{classic, studio, warm, violet}
 }
 
@@ -171,7 +203,7 @@ func defaultClassicAppearanceSkin() AppearanceSkinTheme {
 				Control: "#ffffff", ControlHover: "#f5f5f5", ControlActive: "#ececec", ControlBorder: "#d1d1d1", ControlFocus: "#171717", ControlDisabledBackground: "#f2f2f2", ControlDisabledForeground: "#a3a3a3", SwitchChecked: "#16a34a", SwitchCheckedHover: "#15803d", SwitchCheckedHandle: "#ffffff", SwitchUnchecked: "#b8b8b8", SwitchUncheckedHover: "#9f9f9f", SwitchUncheckedHandle: "#ffffff",
 				Primary: "#171717", PrimaryHover: "#303030", PrimaryActive: "#404040", PrimaryForeground: "#ffffff", Selected: "#e8e8e8", SelectedHover: "#dedede", SelectedActive: "#d5d5d5", SelectedForeground: "#171717",
 				Icon: "#3f3f46", IconMuted: "#a1a1aa", IconActive: "#171717", Success: "#16a34a", Warning: "#d97706", Danger: "#dc2626", DangerHover: "#b91c1c", DangerActive: "#991b1b", DangerForeground: "#ffffff", Info: "#2563eb", Workspace: "#ffffff", WorkspaceGrid: "#f3f3f3",
-				AdminBackground: "#f3f4f6", AdminSurface: "#ffffff", AdminSubtle: "#f7f8fa", AdminStrong: "#eceff3", AuthBackground: "#08090c", AuthPanel: "#0b0c10", AuthCard: "#121318", AuthAccent: "#93c5fd", AuthMuted: "#8a8b91",
+				AdminBackground: "#f3f4f6", AdminSurface: "#ffffff", AdminSubtle: "#f7f8fa", AdminStrong: "#eceff3", AuthBackground: "#ffffff", AuthPanel: "#f7f7f7", AuthCard: "#ffffff", AuthAccent: "#2563eb", AuthMuted: "#737373",
 			},
 			Dark: AppearanceSkinModeTokens{
 				Canvas: "#0a0a0a", Surface: "#181818", SurfaceSubtle: "#202020", SurfaceRaised: "#2a2a2a", Overlay: "#1f1f20", Text: "#f5f5f5", TextMuted: "#a3a3a3", Border: "#2d2d2d",
@@ -181,6 +213,7 @@ func defaultClassicAppearanceSkin() AppearanceSkinTheme {
 				AdminBackground: "#101010", AdminSurface: "#181818", AdminSubtle: "#202020", AdminStrong: "#2a2a2a", AuthBackground: "#08090c", AuthPanel: "#0b0c10", AuthCard: "#121318", AuthAccent: "#93c5fd", AuthMuted: "#8a8b91",
 			},
 			Components: appearanceSkinComponentPreset(6, 6, 12, 12, 8, 4),
+			Buttons:    defaultAppearanceSkinButtons(true),
 		},
 	}
 }
@@ -234,6 +267,11 @@ func normalizeAppearanceSkinThemes(themes []AppearanceSkinTheme) []AppearanceSki
 		result[index].Name = strings.TrimSpace(result[index].Name)
 		result[index].Description = strings.TrimSpace(result[index].Description)
 		result[index].Locked = result[index].ID == defaultAppearanceSkinID
+		// Only a wholly absent legacy button block is upgraded. Partial or
+		// malformed submitted parameters remain invalid on the write path.
+		if result[index].Tokens.Buttons == (AppearanceSkinButtons{}) {
+			result[index].Tokens.Buttons = defaultAppearanceSkinButtons(result[index].Locked)
+		}
 		var fallback AppearanceSkinTokens
 		for _, builtin := range builtins {
 			if builtin.ID == result[index].ID {
@@ -325,6 +363,11 @@ func validateAppearanceSkinThemes(themes []AppearanceSkinTheme, selectedID strin
 		if err := validateAppearanceSkinComponents(skin.Tokens.Components); err != nil {
 			return err
 		}
+		for _, fill := range []AppearanceSkinButtonFill{skin.Tokens.Buttons.Light, skin.Tokens.Buttons.Dark} {
+			if err := validateAppearanceSkinButtonFill(fill); err != nil {
+				return err
+			}
+		}
 	}
 	if !foundClassic {
 		return BadAuthRequest("经典黑白为系统默认主题，不能修改或删除")
@@ -340,6 +383,21 @@ func validateAppearanceSkinMode(mode AppearanceSkinModeTokens) error {
 	for index := 0; index < value.NumField(); index++ {
 		if !appearanceColorPattern.MatchString(value.Field(index).String()) {
 			return BadAuthRequest("皮肤颜色必须使用 6 或 8 位十六进制颜色")
+		}
+	}
+	return nil
+}
+
+func validateAppearanceSkinButtonFill(fill AppearanceSkinButtonFill) error {
+	if fill.Mode != "solid" && fill.Mode != "gradient" {
+		return BadAuthRequest("主按钮填充模式无效")
+	}
+	if fill.Angle < 0 || fill.Angle > 360 {
+		return BadAuthRequest("主按钮渐变角度必须在 0 到 360 之间")
+	}
+	for _, color := range []string{fill.Start, fill.End, fill.HoverStart, fill.HoverEnd, fill.ActiveStart, fill.ActiveEnd, fill.Foreground} {
+		if !appearanceColorPattern.MatchString(color) {
+			return BadAuthRequest("主按钮颜色必须使用 6 或 8 位十六进制颜色")
 		}
 	}
 	return nil

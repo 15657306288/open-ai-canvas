@@ -135,10 +135,14 @@ func primaryKeyColumn[T any](db *gorm.DB) (string, error) {
 	if err := statement.Parse(new(T)); err != nil {
 		return "", err
 	}
-	if len(statement.Schema.PrimaryFields) != 1 {
-		return "", fmt.Errorf("表 %s 必须有且只有一个主键", statement.Schema.Table)
+	if len(statement.Schema.PrimaryFields) == 0 {
+		return "", fmt.Errorf("表 %s 必须有主键", statement.Schema.Table)
 	}
-	return statement.Schema.PrimaryFields[0].DBName, nil
+	columns := make([]string, 0, len(statement.Schema.PrimaryFields))
+	for _, field := range statement.Schema.PrimaryFields {
+		columns = append(columns, field.DBName)
+	}
+	return strings.Join(columns, ", "), nil
 }
 
 var timeType = reflect.TypeOf(time.Time{})
@@ -214,11 +218,17 @@ func verifyMigrationCoverage(db *gorm.DB) error {
 
 func migrations() []tableMigration {
 	return []tableMigration{
+		migrateTable[model.Tool]("tools"),
+		migrateTable[model.ToolFavorite]("tool_favorites"),
 		migrateTable[model.User]("users"),
 		migrateTable[model.AuthSession]("auth_sessions"),
 		migrateTable[model.UserIdentity]("user_identities"),
 		migrateTable[model.OAuthState]("o_auth_states"),
 		migrateTable[model.EmailVerificationCode]("email_verification_codes"),
+		migrateTable[model.AuthVerification]("auth_verifications"),
+		migrateTable[model.NotificationQuota]("notification_quota"),
+		migrateTable[model.SMSChannel]("sms_channels"),
+		migrateTable[model.SMSRecord]("sms_records"),
 		migrateTable[model.ModelChannel]("model_channels"),
 		migrateTable[model.ChannelModel]("channel_models"),
 		migrateTable[model.ChannelModelPriceTier]("channel_model_price_tiers"),
@@ -279,17 +289,25 @@ func migrations() []tableMigration {
 		migrateTable[model.WorkflowStepTask]("workflow_step_tasks"),
 		migrateTable[model.ProductionTaskLink]("production_task_links"),
 		migrateTable[model.CanvasProject]("canvas_projects"),
+		migrateTable[model.CanvasSnapshot]("canvas_snapshots"),
+		migrateTable[model.CanvasSnapshotResource]("canvas_snapshot_resources"),
 		migrateTable[model.CanvasShare]("canvas_shares"),
 		migrateTable[model.PromptTemplate]("prompt_templates"),
 		migrateTable[model.UserPromptCustomization]("user_prompt_customizations"),
 		migrateTable[model.Announcement]("announcements"),
 		migrateTable[model.UserAnnouncementRead]("user_announcement_reads"),
+		migrateTable[model.BannerAnnouncement]("banner_announcements"),
 		migrateTable[model.CreationRun]("creation_runs"),
 		migrateTable[model.CreationSubmission]("creation_submissions"),
 		migrateTable[model.Task]("tasks"),
 		migrateTable[model.CloudAgentExecution]("cloud_agent_executions"),
+		migrateTable[model.CloudAgentEventRecord]("cloud_agent_event_records"),
+		migrateTable[model.CloudAgentMessageRecord]("cloud_agent_message_records"),
 		migrateTable[model.CloudAgentCanvasMutation]("cloud_agent_canvas_mutations"),
+		migrateTable[model.CloudAgentResourceLease]("cloud_agent_resource_leases"),
 		migrateTable[model.AgentProfile]("agent_profiles"),
+		migrateTable[model.AgentLesson]("agent_lessons"),
+		migrateTable[model.AgentMemorySetting]("agent_memory_settings"),
 		migrateTable[model.TaskTextDelta]("task_text_delta"),
 		migrateTable[model.TaskLog]("task_logs"),
 		migrateTable[model.Result]("results"),

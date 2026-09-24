@@ -95,7 +95,7 @@ export async function runBackendGenerationTask(
     throwIfAborted(signal);
     assertClientPromptLimit(mode, prompt, config, metadata);
     assertBackendRuntimeConfigured(config, mode);
-    const prepared = await prepareGenerationReferences({ config, referenceImages, referenceVideos, referenceAudios, mask });
+    const prepared = await prepareGenerationReferences({ config, mode, referenceImages, referenceVideos, referenceAudios, mask });
     throwIfAborted(signal);
     return createAndWaitGenerationTask({ projectId, mode, prompt, config, referenceImages, referenceVideos, referenceAudios, textHistory, signal, metadata, onTaskUpdate, onTextDelta, streamText, enableThinking, clientOperationId, retryOf, attemptGroupId }, prepared, dependencies);
 }
@@ -129,7 +129,10 @@ type BackendToolGenerationOptions = {
 // 报价和执行复用完全相同的任务协议，准备阶段不提交模型任务。
 export function prepareBackendToolGenerationTask(options: BackendToolGenerationOptions): CreateTaskInput {
     throwIfAborted(options.signal);
-    assertAgentExchangeBudget(options.messages, options.tools, options.config.systemPrompt || "");
+    const logicalModelId = logicalModelIDForConfig(options.config);
+    const requestConfig = resolveModelRequestConfig(options.config, options.config.model);
+    const capability = modelCapabilityConfigFor(options.config, requestConfig.model).text;
+    assertAgentExchangeBudget(options.messages, options.tools, options.config.systemPrompt || "", capability);
     const imageKeys = new Set<string>();
     for (const message of options.messages) {
         if ("type" in message || message.role === "tool" || !Array.isArray(message.content)) continue;
@@ -140,8 +143,6 @@ export function prepareBackendToolGenerationTask(options: BackendToolGenerationO
             imageKeys.add(key);
         }
     }
-    const logicalModelId = logicalModelIDForConfig(options.config);
-    const requestConfig = resolveModelRequestConfig(options.config, options.config.model);
     if (!logicalModelId && !requestConfig.channelId && !requestConfig.interfaceType) throw new Error("当前模型未选择可用请求协议");
     const task: CreateTaskInput = {
         type: "canvas_text",
@@ -233,12 +234,14 @@ function assertClientPromptLimit(mode: BackendGenerationMode, prompt: string, co
 
 async function prepareGenerationReferences({
     config,
+    mode,
     referenceImages = [],
     referenceVideos = [],
     referenceAudios = [],
     mask,
-}: Pick<BackendGenerationTaskOptions, "config" | "referenceImages" | "referenceVideos" | "referenceAudios" | "mask">): Promise<PreparedGenerationReferences> {
-    const preferArkAssetUrl = usesArkVideoAssetReference(config);
+}: Pick<BackendGenerationTaskOptions, "config" | "mode" | "referenceImages" | "referenceVideos" | "referenceAudios" | "mask">): Promise<PreparedGenerationReferences> {
+    // asset:// 仅视频生成可用；Agent Plan Seedream 与 Seedance 共用 /api/plan/v3，不能按 BaseURL 误判。
+    const preferArkAssetUrl = mode === "video" && usesArkVideoAssetReference(config);
     const preparedImages = await Promise.all(referenceImages.map((image) => prepareBackendImageReference(image, preferArkAssetUrl)));
     const preparedVideos = await Promise.all(referenceVideos.map(prepareBackendMediaReference));
     const preparedAudios = await Promise.all(referenceAudios.map(prepareBackendMediaReference));
@@ -249,7 +252,10 @@ async function prepareGenerationReferences({
 // 与后端 isArkPrivateAssetVideoConfig 对齐：方舟视频渠道允许参考图直接 asset:// 引用，
 // 跳过可信素材上传同步（适合已录入方舟素材 ID 的素材，例如被授权的真人像素材）。
 function usesArkVideoAssetReference(config: AiConfig) {
-    return resolveModelRequestConfig(config, config.model).interfaceType === "volcengine-ark-video" || isArkPlanBaseUrl(config.baseUrl || "");
+    const interfaceType = resolveModelRequestConfig(config, config.model).interfaceType;
+    if (interfaceType === "volcengine-ark-video" || interfaceType === "volcengine-ark-agent-plan-video") return true;
+    if (interfaceType === "volcengine-ark-image" || interfaceType === "volcengine-ark-agent-plan-image") return false;
+    return isArkPlanBaseUrl(config.baseUrl || "");
 }
 
 async function createAndWaitGenerationTask(options: BackendGenerationTaskOptions, prepared: PreparedGenerationReferences, dependencies: GenerationTaskDependencies) {
@@ -492,7 +498,27 @@ function omittedImageQuality(value: string | undefined) {
 
 export function parseBackendGenerationResult(task: GenerationTask): BackendGenerationResult {
     if (!task.resultJson) throw new Error("后端任务没有返回结果");
-    const result = JSON.parse(task.resultJson) as BackendGenerationResult;
+    const result = JSON.parse(task.resultJson) as BackendGenerationResult & { text?: unknown };
     if (!result || typeof result !== "object") throw new Error("后端任务结果格式错误");
-    return result;
+    return { ...result, text: normalizeBackendText(result.text) };
+}
+
+function normalizeBackendText(value: unknown): string | undefined {
+    if (typeof value === "string") return value;
+    if (value === null || value === undefined) return undefined;
+    if (Array.isArray(value)) {
+        const text = value.map((item) => normalizeBackendText(item)).filter((item): item is string => Boolean(item)).join("");
+        return text || undefined;
+    }
+    if (typeof value === "object") {
+        const record = value as Record<string, unknown>;
+        for (const key of ["text", "content", "output_text", "value"]) {
+            if (!(key in record)) continue;
+            const nested = normalizeBackendText(record[key]);
+            if (nested !== undefined) return nested;
+        }
+        // 某些结构化文本任务直接把 JSON 载荷放进 text 对象，保留 JSON 供上层契约解析。
+        return JSON.stringify(value);
+    }
+    return String(value);
 }

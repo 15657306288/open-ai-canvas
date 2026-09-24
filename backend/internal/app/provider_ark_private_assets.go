@@ -47,7 +47,8 @@ func withoutProviderAnalytics(ctx context.Context) context.Context {
 }
 
 func (s *Service) prepareArkPrivateAssetReferences(ctx context.Context, userID string, input *canvasGenerationInput) error {
-	if input == nil || !isArkPrivateAssetVideoConfig(input.Config) || !parseBool(input.Config.ArkPrivateAssetUpload, true) {
+	// 可信素材 asset:// 仅方舟视频协议支持；Agent Plan Seedream 等图片渠道不能上传或改写。
+	if input == nil || input.Mode != "video" || !isArkPrivateAssetVideoConfig(input.Config) || !parseBool(input.Config.ArkPrivateAssetUpload, true) {
 		return nil
 	}
 	hasOwnedReference := false
@@ -72,7 +73,7 @@ func (s *Service) prepareArkPrivateAssetReferences(ctx context.Context, userID s
 		return nil
 	}
 	if taskID := taskExecutionID(ctx); taskID != "" {
-		_ = s.repo.UpdateTaskProgress(taskID, "同步方舟可信素材", 36)
+		_ = s.repo.UpdateTaskProgress(taskID, "正在准备参考素材", 0)
 	}
 	for index := range input.ReferenceImages {
 		reference := &input.ReferenceImages[index]
@@ -101,13 +102,18 @@ func (s *Service) prepareArkPrivateAssetReferences(ctx context.Context, userID s
 		reference.DataURL = ""
 	}
 	if taskID := taskExecutionID(ctx); taskID != "" {
-		_ = s.repo.UpdateTaskProgress(taskID, "调用生成模型", 40)
+		_ = s.repo.UpdateTaskProgress(taskID, "作品创作中", 0)
 	}
 	return nil
 }
 
 func isArkPrivateAssetVideoConfig(config providerConfig) bool {
-	return config.InterfaceType == string(model.ChannelInterfaceVolcengineArkVideo) || isArkPlanVideoConfig(config)
+	iface := strings.TrimSpace(config.InterfaceType)
+	// Agent Plan 图片与视频共用 /api/plan/v3；图片协议不得进入可信素材同步。
+	if iface == string(model.ChannelInterfaceVolcengineArkImage) || iface == "volcengine-ark-agent-plan-image" {
+		return false
+	}
+	return iface == string(model.ChannelInterfaceVolcengineArkVideo) || iface == "volcengine-ark-agent-plan-video" || isArkPlanVideoConfig(config)
 }
 
 func arkPrivateAssetAutomaticSyncEnabled(setting arkPrivateAssetSettingValue) (bool, error) {
@@ -224,7 +230,7 @@ func (s *Service) ensureArkPrivateAsset(ctx context.Context, userID string, reso
 		}
 	}
 	binding.AssetGroupID = groupID
-	resourceURL, err := s.directResourceURL(resource, time.Now().Add(time.Hour))
+	resourceURL, err := s.providerResourceURL(resource, time.Now().Add(time.Hour))
 	if err != nil {
 		return "", s.failArkPrivateAssetBinding(binding, fmt.Errorf("生成方舟素材临时地址失败：%w", err))
 	}

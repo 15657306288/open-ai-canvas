@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
-import { Alert, App, Button, Form, Input, Segmented, Switch, Tabs } from "antd";
+import { Alert, App, AutoComplete, Button, Form, Input, Segmented, Switch, Tabs } from "antd";
+import { useAdminContext } from "../admin-context";
 import { AdminModal } from "@/pages/admin/ui/overlays";
 import { FlaskConical, Plus } from "lucide-react";
 import { ModelIconPicker } from "@/components/model-logo";
@@ -10,8 +11,9 @@ import { defaultModelCapabilityConfig, normalizeModelCapabilityConfig, type Mode
 import type { ModelProtocolDefinition } from "@/lib/model-protocols";
 import { createAdminChannelModel, testAdminChannelModel, updateAdminChannelModel, type ChannelModel } from "@/services/api/wallet";
 import type { ModelChannel } from "@/stores/use-config-store";
-import { defaultPriceTier, normalizeUpstreamModelKey, priceTierResolutionFromForm, priceTierVideoSecondsFromForm, skuSelectorFromForm } from "./channel-model-price-tier-form";
+import { defaultPriceTier, normalizeUpstreamModelKey, priceTierPayloadFromForm } from "./channel-model-price-tier-form";
 import { PriceTierFields } from "./channel-model-price-tier-fields";
+import { ChannelModelTagsEditor } from "./channel-model-tags-editor";
 import { changeChannelModelCapability, editorSectionForField, initialChannelModelValues, validateChannelModelPrices, validateChannelModelProtocol, type ChannelModelFormValues as FormValues, type EditorSection } from "./channel-model-editor-form";
 
 export function ChannelModelEditor({
@@ -34,6 +36,10 @@ export function ChannelModelEditor({
     onSaved: () => Promise<void>;
 }) {
     const { message, modal } = App.useApp();
+    const { references } = useAdminContext();
+    const displayNameOptions = [...new Set(references.channels.flatMap((item) => item.modelDisplayNames ?? []))]
+        .sort((a, b) => a.localeCompare(b, "zh-CN"))
+        .map((value) => ({ value }));
     const [form] = Form.useForm<FormValues>();
     const [initialValues] = useState(() => initialChannelModelValues(editing, protocols));
     const [activeSection, setActiveSection] = useState<EditorSection>("identity");
@@ -106,22 +112,13 @@ export function ChannelModelEditor({
                 modelKey: values.modelKey.trim(),
                 providerModelKey: upstreamModel,
                 displayName: values.displayName?.trim() || values.modelKey.trim(),
+                channelLabel: values.channelLabel?.trim() || "",
+                tags: (values.tags || []).map((tag) => ({ text: tag.text.trim(), color: tag.color })),
+                description: values.description?.trim() || "",
                 icon: values.icon?.trim() || "",
                 capability: values.capability,
                 protocol: values.protocol,
-                priceTiers: values.priceTiers.map((tier) => ({
-                    selector: skuSelectorFromForm(values.capability, tier),
-                    resolution: priceTierResolutionFromForm(values.capability, tier),
-                    videoSeconds: priceTierVideoSecondsFromForm(values.capability, tier),
-                    providerModelKey: tier.providerModelKey?.trim() || upstreamModel,
-                    billingMode: tier.billingMode,
-                    unitPriceMicrocredits: Math.round((tier.unitPrice || 0) * 1_000_000),
-                    inputTokenPriceMicrocredits: Math.round((tier.inputTokenPrice || 0) * 1_000_000),
-                    outputTokenPriceMicrocredits: Math.round((tier.outputTokenPrice || 0) * 1_000_000),
-                    cachedTokenPriceMicrocredits: Math.round((tier.cachedTokenPrice || 0) * 1_000_000),
-                    priceConfigured: tier.priceConfigured !== false,
-                    enabled: tier.enabled !== false,
-                })),
+                priceTiers: values.priceTiers.map((tier) => priceTierPayloadFromForm(values.capability, tier, upstreamModel)),
                 enabled: values.enabled !== false,
                 capabilityConfig,
             };
@@ -244,7 +241,7 @@ export function ChannelModelEditor({
                                     <section className="admin-model-editor-section">
                                         <SectionHeading title="模型身份" description="区分产品侧展示标识与上游实际调用 ID。" />
                                         <div className="admin-model-editor-section-content admin-model-identity-grid admin-model-identity-grid-with-icon">
-                                            <Form.Item name="modelKey" label="产品模型标识" rules={[{ required: true, whitespace: true, message: "请输入产品模型标识" }]}>
+                                            <Form.Item name="modelKey" label="产品模型标识" tooltip="不同渠道使用相同标识时，创作端归为同一个产品模型。不同版本（例如 Fast）应使用不同标识；请勿为分组随意修改已有标识。" rules={[{ required: true, whitespace: true, message: "请输入产品模型标识" }]}>
                                                 <Input
                                                     prefix={
                                                         <span className="grid size-6 place-items-center">
@@ -257,8 +254,16 @@ export function ChannelModelEditor({
                                             <Form.Item name="providerModelKey" label="上游模型 ID" tooltip="实际发送给供应商；留空时使用产品模型标识。价格档可配置独立上游 ID，命中时优先于此处。">
                                                 <Input placeholder="留空则使用产品模型标识" />
                                             </Form.Item>
-                                            <Form.Item name="displayName" label="后台显示名称" tooltip="仅用于后台识别，不改变调用 ID。">
-                                                <Input placeholder="不填则使用模型标识" />
+                                            <Form.Item name="displayName" label="模型展示名（一级目录）" tooltip="跨所有系统渠道按此名称分组，例如 MiniMax H3。同名模型归入同一组，不改变调用 ID。">
+                                                <AutoComplete
+                                                    options={displayNameOptions}
+                                                    filterOption={(input, option) => Boolean(option?.value.toLowerCase().includes(input.toLowerCase()))}
+                                                    placeholder="选择已有分组或输入新名称"
+                                                    allowClear
+                                                />
+                                            </Form.Item>
+                                            <Form.Item name="channelLabel" label="渠道展示名（二级目录）" tooltip="此模型下的渠道选项，例如秘塔（满血渠道）。留空使用所属渠道名称。" rules={[{ max: 80, message: "渠道展示名不能超过 80 字" }]}>
+                                                <Input maxLength={80} placeholder="例如：正常渠道、优惠渠道-993、特惠渠道-730" />
                                             </Form.Item>
                                             <Form.Item name="icon" label="模型 Logo">
                                                 <ModelIconPicker />
@@ -272,6 +277,10 @@ export function ChannelModelEditor({
                                                 description="命中的请求会优先使用价格档的上游 ID；修改上方上游模型 ID 时，只有与旧值相同的档位会自动跟随更新，其余保持不变。"
                                             />
                                         ) : null}
+                                        <ChannelModelTagsEditor />
+                                        <Form.Item name="description" label="模型描述" extra="在创作端二级渠道选项中常驻显示，可说明适用场景、渠道差异和注意事项。" rules={[{ max: 500, message: "模型描述不能超过 500 字" }]}>
+                                            <Input.TextArea rows={3} maxLength={500} showCount placeholder="填写此渠道模型的使用说明" />
+                                        </Form.Item>
                                     </section>
                                     <section className="admin-model-editor-section">
                                         <SectionHeading title="能力与协议" description="先选任务类型，再选择对应的调用协议；更换后请核对参数与价格。" />
@@ -376,27 +385,31 @@ export function ChannelModelEditor({
                                                 ]}
                                             >
                                                 {(fields, { add, remove }, { errors }) => (
-                                                    <div className="space-y-3">
-                                                        {fields.map((field, index) => (
-                                                            <PriceTierFields
-                                                                key={field.key}
-                                                                index={field.name}
-                                                                ordinal={index + 1}
-                                                                form={form}
-                                                                capability={modelCapability}
-                                                                protocol={modelProtocol}
-                                                                capabilityConfig={capabilityConfig}
-                                                                modelUpstream={modelUpstream}
-                                                                onDirty={() => {
-                                                                    dirtyRef.current = true;
-                                                                }}
-                                                                onRemove={() => remove(field.name)}
-                                                            />
-                                                        ))}
-                                                        <Button className="admin-model-editor-add-tier" type="dashed" block icon={<Plus className="size-4" />} onClick={() => add(defaultPriceTier(hasDefaultPriceTier ? "advanced" : "default"))}>
-                                                            {hasDefaultPriceTier ? "新增规格价格" : "新增统一默认价格"}
-                                                        </Button>
-                                                        <Form.ErrorList errors={errors} />
+                                                    <div className="admin-price-tier-list-shell">
+                                                        <div className="admin-price-tier-list" aria-label="积分价格规则列表">
+                                                            {fields.map((field, index) => (
+                                                                <PriceTierFields
+                                                                    key={field.key}
+                                                                    index={field.name}
+                                                                    ordinal={index + 1}
+                                                                    form={form}
+                                                                    capability={modelCapability}
+                                                                    protocol={modelProtocol}
+                                                                    capabilityConfig={capabilityConfig}
+                                                                    modelUpstream={modelUpstream}
+                                                                    onDirty={() => {
+                                                                        dirtyRef.current = true;
+                                                                    }}
+                                                                    onRemove={() => remove(field.name)}
+                                                                />
+                                                            ))}
+                                                        </div>
+                                                        <div className="admin-price-tier-list-footer">
+                                                            <Button className="admin-model-editor-add-tier" type="dashed" block icon={<Plus className="size-4" />} onClick={() => add(defaultPriceTier(hasDefaultPriceTier ? "advanced" : "default"))}>
+                                                                {hasDefaultPriceTier ? "新增规格价格" : "新增统一默认价格"}
+                                                            </Button>
+                                                            <Form.ErrorList errors={errors} />
+                                                        </div>
                                                     </div>
                                                 )}
                                             </Form.List>

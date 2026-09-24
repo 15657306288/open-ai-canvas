@@ -10,6 +10,7 @@ import { isSeedanceVideoConfig } from "@/lib/seedance-video";
 import { modelCapabilityConfigFor, workflowFieldCurrentValue, workflowFieldHasStoredValue, workflowFieldKey, workflowFieldRandomKey, workflowFieldSubmissionValue, workflowOutputSizeValue, workflowVideoFieldsFromJson } from "@/lib/model-capabilities";
 import { modelRequestOptions, resolveCompatibleModel, resolveModelGenerationDefaults, resolveVideoOperation, type ModelGenerationDefaults, type ModelRequirements } from "@/lib/model-selection";
 import { imageMetadata } from "@/lib/canvas/canvas-generation-task-sync";
+import { producedModelCandidateForGeneration } from "@/lib/canvas/produced-model";
 import { ensureMediaNodeMinimumSize } from "@/lib/canvas/canvas-node-size";
 import { interruptFileUpload } from "@/lib/canvas/canvas-file-upload";
 import { isCanvasWorkflowProvider, resolveCanvasWorkflowProvider } from "@/lib/canvas/canvas-workflow";
@@ -17,6 +18,7 @@ import type { CanvasNodeGenerationMode } from "@/components/canvas/canvas-node-p
 import { CanvasNodeType, type CanvasAssistantSession, type CanvasConnection, type CanvasImageGenerationType, type CanvasNodeData, type CanvasNodeMetadata, type CanvasVideoEditOperation } from "@/types/canvas";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
+import { generationSpecMetadata, readNodeGenerationSpec, resolveGenerationSelection } from "@/lib/canvas/generation-contract";
 
 export async function runBackendCanvasGenerationTask(
     {
@@ -157,6 +159,8 @@ export function generationTaskMetadata(task: GenerationTask): CanvasNodeMetadata
         taskStatus: task.status,
         taskProgress: progress,
         taskStage: task.stage,
+        taskMediaStage: task.mediaStage,
+        taskCanRecoverMedia: task.canRecoverMedia,
         taskProvider: task.provider,
         taskStartedAt: task.startedAt,
         taskCompletedAt: task.completedAt,
@@ -169,34 +173,7 @@ export function generationTaskMetadata(task: GenerationTask): CanvasNodeMetadata
     };
 }
 
-// 失败节点再次提交前必须移除旧任务绑定，否则批次调度会把它误判为仍在处理。
-export function resetGenerationTaskMetadata(metadata: CanvasNodeMetadata | undefined, status: CanvasNodeMetadata["status"] = "idle"): CanvasNodeMetadata {
-    const next = {
-        ...(metadata || {}),
-        status,
-        errorDetails: undefined,
-        generationErrorCode: undefined,
-        resourceReloadAvailable: undefined,
-        failedPromptFingerprint: undefined,
-    };
-    delete next.taskId;
-    delete next.taskClientOperationId;
-    delete next.retryOf;
-    delete next.attemptGroupId;
-    delete next.taskStatus;
-    delete next.taskProgress;
-    delete next.taskStage;
-    delete next.taskProvider;
-    delete next.taskStartedAt;
-    delete next.taskCompletedAt;
-    delete next.taskDurationMs;
-    delete next.taskErrorCode;
-    delete next.taskOfficialStatus;
-    delete next.taskReceiptRecorded;
-    delete next.taskCreatedAt;
-    delete next.taskUpdatedAt;
-    return next;
-}
+export { resetGenerationTaskMetadata } from "@/lib/canvas/canvas-task-state";
 
 function normalizeTaskProgress(progress: number | undefined, status: GenerationTask["status"]) {
     if (typeof progress === "number" && Number.isFinite(progress)) return Math.max(0, Math.min(100, Math.round(progress)));
@@ -223,6 +200,7 @@ export function buildImageGenerationMetadata(type: CanvasImageGenerationType, co
         ...generationWorkflowMetadata(config),
         generationType: type,
         model: config.model,
+        producedModelCandidate: producedModelCandidateForGeneration(config),
         size: config.size,
         quality: config.quality,
         transparentBackground: config.transparentBackground,
@@ -259,6 +237,7 @@ export function buildAudioGenerationMetadata(config: AiConfig): CanvasNodeMetada
     return {
         ...generationWorkflowMetadata(config),
         model: config.model,
+        producedModelCandidate: producedModelCandidateForGeneration(config),
         audioVoice: config.audioVoice,
         audioFormat: config.audioFormat,
         audioSpeed: config.audioSpeed,
@@ -416,12 +395,18 @@ export function generationWorkflowMetadata(config: AiConfig): Pick<CanvasNodeMet
     };
 }
 
-export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefined, mode: CanvasNodeGenerationMode, requirements?: ModelRequirements): AiConfig {
+export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefined, mode: CanvasNodeGenerationMode, requirements?: ModelRequirements, displayOnly = false): AiConfig {
+    const generationSpec = node ? readNodeGenerationSpec(node) : undefined;
+    const selection = generationSpec?.mode === mode ? generationSpec.modelSelection : undefined;
+    const selectedModel = resolveGenerationSelection(config, selection);
+    if (selection && !selectedModel && !displayOnly) throw new Error("节点选择的模型或渠道已不可用，请重新选择模型后生成");
+    if (node && generationSpec?.mode === mode) node = { ...node, metadata: { ...node.metadata, ...generationSpecMetadata(generationSpec) } };
     // 只有独立 Config 节点读取工作流元数据；普通图片/视频/音频节点始终按基础模型生成。
     const workflowProvider = mode !== "text" && node?.type === CanvasNodeType.Config && resolveCanvasWorkflowProvider(node.metadata) === "runninghub" ? "runninghub" : "model";
     const defaultModel = mode === "image" ? config.imageModel : mode === "video" ? config.videoModel : mode === "audio" ? config.audioModel : config.textModel;
     const fallbackModel = mode === "image" ? defaultConfig.imageModel : mode === "video" ? defaultConfig.videoModel : mode === "audio" ? defaultConfig.audioModel : defaultConfig.textModel;
-    const storedModel = resolveCanvasGenerationModel(config, node?.metadata?.model, mode);
+    const storedModel = resolveCanvasGenerationModel(config, selectedModel || node?.metadata?.model, mode);
+    if (selection && selectedModel && !storedModel && !displayOnly) throw new Error("节点选择的模型不支持当前生成模式，请重新选择");
     const preferredModel = storedModel || resolveCanvasGenerationModel(config, defaultModel, mode) || fallbackModel;
     // 先合并节点上的实时选择，再做兼容性匹配。否则路由只看到全局默认值，节点改过的时长、分辨率或布尔能力无法参与分流。
     const workflowParameters = node?.metadata?.workflowParameters || {};
@@ -507,10 +492,10 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
         quality: generationDefaults.quality || requestedConfig.quality,
         size: generationDefaults.size ?? requestedConfig.size,
         transparentBackground: generationDefaults.transparentBackground || (requestedConfig.transparentBackground === "true" ? "true" : "false"),
-        videoSeconds: generationDefaults.videoSeconds || requestedConfig.videoSeconds,
+        videoSeconds: generationDefaults.videoSeconds ?? requestedConfig.videoSeconds,
         vquality: generationDefaults.vquality ?? requestedConfig.vquality,
-        videoGenerateAudio: generationDefaults.videoGenerateAudio || requestedConfig.videoGenerateAudio,
-        videoWatermark: generationDefaults.videoWatermark || requestedConfig.videoWatermark,
+        videoGenerateAudio: generationDefaults.videoGenerateAudio ?? requestedConfig.videoGenerateAudio,
+        videoWatermark: generationDefaults.videoWatermark ?? requestedConfig.videoWatermark,
         videoArkPrivateAssetUpload: requestedConfig.videoArkPrivateAssetUpload,
         count: generationDefaults.count || requestedConfig.count,
     };

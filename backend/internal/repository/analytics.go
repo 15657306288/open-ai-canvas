@@ -144,7 +144,7 @@ func (r *Repository) filteredAPICallLogQuery(filter APICallLogFilter) *gorm.DB {
 		query = query.Where("api_call_logs.request_kind = ?", "download")
 	case "all":
 	default:
-		query = visibleAPICallLogQuery(query).Where("COALESCE(api_call_logs.request_kind, '') <> ?", "download")
+		query = visibleAPICallLogQuery(query).Where("COALESCE(api_call_logs.request_kind, '') NOT IN ?", []string{"download", "upload", "local_save", "register"})
 	}
 	if value := strings.TrimSpace(filter.Keyword); value != "" {
 		pattern := "%" + strings.ToLower(value) + "%"
@@ -167,7 +167,7 @@ func (r *Repository) APICallLogTasks(ids []string) ([]model.Task, error) {
 		return []model.Task{}, nil
 	}
 	var tasks []model.Task
-	err := r.db.Select("id", "user_id", "type", "status", "result_json").Where("id IN ?", ids).Find(&tasks).Error
+	err := r.db.Select("id", "user_id", "type", "status", "result_json", "media_stage").Where("id IN ?", ids).Find(&tasks).Error
 	return tasks, err
 }
 
@@ -178,6 +178,55 @@ func (r *Repository) LatestProviderRequestIDForTask(taskID string) (string, erro
 		Order("created_at desc").
 		First(&log).Error
 	return strings.TrimSpace(log.ProviderRequestID), err
+}
+
+// LatestProviderRequestIDsForTasks returns the newest upstream request ID per task.
+// Task list queries intentionally select a narrow read model; this bulk lookup
+// hydrates IDs recorded in API logs so the UI can hide cancellation after the
+// upstream request has been accepted even when the task row was not updated yet.
+func (r *Repository) LatestProviderRequestIDsForTasks(taskIDs []string) (map[string]string, error) {
+	result := make(map[string]string, len(taskIDs))
+	if len(taskIDs) == 0 {
+		return result, nil
+	}
+	var logs []model.ApiCallLog
+	err := r.db.Select("task_id", "provider_request_id", "created_at").
+		Where("task_id IN ? AND provider_request_id <> ''", taskIDs).
+		Order("created_at desc").
+		Find(&logs).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, log := range logs {
+		taskID := strings.TrimSpace(log.TaskID)
+		providerRequestID := strings.TrimSpace(log.ProviderRequestID)
+		if taskID == "" || providerRequestID == "" {
+			continue
+		}
+		if _, exists := result[taskID]; !exists {
+			result[taskID] = providerRequestID
+		}
+	}
+	return result, nil
+}
+
+// APICallLogUsageForTask 返回一次任务调用里上游上报的用量。
+// 这是模型自己的分词器算出的计数，是上下文压力可以采信的权威锚点；
+// 没有上报（usage_available=false 或输入为 0）时返回 false，调用方退回本地估算。
+func (r *Repository) APICallLogUsageForTask(userID, taskID string) (model.ApiCallLog, bool, error) {
+	if strings.TrimSpace(userID) == "" || strings.TrimSpace(taskID) == "" {
+		return model.ApiCallLog{}, false, nil
+	}
+	var log model.ApiCallLog
+	err := r.db.Where("user_id = ? AND task_id = ? AND capability = ? AND status = ? AND usage_available = ?", userID, taskID, "text", model.ApiCallStatusSucceeded, true).
+		Order("created_at DESC").Limit(1).Find(&log).Error
+	if err != nil {
+		return model.ApiCallLog{}, false, err
+	}
+	if log.ID == "" || log.InputTokens <= 0 {
+		return model.ApiCallLog{}, false, nil
+	}
+	return log, true, nil
 }
 
 func (r *Repository) HasAPICallLogForTask(taskID string) (bool, error) {

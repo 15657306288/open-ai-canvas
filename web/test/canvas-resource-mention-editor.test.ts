@@ -121,6 +121,10 @@ describe("canvas resource mention editor", () => {
         expect(component).toContain("const token = `@[skill:${skill.skillId}] `");
         expect(component).toContain("slash.start + 1 + slash.query.length");
         expect(component).toContain("buildSkillMentionReferences(availableSlashSkills)");
+        expect(component).toContain("[/、]([^\\s/、]*)$");
+        // 保留主分支已恢复的固定 Skills 提示，不能因合并旧分支退回失效的外观配置断言。
+        expect(source("../src/lib/canvas/agent-appearance.ts")).toContain("用 / 或 、 引用 Skills");
+        expect(source("../src/components/canvas/canvas-cloud-agent-panel.tsx")).toContain("用 / 或 、 引用 Skills");
     });
 
     test("skill chips use one colored icon instead of exposing the serialized token", () => {
@@ -128,13 +132,17 @@ describe("canvas resource mention editor", () => {
         const chat = source("../src/components/canvas/canvas-cloud-agent-chat-ui.tsx");
         const css = source("../src/components/canvas/canvas-cloud-agent.css");
 
-        expect(component).toContain('chip.className = `canvas-resource-inline-mention ${reference.kind === "skill" ? "is-skill" : ""}`');
-        expect(component).toContain('prefix.textContent = reference.kind === "skill" ? "✦" : "@"');
-        expect(component).toContain('if (reference.kind !== "skill") chip.appendChild(createInlinePreview(reference));');
+        expect(component).toContain('const isDecorated = reference.kind === "skill" || reference.kind === "tool"');
+        expect(component).toContain('chip.className = `canvas-resource-inline-mention ${isDecorated ? `is-${reference.kind}` : ""}`');
+        expect(component).toMatch(/if \(reference.kind === "skill"\)\s*\{\s*prefix.textContent = "✦"/);
+        expect(component).toContain('prefix.textContent = "@"');
+        expect(component).toContain("if (!isDecorated) chip.appendChild(createInlinePreview(reference));");
         expect(component).toContain('chip.style.setProperty("--canvas-skill-mention-color", skillMentionColor(reference))');
-        expect(chat).toContain("sendOnEnter={false}");
+        expect(chat).toContain('sendOnEnter={canSubmit ? "both" : false}');
         expect(chat).toContain("agent-composer-resize-handle");
-        expect(chat).toContain("Enter 换行 · ⌘/Ctrl+Enter 发送");
+        expect(chat).toContain("Enter 发送 · Shift+Enter 换行");
+        expect(css).toContain(".agent-composer-send-hint-full");
+        expect(css).toContain(".agent-composer-send-hint-compact");
         expect(css).toContain(".agent-composer-prompt-scroll");
         expect(css).not.toContain(".agent-tool-row:hover");
     });

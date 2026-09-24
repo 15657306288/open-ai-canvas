@@ -3,6 +3,8 @@ package capability
 const (
 	maxAgentNodeTitleRunes   = 240
 	maxAgentNodeContentRunes = 16000
+	// 坐标绝对值上限：与 app 侧整理工具收敛几何值的范围一致。
+	maxAgentNodeCoordLimit = 1e6
 )
 
 func BuiltinRegistry() *Registry {
@@ -51,18 +53,24 @@ func BuiltinRegistry() *Registry {
 			},
 		},
 		{
-			Type: "batch-table", Version: "1", Label: "批量创作表", DefaultWidth: 900, DefaultHeight: 520,
-			Purpose:     "面向电商批量换装和创意生图的结构化任务表；每行绑定最多六组画布图片、可用 @参考图1 等位置引用编写独立提示词，并追踪生成结果。",
+			Type: "batch-table", Version: "1", Label: "批量创作表", DefaultWidth: 1280, DefaultHeight: 560,
+			Purpose:     "面向电商批量换装和创意生图的结构化任务表；每行绑定最多六组画布图片、可用 @参考图1 等位置引用编写独立提示词，也可设置全局提示词覆盖各行，并追踪生成结果。",
 			GoodFor:     []string{"商品与模特批量换装", "同一商品多场景创意图", "多组参考图组合生成", "批量结果追踪与失败重试"},
 			NotIdealFor: []string{"通用数据库或库存管理", "单张图片快速试验", "多镜头叙事连续性"},
 			Tradeoffs:   []string{"参考图必须先作为图片节点进入画布", "批量提交会产生多项生成任务，执行前必须确认模型、数量和费用"},
-			Actions:     []string{"read_rows", "append_row", "update_row", "remove_row", "set_operation", "set_concurrency", "add_reference_column", "preview_batch_generation"},
+			Actions:     []string{"read_rows", "append_row", "update_row", "remove_row", "set_operation", "set_concurrency", "add_reference_column", "remove_reference_column", "set_global_prompt", "preview_batch_generation"},
 			InputKind:   "text",
 			Connection:  ConnectionPolicy{CanSource: true, CanTarget: true, AcceptedInputKinds: []string{"image"}},
 			CanUpdate:   true, SummaryFields: []string{"batchTable"}, DetailFields: []string{"batchTable"}, ProjectionKind: "batch_table", ProjectionField: "batchTable",
-			PatchFields: map[string]PatchField{
-				"title": {Path: "title", Kind: patchKindString, Label: "节点名称", Order: 10, Description: "批量创作表标题", MaxRunes: maxAgentNodeTitleRunes},
-			},
+			PatchFields: func() map[string]PatchField {
+				fields := map[string]PatchField{
+					"title": {Path: "title", Kind: patchKindString, Label: "节点名称", Order: 10, Description: "批量创作表标题", MaxRunes: maxAgentNodeTitleRunes},
+				}
+				for key, field := range positionPatchFields() {
+					fields[key] = field
+				}
+				return fields
+			}(),
 			CreateMetadata: func(string) map[string]any {
 				return map[string]any{
 					"status": "idle",
@@ -151,13 +159,26 @@ func generatedMediaSemantics(nodeType string) generatedMediaCapabilitySemantics 
 }
 
 func editableNodeFields(contentPath, contentLabel, contentDescription string) map[string]PatchField {
-	return map[string]PatchField{
+	fields := map[string]PatchField{
 		"title": {
 			Path: "title", Kind: patchKindString, Label: "节点名称", Order: 10, Description: "节点标题", MaxRunes: maxAgentNodeTitleRunes,
 		},
 		"content": {
 			Path: contentPath, Kind: patchKindString, Label: contentLabel, Order: 20, Description: contentDescription, MaxRunes: maxAgentNodeContentRunes,
 		},
+	}
+	for key, field := range positionPatchFields() {
+		fields[key] = field
+	}
+	return fields
+}
+
+// positionPatchFields 是坐标字段：模型可以直接指定节点位置（微调），批量整理走 canvas_arrange_nodes。
+// 坐标上限与整理侧的收敛范围一致，避免写进离谱的几何值。
+func positionPatchFields() map[string]PatchField {
+	return map[string]PatchField{
+		"x": {Path: "position.x", Kind: patchKindNumber, Label: "横坐标", Order: 30, Limit: maxAgentNodeCoordLimit, Description: "画布横坐标（像素）；与 y 一起移动节点，通常用 canvas_arrange_nodes 批量整理"},
+		"y": {Path: "position.y", Kind: patchKindNumber, Label: "纵坐标", Order: 31, Limit: maxAgentNodeCoordLimit, Description: "画布纵坐标（像素）；与 x 一起移动节点，通常用 canvas_arrange_nodes 批量整理"},
 	}
 }
 

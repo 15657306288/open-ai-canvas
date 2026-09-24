@@ -269,8 +269,8 @@ func TestLessonsBlockIsIndexNotDump(t *testing.T) {
 	if strings.Contains(block, "不该出现的做法全文") || strings.Contains(block, "；做法：") {
 		t.Fatalf("记忆不得把做法全文塞进系统提示：%s", block)
 	}
-	if !strings.Contains(block, "recall_lessons") || !strings.Contains(block, "当前用户消息才是目标") {
-		t.Fatalf("应保留按需取全文入口：%s", block)
+	if strings.Contains(block, "动手前") || strings.Contains(block, "仍应 recall_lessons") {
+		t.Fatalf("索引不应注入强制召回指令：%s", block)
 	}
 }
 
@@ -411,6 +411,28 @@ func TestLessonSearchTokensAreCapped(t *testing.T) {
 	}
 	if got := cloudAgentLessonSearchTokens(long); len(got) > cloudAgentLessonSearchTokenMax {
 		t.Fatalf("词数应被截到 %d，得到 %d", cloudAgentLessonSearchTokenMax, len(got))
+	}
+}
+
+func TestLessonSearchTokensKeepsSingleCJKRune(t *testing.T) {
+	// 单字停用词过滤照搬的是英文逻辑（a / I）；中文单字「梗」「钩」「戏」本身就是完整语义的最小单位，
+	// 被 < 2 一刀切后 tokens 为空，cloudAgentSearchLessons 会静默回落为「列前 N 条」——
+	// 用户以为搜过了，拿到的却是任意清单。
+	got := cloudAgentLessonSearchTokens("反转 钩子 梗 钩")
+	want := []string{"反转", "钩子", "梗", "钩"}
+	if len(got) != len(want) {
+		t.Fatalf("切词结果 %v，期望 %v", got, want)
+	}
+	for index := range want {
+		if got[index] != want[index] {
+			t.Fatalf("切词结果 %v，期望 %v", got, want)
+		}
+	}
+	// 只放行汉字单字：英文/数字单字与空串仍按停用词处理。
+	for _, keyword := range []string{"a", "I", "7", "", "，、。；"} {
+		if tokens := cloudAgentLessonSearchTokens(keyword); len(tokens) != 0 {
+			t.Fatalf("%q 应无候选词，得到 %v", keyword, tokens)
+		}
 	}
 }
 

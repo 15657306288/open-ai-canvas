@@ -267,12 +267,12 @@ func TestCloudAgentCanvasReadsFullPromptAssetsAndConnections(t *testing.T) {
 	s, _, _ := agentMediaFixture(t)
 	canvas, _ := s.repo.CanvasProjectForUser("user", "agent-canvas")
 	doc, _ := creationDocument(canvas.PayloadJSON)
-	result, err := cloudAgentCanvasState(s.repo, "user", doc, 0, []string{"shot-1", "cat"}, 0)
+	result, err := cloudAgentCanvasState(s.repo, "user", "agent-canvas", doc, 0, []string{"shot-1", "cat"}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := json.Marshal(result)
-	if strings.Contains(string(raw), "must-not-expose") || strings.Contains(string(raw), "storageKey") || strings.Contains(string(raw), "resource:ref-one") || !strings.Contains(string(raw), `"referenceReady":true`) || !strings.Contains(string(raw), strings.Repeat("镜头完整指令", 500)) {
+	if strings.Contains(string(raw), "must-not-expose") || strings.Contains(string(raw), "storageKey") || strings.Contains(string(raw), "resource:ref-one") || !strings.Contains(string(raw), `"outputReference":{"ready":true}`) || !strings.Contains(string(raw), strings.Repeat("镜头完整指令", 500)) {
 		t.Fatalf("incomplete/unsafe context: %.200s", raw)
 	}
 }
@@ -372,6 +372,31 @@ func TestCloudAgentMediaChangedCanvasRollsBackAdmission(t *testing.T) {
 	}
 }
 
+func TestCloudAgentMediaFillsMissingSnapshotHash(t *testing.T) {
+	s, db, a := agentMediaFixture(t)
+	if sqlDB, err := db.DB(); err == nil {
+		t.Cleanup(func() { _ = sqlDB.Close() })
+	}
+	want := a.SnapshotHash
+	a.SnapshotHash = ""
+	run, state := agentMediaRun(t, s, a, "auto", "fill-missing-snapshot")
+	_, plan, err := s.prepareCloudAgentMedia(run, &state, agentMediaCall(a))
+	if err != nil {
+		t.Fatalf("missing snapshotHash should be filled from current canvas: %v", err)
+	}
+	if plan.Args.SnapshotHash == "" {
+		t.Fatal("filled snapshotHash is empty")
+	}
+	canvas, _ := s.repo.CanvasProjectForUser("user", "agent-canvas")
+	doc, _ := creationDocument(canvas.PayloadJSON)
+	if plan.Args.SnapshotHash != cloudAgentMediaContentHash(doc) {
+		t.Fatalf("filled hash %s, want media content hash", plan.Args.SnapshotHash)
+	}
+	if want == "" {
+		t.Fatal("fixture snapshot missing")
+	}
+}
+
 func TestCloudAgentMediaFailedTaskUpdatesNode(t *testing.T) {
 	s, db, a := agentMediaFixture(t)
 	run, _ := agentMediaRun(t, s, a, "auto")
@@ -403,6 +428,9 @@ func TestCloudAgentMediaFailedTaskUpdatesNode(t *testing.T) {
 	result, _ := last.Payload["result"].(map[string]any)
 	if last.Type != "tool_failed" || result["taskId"] != taskID || result["nodeId"] != a.NodeID || !strings.Contains(stringValue(result["error"]), "上游拒绝该生成规格") {
 		t.Fatalf("failure lost diagnostic details: %+v", last)
+	}
+	if run.Status == "failed" {
+		t.Fatalf("media task failure must keep the agent run alive: status=%s events=%d", run.Status, len(state.Events))
 	}
 }
 
@@ -526,7 +554,7 @@ func TestCloudAgentMediaPreviousDraftRequiresNewApproval(t *testing.T) {
 	}
 	canvas, _ := s.repo.CanvasProjectForUser("user", "agent-canvas")
 	doc, _ := creationDocument(canvas.PayloadJSON)
-	view, err := cloudAgentCanvasState(s.repo, "user", doc, 0, []string{a.NodeID}, 0)
+	view, err := cloudAgentCanvasState(s.repo, "user", "agent-canvas", doc, 0, []string{a.NodeID}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -651,7 +679,8 @@ func TestCloudAgentAutoMediaDraftRequiresExplicitApproval(t *testing.T) {
 func TestCloudAgentMediaPromptCountsUnicodeCharacters(t *testing.T) {
 	s, _, a := agentMediaFixture(t)
 	run, state := agentMediaRun(t, s, a, "auto")
-	a.Prompt = strings.Repeat("镜", 16000)
+	const mentions = "@图片1 @图片2"
+	a.Prompt = strings.Repeat("镜", 16000-len([]rune(mentions))) + mentions
 	if _, _, err := s.prepareCloudAgentMedia(run, &state, agentMediaCall(a)); err != nil {
 		t.Fatal(err)
 	}
@@ -792,5 +821,54 @@ func TestCloudAgentCanvasUpdatesExistingVideoDraftThroughCapabilityContract(t *t
 	}
 	if metadata["prompt"] != "原始已提交提示词" || metadata["status"] != "error" || metadata["referenceIssue"] != "参考资产尚未准备完成" {
 		t.Fatalf("video task state or submission snapshot was overwritten: %#v", metadata)
+	}
+}
+
+func TestCloudAgentMediaDependencyIgnoresNodeMovement(t *testing.T) {
+	s, _, args := agentMediaFixture(t)
+	canvas, err := s.repo.CanvasProjectForUser("user", "agent-canvas")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := creationDocument(canvas.PayloadJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodeList := append(creationMaps(doc["nodes"]), map[string]any{
+		"id": "video-shot-1", "type": "video", "title": "镜头1视频",
+		"position": map[string]any{"x": 100.0, "y": 100.0}, "width": 360.0, "height": 640.0,
+		"metadata": map[string]any{"status": "idle", "prompt": args.Prompt, "agentDraftRunId": "run-current"},
+	})
+	normalizedNodes, err := json.Marshal(nodeList)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decodedNodes []any
+	if err := json.Unmarshal(normalizedNodes, &decodedNodes); err != nil {
+		t.Fatal(err)
+	}
+	doc["nodes"] = decodedNodes
+	args.DraftRunID = "run-current"
+	base, err := cloudAgentMediaDependencyHash(doc, args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	moved := cloneCreationDocument(doc)
+	nodes, err := creationObjects(moved["nodes"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"video-shot-1", "cat", "hero", "shot-1"} {
+		node := nodes[id]
+		position := node["position"].(map[string]any)
+		position["x"] = position["x"].(float64) + 240
+		position["y"] = position["y"].(float64) + 120
+	}
+	got, err := cloudAgentMediaDependencyHash(moved, args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != base {
+		t.Fatalf("moving target or input nodes changed generation dependency: base=%s got=%s", base, got)
 	}
 }

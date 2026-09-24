@@ -205,7 +205,11 @@ func RegisterFinanceRoutes(r *gin.RouterGroup, svc *service.Service) {
 			failService(c, err)
 			return
 		}
-		ok(c, gin.H{"models": items})
+		models := make([]adminChannelModelResponse, 0, len(items))
+		for _, item := range items {
+			models = append(models, adminChannelModel(item))
+		}
+		ok(c, gin.H{"models": models})
 	})
 	r.POST("/admin/channels/:id/models/fetch", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
@@ -291,6 +295,27 @@ func RegisterFinanceRoutes(r *gin.RouterGroup, svc *service.Service) {
 			return
 		}
 		ok(c, gin.H{"deleted": deleted})
+	})
+	r.POST("/admin/channels/:id/models/batch-reprice", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 2<<20)
+		var req struct {
+			Models []service.ChannelModelRepriceRequest `json:"models" binding:"required"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		updated, err := svc.RepriceAdminChannelModels(user, c.Param("id"), req.Models)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"updated": updated})
 	})
 	r.PATCH("/admin/channels/:id/models/:modelId", func(c *gin.Context) {
 		saveChannelModel(c, svc, c.Param("modelId"))
@@ -501,5 +526,5 @@ func saveChannelModel(c *gin.Context, svc *service.Service, id string) {
 		failService(c, err)
 		return
 	}
-	ok(c, gin.H{"model": item})
+	ok(c, gin.H{"model": adminChannelModel(*item)})
 }

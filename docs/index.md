@@ -4,6 +4,16 @@
 
 ## 设计沉淀
 
+- [资源访问与 OSS/CDN 分发架构重构](design/resource-delivery-architecture.md)：资源身份、场景授权与分发策略分离，统一访问合同、全入口迁移、旧实现退场及流量/安全验收门槛（核心代码已实施，待真实 OSS/CDN 链路验收）。
+
+- [短信渠道插件与登录注册策略](design/sms-channels-and-auth-policy.md)：阿里云/腾讯云官方 SDK 候选基线、多渠道与模板路由、发送记录、验证码安全、短信和邮箱登录注册组合及分阶段验收（核心代码已实施，待真实 OSS/CDN 链路验收）。
+
+- [画布批量生成一致性治理](design/canvas-consistency-repair.mdx)：节点丢失、批次状态与引用解析的根因、已实施边界重构、回归证据和仍待验收的性能/同步场景。
+
+- [画布 Agent 外观与 Live2D](content/docs/backend/canvas-agent-appearance.mdx)：独立助手名称、文案模板、模型包边界、Core 部署和验收要求。
+
+- [云端 Agent 架构优化方案](design/cloud-agent-architecture-optimization.md)：跨端生成合同、引用绑定、审批依赖、报价预算、运行存储与工作上下文的现状审查、分阶段方案和验收门槛（提案，未实施）。
+
 - [影策品牌首页](design/story-creation-homepage.md)：六幕电影卷轴、公开入口、故事素材、工作台预览与响应式降级。
 
 - [插件平台与市场演进调研](design/plugin-platform-and-marketplace-research.md)：插件机制代码审计、对外回应、外部 SDK 与隔离运行时、独立插件验收、受控目录到公开市场的分阶段方案（调研建议，未实施）。
@@ -35,6 +45,7 @@
 - [ADR-0006：语音滤镜与项目模板](adr/0006-voice-filters-and-templates.md)：补充评估 Concat 剩余两个缺口——语音滤镜走 Web Audio 预览近似 + ffmpeg 音频滤镜图导出，模板走项目快照服务化；均为预设插件且服从单一滤镜图计划。
 - [ADR-0007：AI 编辑交互](adr/0007-ai-editing-interaction.md)：对话式剪辑作为预设插件——AI 输出受约束命令 JSON（schema 校验 fail-closed），与手势命令同队列同撤销栈；≤3 条直接执行、批量改动 diff 预览待确认。
  - [ADR-0008：自研 UI 组件层与 AntD 替换](adr/0008-ui-component-layer-antd-replacement.md)：`components/ui` 重建为自研组件层（Celadon UI），吸收 dbx 契约形态（族目录+barrel）与 BoardUI 设计深度（语义状态矩阵/复合排版/RAC 原语/动效纪律/agentic 产品块），分阶段替换 AntD（依赖面 180 文件/41 导入）最终脱离；试点画布工具条/节点徽章，唯一实施计划见 [plans/ui-kit-rollout-plan.mdx](plans/ui-kit-rollout-plan.mdx)，活规范见 [plans/ui-design-system.mdx](plans/ui-design-system.mdx)。
+- [ADR-0009：媒体产出模型与选用模型分开记录](adr/0009-produced-model-separate-from-selection.md)：生成成功时冻结产出模型，选用模型继续随下拉变化；角标按当前目录解析展示名。
 
 ## 本地协作文档（不随仓库分发）
 
