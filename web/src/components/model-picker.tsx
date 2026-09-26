@@ -182,7 +182,7 @@ export function ModelPicker({
         >
             {optionGroups.length ? (
                 activeGroupKey === null ? (
-                    <div className="canvas-model-picker-brands" aria-label="选择产品模型">
+                    <div className="canvas-model-picker-brands" aria-label="选择渠道">
                         {optionGroups.map((group) => {
                             const groupCurrent = group.models.find((item) => item.models.includes(current));
                             return <button key={group.key} type="button" data-model-picker-item className={cn("canvas-model-picker-brand", groupCurrent && "is-active")} aria-pressed={Boolean(groupCurrent)} onClick={() => { setActiveGroupKey(group.key); focusMenuOption(); }}>
@@ -193,7 +193,7 @@ export function ModelPicker({
                         })}
                     </div>
                 ) : <div className="canvas-model-picker-two-pane">
-                    <div className="canvas-model-picker-brand-rail" aria-label="产品模型">
+                    <div className="canvas-model-picker-brand-rail" aria-label="渠道">
                         {optionGroups.map((group) => {
                             return <button key={group.key} type="button" className={cn("canvas-model-picker-brand", activeGroupKey === group.key && "is-active")} aria-pressed={activeGroupKey === group.key} onClick={() => setActiveGroupKey(group.key)}>
                                 <span className="canvas-model-picker-brand-icon"><ModelLogo icon={group.icon} size={22} /></span>
