@@ -4,7 +4,7 @@ import { Tooltip } from "@/components/ui/base/tooltip";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { ArrowLeft, ArrowUp, AtSign, Bookmark, BrainCircuit, CheckCircle2, ChevronDown, ChevronUp, CircleAlert, CircleDot, Clapperboard, Eye, HelpCircle, ImagePlus, Layers3, List, ListChecks, LoaderCircle, MessageCircle, Palette, Pencil, Plus, RotateCcw, Shapes, Share2, ShoppingBag, Sparkles, Square, UserRound, Wrench, X, XCircle } from "lucide-react";
+import { ArrowLeft, ArrowUp, AtSign, Bookmark, CheckCircle2, ChevronDown, ChevronUp, CircleAlert, CircleDot, Clapperboard, Eye, HelpCircle, ImagePlus, Layers3, List, ListChecks, LoaderCircle, Palette, Pencil, Plus, RotateCcw, Shapes, Share2, ShoppingBag, Sparkles, Square, Wrench, X, XCircle } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { AIMessageMarkdown } from "@/components/ai/ai-message-markdown";
@@ -321,11 +321,6 @@ export function AgentChatMessage({
     }
     return (
         <div className={`flex items-start gap-3 ${isUser ? "justify-end" : "justify-start"}`}>
-            {!isUser ? (
-                <span className="agent-message-icon agent-message-icon--assistant" aria-hidden="true">
-                    <MessageCircle className="size-4" />
-                </span>
-            ) : null}
             <div className={`agent-message-body min-w-0 text-sm leading-6 ${isUser ? "agent-message-user max-w-[82%] px-4 py-3 text-right" : "max-w-full flex-1 text-left"}`} style={{ color }}>
                 {item.interjection ? (
                     <span
@@ -345,11 +340,6 @@ export function AgentChatMessage({
                 {item.attachments?.length ? <AgentMessageAttachments attachments={item.attachments} /> : null}
                 {item.meta ? <div className="mt-1 text-[var(--fs-label)] opacity-45">{item.meta}</div> : null}
             </div>
-            {isUser ? (
-                <span className="agent-message-icon agent-message-icon--user" aria-hidden="true">
-                    <UserRound className="size-4" />
-                </span>
-            ) : null}
         </div>
     );
 }
@@ -372,9 +362,6 @@ export function AgentReasoningFeed({
         <div className="agent-reasoning" style={{ "--agent-reasoning-accent": theme.accent.primary } as CSSProperties}>
             <details className={`agent-reasoning-card${streaming ? " is-streaming" : ""}`}>
                 <summary className="agent-reasoning-summary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current/20">
-                    <span className={`agent-reasoning-icon${streaming ? " is-live" : ""}`} aria-hidden="true">
-                        <BrainCircuit className="size-4" />
-                    </span>
                     <span className="agent-reasoning-copy">
                         <span className="agent-reasoning-title">{streaming ? "模型正在思考" : "模型思考"}</span>
                         <span className="agent-reasoning-subtitle">{streaming ? "实时整理 · 点击查看" : `${countLabel}点击查看`}</span>
