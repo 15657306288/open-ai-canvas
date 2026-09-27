@@ -101,6 +101,7 @@ export function CanvasBatchTableNodeContent({ node, nodes, connections, batch, t
     // 不再要求它们必须有成功结果——否则生成失败时会一直停在“生成未完成项”，无法重试。
     const readyRowIds = useMemo(() => table.rows.filter((row) => rowReady(row, table, nodeById) && !activeRowIds.has(row.id)).map((row) => row.id), [activeRowIds, nodeById, table]);
     const readyRowCount = readyRowIds.length;
+    const activeRowCount = activeRowIds.size;
     const unfinishedReadyCount = table.rows.filter((row) => rowReady(row, table, nodeById) && !activeRowIds.has(row.id) && !batchRowHasResult(row, nodeById)).length;
     // 跑过一次的行：行记录里还指向结果节点，或者画布上还残留着这行的历史产出（例如换了参考图后旧结果被作废）。
     const attemptedRowIds = useMemo(() => {
@@ -116,6 +117,7 @@ export function CanvasBatchTableNodeContent({ node, nodes, connections, batch, t
         return !row || (batchRowOutputNodeIds(row).length === 0 && !attemptedRowIds.has(rowId));
     }).length;
     const regenerateAll = readyRowCount > 0 && freshReadyCount === 0;
+    const generateActionLabel = activeRowCount > 0 ? "再次生成" : regenerateAll ? `再次生成 · ${readyRowCount}` : `生成未完成项${unfinishedReadyCount ? ` · ${unfinishedReadyCount}` : ""}`;
     const gridTemplateColumns = `88px repeat(${referenceColumns.length}, 88px) ${textColumns.length ? `repeat(${textColumns.length}, minmax(168px, 0.75fr)) ` : ""}minmax(280px, 1fr) 88px 104px`;
     const subtleSurface = `color-mix(in srgb, ${theme.node.text} 4%, transparent)`;
     const inputSurface = theme.node.panel;
@@ -438,9 +440,9 @@ export function CanvasBatchTableNodeContent({ node, nodes, connections, batch, t
                             </Tooltip>
                             <Button size="small" type="text" icon={<Plus className="size-3.5" />} onClick={onAddRow}>添加任务</Button>
                             {table.contentKind === "storyboard" && onCreateStoryboard ? <Button size="small" icon={<Film className="size-3.5" />} onClick={onCreateStoryboard}>创建视频脚本</Button> : null}
-                            <Tooltip title={regenerateAll ? "就绪任务都已跑过一次，将按当前设置整组再生成一次" : "只提交还没有生成过的任务"}>
+                            <Tooltip title={activeRowCount > 0 ? "已有任务正在生成；点击可继续提交其余未完成任务" : regenerateAll ? "就绪任务都已跑过一次，将按当前设置整组再生成一次" : "只提交还没有生成过的任务"}>
                                 <Button size="small" type={regenerateAll ? "default" : "primary"} icon={<Play className="size-3.5" />} disabled={!readyRowCount} onClick={() => onGenerate(regenerateAll ? readyRowIds : undefined)}>
-                                    {regenerateAll ? `再次生成 · ${readyRowCount}` : `生成未完成项${unfinishedReadyCount ? ` · ${unfinishedReadyCount}` : ""}`}
+                                    {generateActionLabel}
                                 </Button>
                             </Tooltip>
                         </div>
@@ -449,7 +451,7 @@ export function CanvasBatchTableNodeContent({ node, nodes, connections, batch, t
                 <div data-canvas-no-drag className="flex h-9 items-center gap-2 border-t px-3" style={{ borderColor: theme.node.stroke }} onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
                     <Tooltip title={hasGlobalPrompt ? `把这段提示词写入下面 ${table.rows.length} 行任务` : "先输入提示词，再点这个按钮批量替换各任务提示词"}>
                         <span className="shrink-0">
-                            <Button type="text" size="small" className="px-1.5 font-medium" style={{ color: theme.node.muted }} disabled={readOnly || !hasGlobalPrompt || !table.rows.length} onClick={applyGlobalPromptToRows}>全局提示词</Button>
+                            <Button type="text" size="small" className="rounded-md border px-2 font-semibold" style={{ color: theme.node.text, borderColor: theme.node.stroke, background: theme.accent.primarySoft }} disabled={readOnly || !hasGlobalPrompt || !table.rows.length} onClick={applyGlobalPromptToRows}>全局提示词</Button>
                         </span>
                     </Tooltip>
                     <input

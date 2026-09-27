@@ -131,7 +131,9 @@ export function useCanvasGenerationBatches({ projectId, projectLoaded, nodes, no
                                 errorDetails: undefined,
                             };
                         } else if (item.status === "submitting" && !controllersRef.current.has(batchItemKey(batch.id, item.id))) {
-                            patch = { status: "waiting", errorDetails: undefined };
+                            // 提交控制器已经结束却没有任务号或节点终态，不能重新放回 waiting。
+                            // 渠道失败时这里若回到 waiting，定时调度会不断重复创建任务。
+                            patch = { status: "failed", errorDetails: "渠道提交未完成，为避免重复生成已停止，请点击再次生成重试" };
                         }
                         if (!patch || !itemChanged(item, patch)) return item;
                         batchChanged = true;
