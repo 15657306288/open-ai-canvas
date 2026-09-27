@@ -401,9 +401,6 @@
 }
 
 .agent-conversation-messages {
-    --agent-thought-icon: 16px;
-    --agent-thought-gap: 9px;
-    --agent-summary-inset: 4px;
     min-width: 0;
 }
 
@@ -1789,23 +1786,6 @@
 
 .agent-reasoning-summary:hover {
     background: color-mix(in srgb, var(--agent-reasoning-accent) 4%, transparent);
-}
-
-/* 只留无底图标：与正文标记使用同一套轻量视觉语言。 */
-.agent-reasoning-icon {
-    display: grid;
-    width: var(--agent-thought-icon, 16px);
-    height: var(--agent-thought-icon, 16px);
-    flex: 0 0 var(--agent-thought-icon, 16px);
-    place-items: center;
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-    color: color-mix(in srgb, var(--agent-reasoning-accent) 82%, var(--foreground));
-}
-
-.agent-reasoning-icon.is-live {
-    animation: agent-reasoning-icon-pulse 1.8s ease-in-out infinite;
 }
 
 .agent-reasoning-copy {

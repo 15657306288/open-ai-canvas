@@ -22,8 +22,8 @@ test("consecutive reasoning messages share one collapsed entry", () => {
     const html = renderToStaticMarkup(<AgentReasoningFeed items={messages.slice(0, 2)} theme={canvasThemes.light} />);
     expect(html).toContain("2 段 · 点击查看");
     expect(html).toContain('class="agent-reasoning-card"');
-    expect(html).toContain('class="agent-reasoning-icon"');
-    expect(html).toContain("lucide-brain-circuit");
+    expect(html).not.toContain("agent-reasoning-icon");
+    expect(html).not.toContain("lucide-brain-circuit");
     expect(html).not.toContain("is-live");
     expect(html).not.toContain(" open");
 });
@@ -43,17 +43,18 @@ test("operations fold into one line that reports only the latest action", () => 
     }
 });
 
-test("messages and live reasoning expose their visual markers", () => {
+test("messages and reasoning stay free of decorative side icons", () => {
     const assistant = renderToStaticMarkup(<AgentChatMessage item={{ id: "a1", role: "assistant", text: "已完成。" }} theme={canvasThemes.light} />);
-    expect(assistant).toContain('class="agent-message-icon agent-message-icon--assistant"');
-    expect(assistant).toContain("lucide-message-circle");
+    expect(assistant).not.toContain("agent-message-icon");
+    expect(assistant).not.toContain("lucide-message-circle");
 
     const user = renderToStaticMarkup(<AgentChatMessage item={{ id: "u1", role: "user", text: "继续处理" }} theme={canvasThemes.light} />);
-    expect(user).toContain('class="agent-message-icon agent-message-icon--user"');
-    expect(user).toContain("lucide-user-round");
+    expect(user).not.toContain("agent-message-icon");
+    expect(user).not.toContain("lucide-user-round");
 
     const live = renderToStaticMarkup(<AgentReasoningFeed items={[{ id: "r1", role: "assistant", text: "正在整理", reasoning: true, streaming: true }]} theme={canvasThemes.light} />);
-    expect(live).toContain('class="agent-reasoning-icon is-live"');
+    expect(live).not.toContain("agent-reasoning-icon");
+    expect(live).not.toContain("lucide-brain-circuit");
     expect(live).toContain("模型正在思考");
 });
 
@@ -115,29 +116,23 @@ test("style contract: 正文 / 工具调用 / 模型思考三档不再制造左�
     // 同一选择器可能在容器查询里被覆盖，这里把所有命中块拼起来看整体契约。
     const block = (selector: string) => [...css.matchAll(new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\{([^}]*)\\}`, "g"))].map((match) => match[1]).join("\n");
 
-    // ① 星标后面不再有圆底：只留图标本身
-    const icon = block(".agent-reasoning-icon");
-    expect(icon).toContain("background: transparent");
-    expect(icon).not.toContain("border-radius: 50%");
-
-    // ② 对话正文从容器边缘开始，不为过程内容预留一条空的公共轴沟槽。
+    // ① 对话正文从容器边缘开始，不为过程内容预留一条空的公共轴沟槽。
     const axis = block(".agent-conversation-messages");
     expect(axis).not.toContain("--agent-axis");
     expect(axis).not.toContain("padding-left: var(--agent-axis)");
 
-    // ③ 思维摘要与正文同一左边缘，不再用负 margin 把星标挂进沟槽。
+    // ② 思维摘要与正文同一左边缘，不再用负 margin 把装饰标记挂进沟槽。
     const reasoning = block(".agent-reasoning");
     expect(reasoning).not.toContain("margin-left");
     expect(reasoning).not.toContain("border-left");
     expect(block(".agent-reasoning-summary")).toContain("padding: 6px 0");
-    expect(block(".agent-reasoning-icon.is-live")).toContain("animation: agent-reasoning-icon-pulse");
 
-    // ④ 操作流是轻量文本收据，不再绘制竖线或额外左缩进。
+    // ③ 操作流是轻量文本收据，不再绘制竖线或额外左缩进。
     const feed = block(".agent-operation-feed");
     expect(feed).not.toContain("border-left");
     expect(feed).not.toContain("padding-left");
 
-    // ⑤ 时间线标记只占自己的窄图标列，不再把状态正文推得过远。
+    // ④ 时间线标记只占自己的窄图标列，不再把状态正文推得过远。
     expect(block(".agent-timeline-marker")).toContain("width: 20px");
     expect(block(".agent-conversation-messages .agent-timeline-marker")).not.toContain("margin-left");
 });
