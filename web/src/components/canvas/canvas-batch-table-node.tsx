@@ -116,7 +116,7 @@ export function CanvasBatchTableNodeContent({ node, nodes, connections, batch, t
         return !row || (batchRowOutputNodeIds(row).length === 0 && !attemptedRowIds.has(rowId));
     }).length;
     const regenerateAll = readyRowCount > 0 && freshReadyCount === 0;
-    const gridTemplateColumns = `88px repeat(${referenceColumns.length}, 88px) ${textColumns.length ? `repeat(${textColumns.length}, minmax(168px, 0.75fr)) ` : ""}minmax(280px, 1fr) 88px 80px`;
+    const gridTemplateColumns = `88px repeat(${referenceColumns.length}, 88px) ${textColumns.length ? `repeat(${textColumns.length}, minmax(168px, 0.75fr)) ` : ""}minmax(280px, 1fr) 88px 104px`;
     const subtleSurface = `color-mix(in srgb, ${theme.node.text} 4%, transparent)`;
     const inputSurface = theme.node.panel;
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -429,7 +429,7 @@ export function CanvasBatchTableNodeContent({ node, nodes, connections, batch, t
                         <span className="shrink-0 tabular-nums" style={{ color: theme.node.muted }}>已连 {connectedImageCount} · 完成 {completed}/{table.rows.length}</span>
                     </div>
                     {!readOnly ? (
-                        <div className="ml-auto flex shrink-0 items-center gap-1.5" onPointerDown={(event) => event.stopPropagation()}>
+                        <div className="ml-auto flex shrink-0 items-center gap-1.5" onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
                             <Tooltip title="增量同步画布连线，不会删除已有任务行">
                                 <Button size="small" type="text" icon={<Rows3 className="size-3.5" />} onClick={onFillRows}>同步连线</Button>
                             </Tooltip>
@@ -440,13 +440,13 @@ export function CanvasBatchTableNodeContent({ node, nodes, connections, batch, t
                             {table.contentKind === "storyboard" && onCreateStoryboard ? <Button size="small" icon={<Film className="size-3.5" />} onClick={onCreateStoryboard}>创建视频脚本</Button> : null}
                             <Tooltip title={regenerateAll ? "就绪任务都已跑过一次，将按当前设置整组再生成一次" : "只提交还没有生成过的任务"}>
                                 <Button size="small" type={regenerateAll ? "default" : "primary"} icon={<Play className="size-3.5" />} disabled={!readyRowCount} onClick={() => onGenerate(regenerateAll ? readyRowIds : undefined)}>
-                                    {regenerateAll ? `再生成一次 · ${readyRowCount}` : `生成未完成项${unfinishedReadyCount ? ` · ${unfinishedReadyCount}` : ""}`}
+                                    {regenerateAll ? `再次生成 · ${readyRowCount}` : `生成未完成项${unfinishedReadyCount ? ` · ${unfinishedReadyCount}` : ""}`}
                                 </Button>
                             </Tooltip>
                         </div>
                     ) : null}
                 </div>
-                <div data-canvas-no-drag className="flex h-9 items-center gap-2 border-t px-3" style={{ borderColor: theme.node.stroke }} onPointerDown={(event) => event.stopPropagation()}>
+                <div data-canvas-no-drag className="flex h-9 items-center gap-2 border-t px-3" style={{ borderColor: theme.node.stroke }} onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
                     <Tooltip title={hasGlobalPrompt ? `把这段提示词写入下面 ${table.rows.length} 行任务` : "先输入提示词，再点这个按钮批量替换各任务提示词"}>
                         <span className="shrink-0">
                             <Button type="text" size="small" className="px-1.5 font-medium" style={{ color: theme.node.muted }} disabled={readOnly || !hasGlobalPrompt || !table.rows.length} onClick={applyGlobalPromptToRows}>全局提示词</Button>
@@ -464,7 +464,7 @@ export function CanvasBatchTableNodeContent({ node, nodes, connections, batch, t
                 </div>
             </div>
 
-            <div data-canvas-no-drag className="thin-scrollbar min-h-0 flex-1 overflow-auto rounded-b-[inherit]" onPointerDown={(event) => event.stopPropagation()}>
+            <div data-canvas-no-drag className="thin-scrollbar min-h-0 flex-1 overflow-auto rounded-b-[inherit]" onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
                 <div className="sticky top-0 z-10 grid h-9 items-center border-b px-3 text-center text-[11px] font-medium" style={{ borderColor: theme.node.stroke, background: theme.node.panel, color: theme.node.muted, gridTemplateColumns }}>
                     <span className="flex min-w-0 items-center justify-center gap-2 px-1">
                         {!readOnly ? <Checkbox aria-label="选择全部任务行" checked={allRowsSelected} indeterminate={someRowsSelected} onChange={(event) => setSelectedRowIds(event.target.checked ? new Set(table.rows.map((row) => row.id)) : new Set())} /> : null}
@@ -576,7 +576,7 @@ export function CanvasBatchTableNodeContent({ node, nodes, connections, batch, t
                                 {!readOnly ? (
                                     <div className="flex items-center justify-center gap-1">
                                         <Tooltip title={disabledReason || (completedRow ? "重新生成这一行" : "只生成这一行")}>
-                                            <Button type={completedRow ? "text" : "primary"} size="small" className="w-8 px-0" disabled={Boolean(disabledReason)} icon={status.loading ? <LoaderCircle className="size-3.5 animate-spin" /> : <Play className="size-3.5" />} onClick={() => onGenerate([row.id])} />
+                                        <Button type={completedRow ? "text" : "primary"} size="small" className="px-2" disabled={Boolean(disabledReason)} icon={status.loading ? <LoaderCircle className="size-3.5 animate-spin" /> : <Play className="size-3.5" />} onClick={() => onGenerate([row.id])}>{completedRow ? "重新生成" : "生成"}</Button>
                                         </Tooltip>
                                         <Tooltip title="删除这一行"><Button type="text" size="small" className="w-7 px-0 opacity-60 transition-opacity group-hover:opacity-100" danger icon={<Trash2 className="size-3.5" />} onClick={() => onRemoveRow(row.id)} /></Tooltip>
                                     </div>
@@ -780,14 +780,14 @@ function BatchReferenceHandles({ columns, textColumns, theme, onAdd, onAddText, 
             {textColumns.map((column, index) => <BatchTextHandle key={column.id} column={column} top={textTop + index * BATCH_REFERENCE_HANDLE_GAP} badge={`T${index + 1}`} theme={theme} commonStyle={commonStyle} onConnectStart={onConnectStart} onConnectDrop={onConnectDrop} />)}
             {columns.length < MAX_BATCH_REFERENCE_COLUMNS ? (
                 <Tooltip title={`新增参考图 ${columns.length + 1}`} placement="left">
-                    <button type="button" data-canvas-no-drag aria-label={`新增参考图 ${columns.length + 1}`} className="group absolute z-[var(--node-z-handle)] grid place-items-center rounded-full outline-none" style={{ ...commonStyle, top: referenceAddTop, color: theme.accent.primary }} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onAdd(); }}>
+            <button type="button" data-canvas-no-drag aria-label={`新增参考图 ${columns.length + 1}`} className="group absolute z-[var(--node-z-handle)] grid place-items-center rounded-full outline-none" style={{ ...commonStyle, top: referenceAddTop, color: theme.accent.primary }} onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onAdd(); }}>
                         <span className="grid size-[22px] place-items-center rounded-full border shadow-sm transition-transform group-hover:scale-110 group-focus-visible:scale-110" style={{ background: theme.node.panel, borderColor: theme.accent.primary }}><Plus className="size-3" /></span>
                     </button>
                 </Tooltip>
             ) : null}
             {textColumns.length < MAX_BATCH_TEXT_COLUMNS ? (
                 <Tooltip title={`新增文字 ${textColumns.length + 1}`} placement="left">
-                    <button type="button" data-canvas-no-drag aria-label={`新增文字 ${textColumns.length + 1}`} className="group absolute z-[var(--node-z-handle)] grid place-items-center rounded-full outline-none" style={{ ...commonStyle, top: textTop + textColumns.length * BATCH_REFERENCE_HANDLE_GAP, color: theme.node.text }} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onAddText(); }}>
+            <button type="button" data-canvas-no-drag aria-label={`新增文字 ${textColumns.length + 1}`} className="group absolute z-[var(--node-z-handle)] grid place-items-center rounded-full outline-none" style={{ ...commonStyle, top: textTop + textColumns.length * BATCH_REFERENCE_HANDLE_GAP, color: theme.node.text }} onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onAddText(); }}>
                         <span className="grid size-[22px] place-items-center rounded-full border shadow-sm transition-transform group-hover:scale-110 group-focus-visible:scale-110" style={{ background: theme.node.panel, borderColor: theme.node.stroke }}><Plus className="size-3" /></span>
                     </button>
                 </Tooltip>
@@ -810,7 +810,7 @@ function BatchReferenceHandle({ column, top, badge, theme, commonStyle, onConnec
     }, []);
     return (
         <Tooltip title={`连接到${column.label}`} placement="left">
-            <button type="button" data-canvas-no-drag aria-label={`${column.label}连线点`} className="group absolute z-[var(--node-z-handle)] grid place-items-center rounded-full outline-none" style={{ ...commonStyle, top, cursor: "crosshair" }} onPointerEnter={(event) => { setHovered(true); update(event); }} onPointerMove={update} onPointerLeave={reset} onPointerDown={(event) => { event.stopPropagation(); onConnectStart(event, handleId); }} onPointerUp={(event) => { event.stopPropagation(); onConnectDrop?.(event, handleId); }}>
+            <button type="button" data-canvas-no-drag aria-label={`${column.label}连线点`} className="group absolute z-[var(--node-z-handle)] grid place-items-center rounded-full outline-none" style={{ ...commonStyle, top, cursor: "crosshair" }} onPointerEnter={(event) => { setHovered(true); update(event); }} onPointerMove={update} onPointerLeave={reset} onPointerDown={(event) => { event.stopPropagation(); onConnectStart(event, handleId); }} onMouseDown={(event) => event.stopPropagation()} onPointerUp={(event) => { event.stopPropagation(); onConnectDrop?.(event, handleId); }}>
                     <span className="grid size-[18px] place-items-center rounded-full border text-[8px] font-semibold shadow-sm transition-transform duration-100 group-hover:scale-125 group-focus-visible:scale-125" style={{ transform: `translate(${offset.x}px, ${offset.y}px) scale(${hovered ? 1.06 : 1})`, background: theme.node.panel, borderColor: handlePrefix === "text" ? theme.node.stroke : theme.accent.primary, color: handlePrefix === "text" ? theme.node.muted : theme.accent.primary }}>{badge}</span>
             </button>
         </Tooltip>
@@ -903,8 +903,8 @@ function ReferenceThumbnail({ node, label, theme, readOnly, rowId, columnIndex, 
                 data-column-index={columnIndex}
                 // 行容器上也有 group，未命名的 group-hover 会跨格生效，鼠标在行内任意位置就会点亮整行缩略图的遮罩与图标；
                 // 这里改用命名 group，让悬停样式只作用于指针下的那一格。
-                className="group/cell relative box-border grid shrink-0 place-items-center overflow-hidden rounded-lg border outline-none transition-[transform,box-shadow,border-color,opacity] duration-150 ease-out"
-                style={{ width: REFERENCE_THUMB_SIZE, height: REFERENCE_THUMB_SIZE, borderColor: isDropTarget || filled ? (isDropTarget ? theme.accent.primary : theme.node.stroke) : "transparent", opacity: isDraggingCell ? 0.35 : 1, boxShadow: isDropTarget || focused ? `0 0 0 2px ${theme.accent.primary}` : undefined, transform: isDropTarget ? "scale(1.08)" : undefined }}
+                className="group/cell relative box-border grid shrink-0 place-items-center overflow-hidden rounded-xl border bg-black/[.025] shadow-sm outline-none transition-[transform,box-shadow,border-color,opacity] duration-150 ease-out hover:-translate-y-px hover:shadow-md dark:bg-white/[.025]"
+                style={{ width: REFERENCE_THUMB_SIZE, height: REFERENCE_THUMB_SIZE, borderColor: isDropTarget || filled ? (isDropTarget ? theme.accent.primary : theme.node.stroke) : "transparent", opacity: isDraggingCell ? 0.35 : 1, boxShadow: isDropTarget || focused ? `0 0 0 2px ${theme.accent.primary}` : undefined, transform: isDropTarget ? "scale(1.08)" : undefined, background: theme.node.panel }}
                 onFocus={() => setFocused(true)}
                 onBlur={() => setFocused(false)}
                 disabled={readOnly}
@@ -915,6 +915,7 @@ function ReferenceThumbnail({ node, label, theme, readOnly, rowId, columnIndex, 
                     openMenu(event.clientX, event.clientY, true);
                 }}
                 onPointerDown={onPointerDown}
+                onMouseDown={(event) => event.stopPropagation()}
                 // 格子拖拽走的是 pointer 事件；如果不拦掉浏览器对 <img> 的原生拖拽，
                 // 拖到别的行列会被当成“上传文件”，在画布上凭空多出一张素材。
                 onDragStart={(event) => event.preventDefault()}
@@ -935,7 +936,7 @@ function ReferenceThumbnail({ node, label, theme, readOnly, rowId, columnIndex, 
             >
                 {/* 图片必须绝对定位铺满方格：作为 grid item 时 h-full 会退化成按原始宽高比排版，比格子还高，只能被裁掉一截。 */}
                 {filled ? <CachedResourceImage eager draggable={false} src={node.metadata?.previewContent || node.metadata?.content} storageKey={node.metadata?.storageKey} alt={node.title || "参考图"} className="absolute inset-0 size-full object-cover" fallback={fallback} /> : fallback}
-                {filled && !readOnly ? <span className="pointer-events-none absolute inset-0 grid place-items-center bg-black/45 text-[9px] font-medium text-white opacity-0 transition-opacity group-hover/cell:opacity-100">点击替换</span> : null}
+                {filled && !readOnly ? <span className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end bg-gradient-to-t from-black/70 to-transparent px-1 pb-1 pt-5 text-[9px] font-medium text-white opacity-0 transition-opacity group-hover/cell:opacity-100">替换</span> : null}
                 {/* 复制和清空都放进格子内部，跟格同高，不会在某一格下面另起一行把行高撞高。 */}
                 {filled && !readOnly ? (
                     <span
