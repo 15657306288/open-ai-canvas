@@ -244,11 +244,39 @@ func cloudAgentMediaTargetIssue(node map[string]any, nodeType string) (string, s
 
 type cloudAgentMediaAdmissionError struct {
 	error
-	Reason string
-	NodeID string
+	Reason         string
+	NodeID         string
+	ErrorClass     string
+	Retryable      bool
+	RequiredAction string
 }
 
 func (e *cloudAgentMediaAdmissionError) Unwrap() error { return e.error }
+
+// cloudAgentWrapMediaAdmissionError turns an untyped failure from the media
+// admission boundary into an explicit, non-repairable failure. A billed write
+// must not ask the model to guess alternative sizes, routes, or provider
+// parameters after the server has rejected the admitted contract.
+func cloudAgentWrapMediaAdmissionError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var argumentErr *cloudAgentArgumentError
+	if errors.As(err, &argumentErr) {
+		return err
+	}
+	var admissionErr *cloudAgentMediaAdmissionError
+	if errors.As(err, &admissionErr) {
+		return err
+	}
+	return &cloudAgentMediaAdmissionError{
+		error:          err,
+		Reason:         "media_admission_failed",
+		ErrorClass:     cloudAgentToolErrorAdmission,
+		Retryable:      false,
+		RequiredAction: "report_to_user",
+	}
+}
 
 func cloudAgentMediaDocument(repo *repository.Repository, userID, canvasID string, args cloudAgentMediaArgs, transient ...map[string]cloudAgentTransientReference) (*model.CanvasProject, map[string]any, map[string]any, error) {
 	canvas, err := repo.CanvasProjectForUser(userID, canvasID)
@@ -268,7 +296,11 @@ func cloudAgentMediaDocument(repo *repository.Repository, userID, canvasID strin
 		unchanged = dependency == args.Prepared.DependencyHash
 	}
 	if !unchanged {
-		return nil, nil, nil, &cloudAgentMediaAdmissionError{creationConflict("画布内容已变化，请重新读取画布并重新审批；未提交生成任务"), "snapshot_conflict", args.NodeID}
+		return nil, nil, nil, &cloudAgentMediaAdmissionError{
+			error:  creationConflict("画布内容已变化，请重新读取画布并重新审批；未提交生成任务"),
+			Reason: "snapshot_conflict",
+			NodeID: args.NodeID,
+		}
 	}
 	nodes, err := creationObjects(doc["nodes"])
 	if err != nil {
@@ -285,7 +317,11 @@ func cloudAgentMediaDocument(repo *repository.Repository, userID, canvasID strin
 	}
 	if existing != nil {
 		if reason, issue := cloudAgentMediaTargetIssue(existing, targetDescriptor.Type); reason != "" {
-			return nil, nil, nil, &cloudAgentMediaAdmissionError{BadAuthRequest(issue), reason, args.NodeID}
+			return nil, nil, nil, &cloudAgentMediaAdmissionError{
+				error:  BadAuthRequest(issue),
+				Reason: reason,
+				NodeID: args.NodeID,
+			}
 		}
 		if args.DraftRunID == "" {
 			return nil, nil, nil, BadAuthRequest("续用草稿缺少当前运行身份")
@@ -549,25 +585,7 @@ func (s *Service) prepareCloudAgentMedia(run *model.CloudAgentExecution, state *
 		return CreateTaskRequest{}, nil, cloudAgentJSONArgumentError(err)
 	}
 	a.Mode = strings.ToLower(strings.TrimSpace(a.Mode))
-	defaultedModel, err := s.applyCloudAgentProjectDefaultModel(run, state, call.Function.Arguments, &a)
-	if err != nil {
-		return CreateTaskRequest{}, nil, err
-	}
-	selectionArguments := call.Function.Arguments
-	if defaultedModel {
-		selectionFields := map[string]string{}
-		if a.LogicalModelID != "" {
-			selectionFields["logicalModelId"] = a.LogicalModelID
-		} else {
-			selectionFields["channelId"], selectionFields["channelModelKey"] = a.ChannelID, a.ChannelModelKey
-		}
-		encoded, encodeErr := json.Marshal(selectionFields)
-		if encodeErr != nil {
-			return CreateTaskRequest{}, nil, encodeErr
-		}
-		selectionArguments = string(encoded)
-	}
-	if err := validateCloudAgentModelSelection(selectionArguments, a); err != nil {
+	if err := validateCloudAgentModelSelection(call.Function.Arguments, a); err != nil {
 		return CreateTaskRequest{}, nil, err
 	}
 	a.DraftRunID = run.ID

@@ -2,77 +2,76 @@ package app
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
-
-	"infinite-canvas/backend/internal/model"
 )
 
-// Keep cross-field validation server-side rather than adding provider-specific
-// root schema combinators. The same contract is advertised by both media tools.
-const cloudAgentModelSelectionDescription = "模型选择：复制 model_list 的 selection 到顶层。完全省略模型字段时，仅使用当前项目对应能力的可用默认模型。显式选择必须提供 logicalModelId，或同时提供 channelId 与 channelModelKey，二者互斥。未使用字段省略或传空字符串，不得传 null/空白；无可用默认、混用或不完整均拒绝，不会随机选模。"
+// The tool schema advertises the alternative selection shapes, while this
+// validator remains the authoritative boundary for null, whitespace and
+// decoded-value checks that JSON Schema cannot reliably express across all
+// provider adapters.
+const cloudAgentModelSelectionDescription = "模型选择：复制 model_list 的 selection 到顶层。媒体生成必须显式提供 logicalModelId，或同时提供 channelId 与 channelModelKey，二者互斥。未使用字段省略或传空字符串，不得传 null/空白；混用或不完整均拒绝，不会使用项目默认模型或随机选模。"
 
-// applyCloudAgentProjectDefaultModel only fills a selection when the Agent did
-// not send any model-selection field at all. An explicitly empty, partial, or
-// null selection remains invalid so a malformed tool call cannot silently turn
-// into a different model.
-func (s *Service) applyCloudAgentProjectDefaultModel(run *model.CloudAgentExecution, state *cloudAgentRuntime, raw string, a *cloudAgentMediaArgs) (bool, error) {
-	if s == nil || s.repo == nil || run == nil || state == nil || a == nil || cloudAgentModelSelectionProvided(raw) {
-		return false, nil
+// A model can occasionally omit the copied selection even after reading
+// model_list. We may repair that omission only when the exact same query has a
+// single candidate. This is deterministic materialization of an explicit
+// model_list result, not a project-default or random model fallback.
+func cloudAgentApplyUniqueModelListSelection(state *cloudAgentRuntime, raw string, a *cloudAgentMediaArgs) bool {
+	if state == nil || a == nil || cloudAgentModelSelectionProvided(raw) {
+		return false
 	}
-	a.Mode = strings.ToLower(strings.TrimSpace(a.Mode))
-	if a.Mode != "image" && a.Mode != "video" || strings.TrimSpace(state.Request.CanvasID) == "" {
-		return false, nil
-	}
-	canvas, err := s.repo.CanvasProjectForUser(run.UserID, state.Request.CanvasID)
-	if err != nil {
-		return false, err
-	}
-	if strings.TrimSpace(canvas.ProjectID) == "" {
-		return false, nil
-	}
-	project, err := s.repo.ProjectForUser(run.UserID, canvas.ProjectID)
-	if err != nil {
-		return false, err
-	}
-	defaultModel := strings.TrimSpace(project.DefaultImageModel)
-	if a.Mode == "video" {
-		defaultModel = strings.TrimSpace(project.DefaultVideoModel)
-	}
-	if defaultModel == "" {
-		return false, nil
-	}
-
-	if channelID, channelModelKey, ok := splitCloudAgentChannelModel(defaultModel); ok {
-		catalog, catalogErr := s.ModelCatalog(nil)
-		if catalogErr != nil {
-			return false, catalogErr
+	for i := len(state.Events) - 1; i >= 0; i-- {
+		event := state.Events[i]
+		if event.Type != "tool_completed" || stringValue(event.Payload["toolName"]) != "model_list" {
+			continue
 		}
-		for _, channel := range catalog.Channels {
-			if channel.ID != channelID {
+		var query struct {
+			Mode             string   `json:"mode"`
+			ReferenceNodeIDs []string `json:"referenceNodeIds"`
+		}
+		if err := json.Unmarshal([]byte(stringValue(event.Payload["arguments"])), &query); err != nil || query.Mode != a.Mode || !sameStringSlice(query.ReferenceNodeIDs, a.ReferenceNodeIDs) {
+			continue
+		}
+		result, ok := event.Payload["result"].(map[string]any)
+		if !ok {
+			return false
+		}
+		models, ok := result["models"].([]any)
+		if !ok {
+			return false
+		}
+		var selection map[string]string
+		for _, item := range models {
+			modelItem, ok := item.(map[string]any)
+			if !ok || normalizeCapability(stringValue(modelItem["capability"])) != normalizeCapability(a.Mode) {
 				continue
 			}
-			for _, channelModel := range channel.Models {
-				if channelModel.ModelKey == channelModelKey && channelModel.Available && normalizeCapability(channelModel.Capability) == a.Mode {
-					a.ChannelID, a.ChannelModelKey = channelID, channelModelKey
-					return true, nil
+			candidate, ok := modelItem["selection"].(map[string]any)
+			if !ok {
+				continue
+			}
+			candidateSelection := map[string]string{}
+			if logical := strings.TrimSpace(stringValue(candidate["logicalModelId"])); logical != "" {
+				candidateSelection["logicalModelId"] = logical
+			} else if channelID := strings.TrimSpace(stringValue(candidate["channelId"])); channelID != "" {
+				if modelKey := strings.TrimSpace(stringValue(candidate["channelModelKey"])); modelKey != "" {
+					candidateSelection["channelId"], candidateSelection["channelModelKey"] = channelID, modelKey
 				}
 			}
+			if len(candidateSelection) == 0 {
+				continue
+			}
+			if selection != nil {
+				return false
+			}
+			selection = candidateSelection
 		}
-		return false, fmt.Errorf("项目默认%s模型不可用或能力不匹配，请在项目设置中重新选择模型", cloudAgentModeLabel(a.Mode))
-	}
-
-	logicalModels, err := s.PublicLogicalModels(nil)
-	if err != nil {
-		return false, err
-	}
-	for _, logicalModel := range logicalModels {
-		if logicalModel.ID == defaultModel && logicalModel.Available && normalizeCapability(logicalModel.Capability) == a.Mode {
-			a.LogicalModelID = defaultModel
-			return true, nil
+		if len(selection) == 0 {
+			return false
 		}
+		a.LogicalModelID, a.ChannelID, a.ChannelModelKey = selection["logicalModelId"], selection["channelId"], selection["channelModelKey"]
+		return true
 	}
-	return false, fmt.Errorf("项目默认%s模型不可用或能力不匹配，请在项目设置中重新选择模型", cloudAgentModeLabel(a.Mode))
+	return false
 }
 
 func cloudAgentModelSelectionProvided(raw string) bool {
@@ -88,17 +87,16 @@ func cloudAgentModelSelectionProvided(raw string) bool {
 	return false
 }
 
-func splitCloudAgentChannelModel(value string) (string, string, bool) {
-	channelID, channelModelKey, ok := strings.Cut(strings.TrimSpace(value), "::")
-	channelID, channelModelKey = strings.TrimSpace(channelID), strings.TrimSpace(channelModelKey)
-	return channelID, channelModelKey, ok && channelID != "" && channelModelKey != ""
-}
-
-func cloudAgentModeLabel(mode string) string {
-	if mode == "video" {
-		return "视频"
+func sameStringSlice(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
 	}
-	return "图片"
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func validateCloudAgentModelSelection(raw string, a cloudAgentMediaArgs) error {
@@ -125,7 +123,7 @@ func validateCloudAgentModelSelection(raw string, a cloudAgentMediaArgs) error {
 	case a.LogicalModelID != "":
 		return nil
 	case a.ChannelID == "" && a.ChannelModelKey == "":
-		return cloudAgentFieldError("logicalModelId", "required", "缺少模型选择：请复制 model_list 的 logicalModelId 或完整的 channelId/channelModelKey；若项目未配置当前能力的可用默认模型，不能自动猜测")
+		return cloudAgentFieldError("logicalModelId", "required", "缺少模型选择：请复制 model_list 的 logicalModelId 或完整的 channelId/channelModelKey；媒体生成必须显式指定模型，不会使用项目默认模型或随机选模")
 	case a.ChannelID == "":
 		return cloudAgentFieldError("channelId", "required", "系统渠道模型选择不完整：缺少 channelId，请复制 model_list 的完整 selection")
 	case a.ChannelModelKey == "":

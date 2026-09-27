@@ -3,24 +3,12 @@ package app
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
-	"time"
 
-	"gorm.io/gorm"
 	"infinite-canvas/backend/internal/model"
 )
-
-func cloudAgentProjectForDefaultModel(t *testing.T, db *gorm.DB, modelRef string) {
-	t.Helper()
-	project := &model.Project{ID: "agent-default-project", UserID: "user", Name: "Agent 默认模型项目", Type: "short-drama", Status: model.ProjectStatusActive, DefaultImageModel: modelRef, DefaultVideoModel: modelRef}
-	if err := db.Create(project).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Model(&model.CanvasProject{}).Where("id = ? AND user_id = ?", "agent-canvas", "user").Update("project_id", project.ID).Error; err != nil {
-		t.Fatal(err)
-	}
-}
 
 func TestCloudAgentModelSelectionRejectsBeforeCanvasRead(t *testing.T) {
 	for _, tc := range []struct{ name, args, field, issue string }{
@@ -75,54 +63,6 @@ func TestCloudAgentModelSelectionAcceptsOnlyCompleteSelections(t *testing.T) {
 	}
 }
 
-func TestCloudAgentProjectDefaultChannelModelFillsOnlyOmittedSelection(t *testing.T) {
-	s, db, _ := agentMediaFixture(t)
-	cloudAgentProjectForDefaultModel(t, db, "channel::seedance-test")
-	run := &model.CloudAgentExecution{ID: "run-default-channel", UserID: "user"}
-	state := &cloudAgentRuntime{Request: CloudAgentRequest{CanvasID: "agent-canvas"}}
-	args := cloudAgentMediaArgs{Mode: "video"}
-	used, err := s.applyCloudAgentProjectDefaultModel(run, state, `{"mode":"video"}`, &args)
-	if err != nil || !used || args.ChannelID != "channel" || args.ChannelModelKey != "seedance-test" || args.LogicalModelID != "" {
-		t.Fatalf("default channel selection = used:%v args:%+v err:%v", used, args, err)
-	}
-
-	args = cloudAgentMediaArgs{Mode: "video"}
-	used, err = s.applyCloudAgentProjectDefaultModel(run, state, `{"mode":"video","channelId":"","channelModelKey":""}`, &args)
-	if err != nil || used {
-		t.Fatalf("explicit empty selection was silently defaulted: used:%v args:%+v err:%v", used, args, err)
-	}
-	if err := validateCloudAgentModelSelection(`{"mode":"video","channelId":"","channelModelKey":""}`, args); err == nil {
-		t.Fatal("explicit empty selection unexpectedly passed validation")
-	}
-}
-
-func TestCloudAgentProjectDefaultLogicalModelFillsWhenAvailable(t *testing.T) {
-	s, db, _ := agentMediaFixture(t)
-	cloudAgentProjectForDefaultModel(t, db, "logical-image")
-	s.routeCatalogTTL = time.Hour
-	imageSpec := CapabilitySpec{Version: 1, Capability: "image"}
-	s.routeCatalog = &routeCatalogSnapshot{
-		LoadedAt: time.Now(), Ordered: []string{"logical-image"}, Models: map[string]cachedLogicalModel{
-			"logical-image": {
-				Model:       model.LogicalModel{ID: "logical-image", Name: "默认逻辑图片", Capability: "image", Enabled: true, PricePolicy: "unified"},
-				ProductSpec: imageSpec,
-				Routes: []cachedLogicalRoute{{
-					Route:          model.LogicalModelRoute{ID: "logical-image-route", Enabled: true, Weight: 1},
-					CapabilitySpec: imageSpec,
-					ChannelModel:   model.ChannelModel{ID: "video-cm", ChannelID: "channel", ModelKey: "seedance-test", Capability: "image"},
-				}},
-			},
-		},
-	}
-	run := &model.CloudAgentExecution{ID: "run-default-logical", UserID: "user"}
-	state := &cloudAgentRuntime{Request: CloudAgentRequest{CanvasID: "agent-canvas"}}
-	args := cloudAgentMediaArgs{Mode: "image"}
-	used, err := s.applyCloudAgentProjectDefaultModel(run, state, `{"mode":"image"}`, &args)
-	if err != nil || !used || args.LogicalModelID != "logical-image" || args.ChannelID != "" || args.ChannelModelKey != "" {
-		t.Fatalf("default logical selection = used:%v args:%+v err:%v", used, args, err)
-	}
-}
-
 func TestCloudAgentMediaMalformedJSONKeepsStrictFeedback(t *testing.T) {
 	for _, raw := range []string{`{"unknown":"private-sentinel"}`, `{"channelId":3}`, `{} {}`, `null`} {
 		call := cloudAgentCall{}
@@ -149,6 +89,22 @@ func TestCloudAgentMediaToolsDeclareExclusiveModelSelection(t *testing.T) {
 		parameters := function["parameters"].(map[string]any)
 		if !strings.Contains(function["description"].(string), cloudAgentModelSelectionDescription) || parameters["additionalProperties"] != false {
 			t.Fatalf("incomplete model selection schema: %#v", parameters)
+		}
+		oneOf, ok := parameters["oneOf"].([]map[string]any)
+		if !ok || len(oneOf) != 2 {
+			t.Fatalf("model selection must be explicit and mutually exclusive: %#v", parameters["oneOf"])
+		}
+		if got := oneOf[0]["required"]; !strings.Contains(fmt.Sprint(got), "logicalModelId") {
+			t.Fatalf("logical model branch missing: %#v", oneOf)
+		}
+		if got := oneOf[1]["required"]; !strings.Contains(fmt.Sprint(got), "channelId") || !strings.Contains(fmt.Sprint(got), "channelModelKey") {
+			t.Fatalf("channel model branch missing: %#v", oneOf)
+		}
+		if _, ok := oneOf[0]["not"]; !ok {
+			t.Fatalf("logical model branch must reject mixed channel fields: %#v", oneOf[0])
+		}
+		if _, ok := oneOf[1]["not"]; !ok {
+			t.Fatalf("channel model branch must reject logicalModelId: %#v", oneOf[1])
 		}
 		props := parameters["properties"].(map[string]any)
 		for _, field := range []string{"logicalModelId", "channelId", "channelModelKey"} {

@@ -123,6 +123,7 @@ type cloudAgentRuntime struct {
 	StepSnapshotHash       string                                  `json:"stepSnapshotHash,omitempty"`
 	StoryboardTaskID       string                                  `json:"storyboardTaskId,omitempty"`
 	Plan                   []cloudAgentPlanItem                    `json:"plan,omitempty"`
+	ConfirmationRounds     int                                     `json:"confirmationRounds,omitempty"`
 	PendingInterjections   []cloudAgentInterjection                `json:"pendingInterjections,omitempty"`
 	TransientReferences    map[string]cloudAgentTransientReference `json:"transientReferences,omitempty"`
 	InterjectionIDs        []string                                `json:"interjectionIds,omitempty"`
@@ -218,7 +219,7 @@ func (s *Service) ensureCloudAgentExecution(task *model.Task, initial cloudAgent
 	if err != nil {
 		return err
 	}
-	state := cloudAgentRuntime{Request: initial.Request, Policy: initial.Policy, ParentID: initial.ParentID, Fingerprint: initial.Fingerprint, CreativeAnchor: initial.CreativeAnchor, TextHistory: input.TextHistory, Skills: initial.Skills, Profile: initial.Profile, Canonical: canonical, ActiveTaskID: task.ID, TaskIDs: []string{task.ID}, Step: 1, Decisions: map[string]string{}, Plan: initial.Plan, Events: []CloudAgentEvent{}, StepLimits: limits}
+	state := cloudAgentRuntime{Request: initial.Request, Policy: initial.Policy, ParentID: initial.ParentID, Fingerprint: initial.Fingerprint, CreativeAnchor: initial.CreativeAnchor, TextHistory: input.TextHistory, Skills: initial.Skills, Profile: initial.Profile, Canonical: canonical, ActiveTaskID: task.ID, TaskIDs: []string{task.ID}, Step: 1, Decisions: map[string]string{}, Plan: initial.Plan, ConfirmationRounds: initial.ConfirmationRounds, Events: []CloudAgentEvent{}, StepLimits: limits}
 	if len(initial.Skills) > 0 {
 		// skillIds makes the enablement auditable: usage telemetry can attribute a
 		// run to the skills it actually loaded instead of only counting the total.
@@ -382,6 +383,9 @@ func validateCloudAgentRuntime(run *model.CloudAgentExecution, state *cloudAgent
 	}
 	if state.Step < 0 || state.Generations < 0 || state.VideoSeconds < 0 {
 		return errors.New("Agent runtime budget or step is invalid")
+	}
+	if state.ConfirmationRounds < 0 || state.ConfirmationRounds > cloudAgentMaxConfirmationRounds {
+		return errors.New("Agent runtime confirmation round is invalid")
 	}
 	if state.ImageInspectCalls < 0 {
 		return errors.New("Agent runtime image inspection budget is invalid")
@@ -1846,10 +1850,16 @@ func (s *Service) advanceCloudAgentTool(run *model.CloudAgentExecution, state *c
 		}
 		if call.Function.Name == "ask_user" && toolErr == nil {
 			payload, _ := result.(map[string]any)
-			state.event(run.ID, "user_question", payload)
+			if payload["phase"] == "question" {
+				state.event(run.ID, "user_question", payload)
+				cloudAgentRecordToolResult(current, state, call, result, nil)
+				skipRemainingCloudAgentCalls(run.ID, state)
+				current.Status = "completed"
+				return cloudAgentSave(current, state)
+			}
+			// The server-side round limit turns further questions into a normal
+			// tool result so the model must continue with safe defaults.
 			cloudAgentRecordToolResult(current, state, call, result, nil)
-			skipRemainingCloudAgentCalls(run.ID, state)
-			current.Status = "completed"
 			return cloudAgentSave(current, state)
 		}
 		cloudAgentRecordToolResult(current, state, call, result, toolErr)
@@ -2086,6 +2096,10 @@ func (s *Service) cloudAgentMediaError(run *model.CloudAgentExecution, state *cl
 			state.event(run.ID, "run_failed", map[string]any{"text": "Agent 媒体调用状态无效，本轮已停止"})
 			return cloudAgentSave(current, state)
 		}
+		if phase == "admission" && !submitted {
+			err = cloudAgentWrapMediaAdmissionError(err)
+		}
+		toolName := state.Calls[state.CallIndex].Function.Name
 		cloudAgentRecordToolResult(current, state, state.Calls[state.CallIndex], map[string]any{"phase": phase, "taskSubmitted": submitted}, err)
 		// Any admission failure advances the call into the repair path. Do not let
 		// a prepared quote from the failed attempt leak into the corrected call.
@@ -2094,9 +2108,30 @@ func (s *Service) cloudAgentMediaError(run *model.CloudAgentExecution, state *cl
 		if submitted {
 			state.MediaTaskID = ""
 		}
-		if terminal {
+		// Only explicitly typed argument errors and a stale canvas snapshot may
+		// continue into another model turn. Every other pre-submission media
+		// failure is a real admission boundary failure; continuing would invite
+		// the model to submit unverified variants of a billed write.
+		continueAfterAdmissionError := false
+		if phase == "admission" && !submitted {
+			var argumentErr *cloudAgentArgumentError
+			continueAfterAdmissionError = errors.As(err, &argumentErr)
+			var admissionErr *cloudAgentMediaAdmissionError
+			if errors.As(err, &admissionErr) && admissionErr.Reason == "snapshot_conflict" {
+				continueAfterAdmissionError = true
+			}
+		}
+		if terminal || (phase == "admission" && !submitted && !continueAfterAdmissionError) {
 			current.Status = "failed"
-			state.event(run.ID, "run_failed", map[string]any{"text": "媒体任务已提交，但结果处理失败；任务不会自动重试"})
+			message := "媒体生成准入失败，本轮已停止；请检查模型、能力和预算后由用户明确重试"
+			reason := "tool_admission_failed"
+			if terminal {
+				message = "媒体任务已提交，但结果处理失败；任务不会自动重试"
+				reason = "media_task_failed"
+			}
+			current.FailureMessage = truncateRunes(message, 1000)
+			cloudAgentDropInterjections(run.ID, "本轮已结束："+truncateRunes(message, 120), state)
+			state.event(run.ID, "run_failed", map[string]any{"text": message, "reason": reason, "toolName": toolName})
 		}
 		return cloudAgentSave(current, state)
 	})

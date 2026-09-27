@@ -138,7 +138,11 @@ func cloudAgentApplyPlanUpdate(state *cloudAgentRuntime, call cloudAgentCall) (a
 	return map[string]any{"items": args.Items, "pendingTitles": cloudAgentPendingPlanItems(args.Items)}, nil
 }
 
-func cloudAgentAskUser(call cloudAgentCall) (any, error) {
+func cloudAgentAskUser(call cloudAgentCall, states ...*cloudAgentRuntime) (any, error) {
+	var state *cloudAgentRuntime
+	if len(states) > 0 {
+		state = states[0]
+	}
 	var args struct {
 		Question string `json:"question"`
 		Options  []struct {
@@ -146,6 +150,8 @@ func cloudAgentAskUser(call cloudAgentCall) (any, error) {
 			Detail string `json:"detail"`
 		} `json:"options"`
 		AllowFreeform *bool `json:"allowFreeform"`
+		Round         int   `json:"round"`
+		MaxRounds     int   `json:"maxRounds"`
 	}
 	if err := decodeCloudAgentJSONObject(call.Function.Arguments, &args); err != nil {
 		return nil, BadAuthRequest("工具参数必须是只含支持字段的JSON对象")
@@ -176,12 +182,29 @@ func cloudAgentAskUser(call cloudAgentCall) (any, error) {
 	if args.AllowFreeform != nil {
 		allowFreeform = *args.AllowFreeform
 	}
-	return map[string]any{
+	maxRounds := cloudAgentMaxConfirmationRounds
+	currentRound := 1
+	if state != nil {
+		currentRound = state.ConfirmationRounds + 1
+	}
+	payload := map[string]any{
 		"phase":         "question",
 		"question":      truncateRunes(question, 400),
 		"options":       options,
 		"allowFreeform": allowFreeform,
-	}, nil
+		"round":         currentRound,
+		"maxRounds":     maxRounds,
+	}
+	if currentRound > maxRounds {
+		payload["phase"] = "defaulted"
+		payload["defaulted"] = true
+		payload["text"] = "确认次数已达到上限。请使用安全默认方案继续，不要再次询问；最终回复中列出采用的默认假设。"
+		return payload, nil
+	}
+	if state != nil {
+		state.ConfirmationRounds = currentRound
+	}
+	return payload, nil
 }
 
 // skipRemainingCloudAgentCalls 结束本批剩余调用（ask_user 之后本轮不再继续执行）。
