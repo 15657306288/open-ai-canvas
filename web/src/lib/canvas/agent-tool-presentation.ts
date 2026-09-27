@@ -233,6 +233,7 @@ export const AGENT_TOOL_ERROR_CLASS_LABELS: Record<string, string> = {
     state_conflict: "画布状态已变化",
     permission_violation: "超出本轮权限",
     upstream_failure: "上游故障",
+    admission_failure: "媒体生成准入失败",
     tool_error: "工具执行失败",
 };
 

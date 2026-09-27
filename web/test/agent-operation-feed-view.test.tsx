@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { AgentOperationFeed, AgentReasoningFeed, type CloudAgentChatMessage } from "@/components/canvas/canvas-cloud-agent-chat-ui";
+import { AgentChatMessage, AgentOperationFeed, AgentReasoningFeed, type CloudAgentChatMessage } from "@/components/canvas/canvas-cloud-agent-chat-ui";
 import { buildAgentFeedSegments } from "@/lib/canvas/agent-operation-feed";
 import { canvasThemes } from "@/lib/canvas-theme";
 
@@ -22,6 +22,9 @@ test("consecutive reasoning messages share one collapsed entry", () => {
     const html = renderToStaticMarkup(<AgentReasoningFeed items={messages.slice(0, 2)} theme={canvasThemes.light} />);
     expect(html).toContain("2 段 · 点击查看");
     expect(html).toContain('class="agent-reasoning-card"');
+    expect(html).toContain('class="agent-reasoning-icon"');
+    expect(html).toContain("lucide-brain-circuit");
+    expect(html).not.toContain("is-live");
     expect(html).not.toContain(" open");
 });
 
@@ -35,7 +38,23 @@ test("operations fold into one line that reports only the latest action", () => 
         expect(html).not.toContain("agent-operation-list");
         expect(html).toContain("2 步");
         expect(html).toContain("读取信息");
+        expect(html).toContain('class="agent-operation-icon"');
+        expect(html).toContain("lucide-list");
     }
+});
+
+test("messages and live reasoning expose their visual markers", () => {
+    const assistant = renderToStaticMarkup(<AgentChatMessage item={{ id: "a1", role: "assistant", text: "已完成。" }} theme={canvasThemes.light} />);
+    expect(assistant).toContain('class="agent-message-icon agent-message-icon--assistant"');
+    expect(assistant).toContain("lucide-message-circle");
+
+    const user = renderToStaticMarkup(<AgentChatMessage item={{ id: "u1", role: "user", text: "继续处理" }} theme={canvasThemes.light} />);
+    expect(user).toContain('class="agent-message-icon agent-message-icon--user"');
+    expect(user).toContain("lucide-user-round");
+
+    const live = renderToStaticMarkup(<AgentReasoningFeed items={[{ id: "r1", role: "assistant", text: "正在整理", reasoning: true, streaming: true }]} theme={canvasThemes.light} />);
+    expect(live).toContain('class="agent-reasoning-icon is-live"');
+    expect(live).toContain("模型正在思考");
 });
 
 test("the folded line names the tier it is reporting", () => {
@@ -111,6 +130,7 @@ test("style contract: 正文 / 工具调用 / 模型思考三档不再制造左�
     expect(reasoning).not.toContain("margin-left");
     expect(reasoning).not.toContain("border-left");
     expect(block(".agent-reasoning-summary")).toContain("padding: 6px 0");
+    expect(block(".agent-reasoning-icon.is-live")).toContain("animation: agent-reasoning-icon-pulse");
 
     // ④ 操作流是轻量文本收据，不再绘制竖线或额外左缩进。
     const feed = block(".agent-operation-feed");

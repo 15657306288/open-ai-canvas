@@ -22,7 +22,7 @@ import { buildAgentFeedSegments } from "@/lib/canvas/agent-operation-feed";
 import { agentApprovalMatchesSettings, agentImageApproval } from "@/lib/canvas/agent-media-approval";
 import type { AgentMediaSettings } from "@/services/api/agent";
 import { CanvasAgentImageApprovalSettings } from "./canvas-agent-image-approval-settings";
-import { addSkill, listAddedSkills, listSkills, listSkillPresets, type Skill, type SkillCategory, type SkillPreset } from "@/services/api/skills";
+import { addSkill, listAddedSkills, listSkillLibraryCategories, listSkills, listSkillPresets, type Skill, type SkillCategory, type SkillLibraryCategory, type SkillPreset } from "@/services/api/skills";
 import { clearCloudAgentPendingSubmission, cloudAgentConversationTitle, loadCloudAgentConversations, loadCloudAgentPendingSubmission, saveCloudAgentConversations, saveCloudAgentPendingSubmission, type CloudAgentConversation, type CloudAgentPendingSubmission } from "@/services/cloud-agent-conversations";
 import { logicalModelIDForConfig, modelOptionName, resolveModelRequestConfig, selectableModelsByCapability, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
@@ -77,6 +77,7 @@ export function CanvasCloudAgentPanel({ canvasId, domainProjectId, nodeCount, se
     const [skillHasMore, setSkillHasMore] = useState(false);
     const [skillPage, setSkillPage] = useState(1);
     const [skillCategories, setSkillCategories] = useState<SkillCategory[]>([]);
+    const [libraryCategories, setLibraryCategories] = useState<SkillLibraryCategory[]>([]);
     const [skillTag, setSkillTag] = useState("all");
     const [skillsOpen, setSkillsOpen] = useState(false);
     const [busy, setBusy] = useState(false);
@@ -335,7 +336,7 @@ export function CanvasCloudAgentPanel({ canvasId, domainProjectId, nodeCount, se
                     setMarketSkills(result.skills);
                     setSkillHasMore(result.hasMore);
                     setSkillPage(result.page);
-                    if (result.categories.length > 0) setSkillCategories(result.categories);
+                    setSkillCategories(result.categories);
                 }
             })
             .catch(() => {
@@ -348,6 +349,15 @@ export function CanvasCloudAgentPanel({ canvasId, domainProjectId, nodeCount, se
             active = false;
         };
     }, [view, skillsOpen, debouncedSkillSearch, skillTag]);
+
+    useEffect(() => {
+        if (view !== "settings" && !skillsOpen) return;
+        let active = true;
+        void listSkillLibraryCategories("mine")
+            .then((result) => { if (active) setLibraryCategories(result.categories); })
+            .catch(() => { if (active) setLibraryCategories([]); });
+        return () => { active = false; };
+    }, [skillsOpen, userId, view]);
 
     const loadMoreSkills = async () => {
         if (skillsLoading || skillPageRequestRef.current || !skillHasMore || skillSearch.trim() !== debouncedSkillSearch) return;
@@ -363,6 +373,7 @@ export function CanvasCloudAgentPanel({ canvasId, domainProjectId, nodeCount, se
                 sort: "popular",
             });
             setMarketSkills((current) => [...current, ...result.skills.filter((skill) => !current.some((item) => item.skillId === skill.skillId))]);
+            setSkillCategories(result.categories);
             setSkillPage(result.page);
             setSkillHasMore(result.hasMore);
         } finally {
@@ -682,6 +693,8 @@ export function CanvasCloudAgentPanel({ canvasId, domainProjectId, nodeCount, se
 
     const newConversation = () => {
         const id = nanoid();
+        const now = new Date().toISOString();
+        const inheritedSkillIds = [...selectedSkillIds];
         currentScope.current = `${canvasId}:${id}`;
         presetApplyingRef.current = null;
         setPresetApplyingId("");
@@ -693,10 +706,27 @@ export function CanvasCloudAgentPanel({ canvasId, domainProjectId, nodeCount, se
         setActiveConversationId(id);
         setRun(null);
         setMessages([]);
-        setSelectedSkillIds([]);
+        // Skills are a user-selected Agent workspace setting. Keep them when
+        // starting a fresh conversation so the skill picker does not appear to
+        // lose the skills the user just enabled.
+        setSelectedSkillIds(inheritedSkillIds);
         setPrompt("");
         setApproval(null);
         lastSeqRef.current = 0;
+        // Persist the blank conversation immediately. Otherwise the active id
+        // can point at no conversation after a reload, losing the inherited
+        // skill selection before the first message is sent.
+        setConversations((current) => [{
+            id,
+            title: "新对话",
+            messages: [],
+            run: null,
+            model: selectedModel || undefined,
+            permissionMode,
+            skillIds: inheritedSkillIds,
+            createdAt: now,
+            updatedAt: now,
+        }, ...current.filter((conversation) => conversation.messages.length > 0 || conversation.run)]);
         setView("chat");
     };
 
@@ -932,6 +962,7 @@ export function CanvasCloudAgentPanel({ canvasId, domainProjectId, nodeCount, se
                 marketSkills={marketSkills}
                 selectedSkillIds={selectedSkillIds}
                 categories={skillCategories}
+                libraryCategories={libraryCategories}
                 category={skillTag}
                 search={skillSearch}
                 loading={skillsLoading}
@@ -1446,7 +1477,9 @@ function applyAgentEvent(event: AgentEvent, setMessages: Dispatch<SetStateAction
         if (terminal) {
             setMessages((current) => current.map((message) => message.id === `plan-${event.runId}` && message.planItems?.length ? { ...message, planTerminal: true, streaming: false } : message));
         }
-        if (payload.failureMessage) setMessages((current) => appendAgentError(current, `terminal-${event.runId}`, String(payload.failureMessage)));
+        if (terminal && nextStatus === "failed" && payload.failureMessage) {
+            setMessages((current) => appendAgentError(current, `terminal-${event.runId}`, String(payload.failureMessage), "Agent 执行失败", { severity: "error" }));
+        }
         if (snapshotApproval && !snapshotApproval.decision && snapshotApproval.approvalId) {
             setApproval((current) => ({ approvalId: snapshotApproval.approvalId, detail: snapshotApproval, reason: current?.approvalId === snapshotApproval.approvalId ? current.reason : snapshotApproval.reason || "" }));
         } else {
@@ -1520,7 +1553,7 @@ function applyAgentEvent(event: AgentEvent, setMessages: Dispatch<SetStateAction
             id,
             role: "assistant",
             text: "",
-            question: { question, options, allowFreeform: payload.allowFreeform !== false },
+            question: { question, options, allowFreeform: payload.allowFreeform !== false, round: Number.isFinite(Number(payload.round)) ? Number(payload.round) : undefined, maxRounds: Number.isFinite(Number(payload.maxRounds)) ? Number(payload.maxRounds) : undefined },
         }));
         return;
     }
@@ -1548,6 +1581,26 @@ function applyAgentEvent(event: AgentEvent, setMessages: Dispatch<SetStateAction
         const message: CloudAgentChatMessage = { id: event.eventId, role: "tool", title: String(payload.toolName || "工具执行"), text, detail: { ...payload, eventType: event.type } };
         setMessages((current) => mergeAgentToolRetry(current, message));
         if (event.type === "tool_failed") return;
+    }
+    if (event.type === "tool_completed" && payload.toolName === "director_preview") {
+        const result = payload.result && typeof payload.result === "object" ? payload.result as Record<string, unknown> : {};
+        window.dispatchEvent(new CustomEvent("director:preview-requested", {
+            detail: {
+                sceneId: String(result.sceneId || ""),
+                shotId: String(result.shotId || ""),
+                duration: Number(result.duration || 0),
+                fps: Number(result.fps || 0),
+                previewRequestId: String(result.previewRequestId || payload.callId || ""),
+            },
+        }));
+        setMessages((current) => appendUniqueMessage(current, {
+            id: event.eventId,
+            role: "tool",
+            title: "director_preview",
+            text: text || "已请求导演台生成白模预演",
+            detail: { ...payload, eventType: event.type },
+        }));
+        return;
     }
     if (event.type === "tool_completed" && payload.toolName === "canvas_apply_ops" && payload.callId) {
         const id = `canvas-${event.runId}-${payload.callId}`;
@@ -1657,11 +1710,11 @@ function upsertTextMessage(current: CloudAgentChatMessage[], id: string, text: s
     return next;
 }
 
-function appendAgentError(current: CloudAgentChatMessage[], id: string, cause: unknown, fallback?: string) {
+function appendAgentError(current: CloudAgentChatMessage[], id: string, cause: unknown, fallback?: string, options?: { severity?: CloudAgentChatMessage["errorSeverity"] }) {
     const message = agentErrorPresentation(cause, fallback);
     const last = current.at(-1);
     if (last?.role === "error" && last.title === message.title && last.text === message.text) return current;
-    return appendUniqueMessage(current, { id, role: "error", ...message });
+    return appendUniqueMessage(current, { id, role: "error", ...message, ...(options?.severity ? { errorSeverity: options.severity } : {}) });
 }
 
 function isNotFoundError(cause: unknown) {

@@ -26,6 +26,7 @@ let remoteUserDataPhase: RemoteUserDataPhase = "inactive";
 let syncTimer: number | null = null;
 let syncPromise: Promise<void> | null = null;
 let syncQueued = false;
+let syncRetryAttempt = 0;
 let remoteOperationTail: Promise<void> = Promise.resolve();
 let subscriptionsInstalled = false;
 let acknowledgedAssets = new Map<string, Asset>();
@@ -35,6 +36,7 @@ let sessionEpoch = 0;
 const verifiedProjects = new Set<string>();
 const verifiedAssets = new Set<string>();
 const remoteProjectLoadPromises = new Map<string, Promise<CanvasProject | undefined>>();
+const REMOTE_SYNC_RETRY_DELAYS_MS = [2_000, 4_000, 8_000, 16_000, 30_000] as const;
 
 export async function initializeRemoteUserDataSession(userId: string) {
     await withRemoteUserDataSyncExclusive(async () => {
@@ -373,6 +375,7 @@ export function resetRemoteUserDataSync() {
         window.clearTimeout(syncTimer);
         syncTimer = null;
     }
+    syncRetryAttempt = 0;
     syncQueued = false;
     useSyncProgressStore.getState().clearAll();
 }
@@ -407,6 +410,66 @@ export function scheduleRemoteUserDataSync() {
         syncTimer = null;
         void saveRemoteUserDataNow().catch((error) => console.warn("云端自动同步失败", error));
     }, 1200);
+}
+
+function isRetryableRemoteSyncError(error: unknown) {
+    if (error instanceof ApiError) return error.retryable;
+    if (error instanceof DOMException && error.name === "AbortError") return false;
+    if (typeof error === "object" && error !== null && "permanent" in error) {
+        return (error as { permanent?: unknown }).permanent !== true;
+    }
+    // Plain errors from validation/local storage should remain visible instead of
+    // being retried indefinitely. Transport failures are normalized as ApiError.
+    return false;
+}
+
+function updateRetryProgress(delayMs: number) {
+    const seconds = Math.max(1, Math.ceil(delayMs / 1_000));
+    const progress = useSyncProgressStore.getState();
+    for (const item of Object.values(progress.syncingProjects)) {
+        if (item.phase !== "error") continue;
+        progress.setProjectProgress(item.projectId, {
+            message: `${item.message || "云端同步失败"}；${seconds} 秒后自动重试`,
+        });
+    }
+}
+
+function stopRetryProgress() {
+    const progress = useSyncProgressStore.getState();
+    for (const item of Object.values(progress.syncingProjects)) {
+        if (item.phase !== "error" || !item.message?.includes("自动重试")) continue;
+        progress.setProjectProgress(item.projectId, { message: "云端同步失败，请点击立即重试" });
+    }
+}
+
+function scheduleRemoteUserDataRetry(error: unknown) {
+    if (!isRetryableRemoteSyncError(error) || !activeRemoteUserId || remoteUserDataPhase !== "ready") return false;
+    if (syncRetryAttempt >= REMOTE_SYNC_RETRY_DELAYS_MS.length) {
+        stopRetryProgress();
+        return false;
+    }
+    const delayMs = Math.max(
+        REMOTE_SYNC_RETRY_DELAYS_MS[syncRetryAttempt],
+        error instanceof ApiError ? error.retryAfterMs || 0 : 0,
+    );
+    syncRetryAttempt += 1;
+    if (syncTimer) window.clearTimeout(syncTimer);
+    updateRetryProgress(delayMs);
+    syncTimer = window.setTimeout(() => {
+        syncTimer = null;
+        void saveRemoteUserDataNow().catch((retryError) => console.warn("云端自动重试失败", retryError));
+    }, delayMs);
+    return true;
+}
+
+/** 用户主动点击重试时重新开始退避窗口，不影响本地已保存的内容。 */
+export function retryRemoteUserDataSync(projectId?: string) {
+    syncRetryAttempt = 0;
+    if (syncTimer) {
+        window.clearTimeout(syncTimer);
+        syncTimer = null;
+    }
+    return saveRemoteUserDataNow(projectId);
 }
 
 export function formatLocalSavedRemotePending(localAction: string, error: unknown): string {
@@ -616,12 +679,22 @@ export async function saveRemoteUserDataNow(input?: string | readonly string[] |
         if (epoch !== sessionEpoch) throw new Error("账号已切换，已停止旧会话保存");
         await drainRemoteUserDataChanges(options);
     });
+    let syncFailed = false;
+    let syncError: unknown;
     try {
         await syncPromise;
         assertNoConflict();
+        syncRetryAttempt = 0;
+    } catch (error) {
+        syncFailed = true;
+        syncError = error;
     } finally {
         syncPromise = null;
         if (syncQueued) scheduleRemoteUserDataSync();
+    }
+    if (syncFailed) {
+        scheduleRemoteUserDataRetry(syncError);
+        throw syncError;
     }
 }
 

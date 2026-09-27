@@ -4,13 +4,14 @@ import { Tooltip } from "@/components/ui/base/tooltip";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { ArrowLeft, ArrowUp, AtSign, Bookmark, CheckCircle2, ChevronDown, ChevronUp, CircleAlert, CircleDot, Clapperboard, Eye, HelpCircle, ImagePlus, Layers3, List, ListChecks, LoaderCircle, Palette, Pencil, Plus, RotateCcw, Shapes, Share2, ShoppingBag, Sparkles, Square, Wrench, X, XCircle } from "lucide-react";
+import { ArrowLeft, ArrowUp, AtSign, Bookmark, BrainCircuit, CheckCircle2, ChevronDown, ChevronUp, CircleAlert, CircleDot, Clapperboard, Eye, HelpCircle, ImagePlus, Layers3, List, ListChecks, LoaderCircle, MessageCircle, Palette, Pencil, Plus, RotateCcw, Shapes, Share2, ShoppingBag, Sparkles, Square, UserRound, Wrench, X, XCircle } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { AIMessageMarkdown } from "@/components/ai/ai-message-markdown";
 import { WorkingGlow } from "@/components/ai/working-indicator";
 import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
+import type { Components } from "streamdown";
 import type { Skill, SkillPreset } from "@/services/api/skills";
 import { buildSkillMentionReferences } from "@/services/skill-runtime";
 import { agentToolCategory, agentToolCategoryLabel, agentToolErrorClassLabel, agentToolName, agentToolRetryLabel, agentToolStatus, friendlyAgentToolSummary, type AgentToolCategory } from "@/lib/canvas/agent-tool-presentation";
@@ -31,12 +32,15 @@ export type CloudAgentUserQuestion = {
     question: string;
     options: Array<{ label: string; detail?: string }>;
     allowFreeform?: boolean;
+    round?: number;
+    maxRounds?: number;
 };
 export type CloudAgentChatMessage = {
     id: string;
     role: "user" | "assistant" | "system" | "tool" | "error";
     title?: string;
     text: string;
+    errorSeverity?: "warning" | "error";
     streaming?: boolean;
     reasoning?: boolean;
     /**
@@ -114,6 +118,132 @@ function clampAgentPromptHeight(height: number) {
     return Math.min(MAX_AGENT_PROMPT_HEIGHT, Math.max(MIN_AGENT_PROMPT_HEIGHT, Math.ceil(height)));
 }
 
+const AGENT_NODE_LINK_PREFIX = "#agent-node:";
+const AGENT_NODE_TYPE_LABELS: Record<string, string> = {
+    image: "图片节点",
+    video: "视频节点",
+    audio: "音频节点",
+    text: "文本节点",
+    script: "脚本节点",
+    drawing: "绘图节点",
+    config: "工作流节点",
+    frame: "画框节点",
+    markdown: "Markdown 节点",
+    svg: "SVG 节点",
+    html: "HTML 节点",
+    panorama: "全景节点",
+    compare: "对比节点",
+    chart: "图表节点",
+    colorgrade: "调色节点",
+    "media-conversion": "转码节点",
+    "batch-table": "批量表节点",
+};
+const AGENT_NODE_TYPE_PREFIXES = Object.keys(AGENT_NODE_TYPE_LABELS).sort((left, right) => right.length - left.length);
+const BUILTIN_AGENT_NODE_ID_PATTERN = "(?:image|video|audio|text|script|drawing|config|frame|markdown|svg|html|panorama|compare|chart|colorgrade|media-conversion|batch-table)-[A-Za-z0-9][A-Za-z0-9_-]*";
+
+function escapeAgentNodePattern(value: string) {
+    return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+
+function agentNodeTypeLabel(nodeId: string, reference?: CanvasResourceReference) {
+    const sourceType = String(reference?.sourceType || "");
+    if (sourceType && AGENT_NODE_TYPE_LABELS[sourceType]) return AGENT_NODE_TYPE_LABELS[sourceType];
+    const prefix = AGENT_NODE_TYPE_PREFIXES.find((candidate) => nodeId.startsWith(`${candidate}-`));
+    return (prefix && AGENT_NODE_TYPE_LABELS[prefix]) || (reference?.kind ? `${reference.kind} 节点` : "画布节点");
+}
+
+function agentNodeLinkLabel(nodeId: string, reference?: CanvasResourceReference) {
+    const kindLabel = agentNodeTypeLabel(nodeId, reference);
+    const title = (reference?.title || reference?.label || "").replace(/\s+/gu, " ").trim();
+    return title ? `${kindLabel} · ${title}` : kindLabel;
+}
+
+function escapeAgentMarkdownLinkText(value: string) {
+    return value.replace(/[\\[\]]/gu, "\\$&");
+}
+
+function createAgentNodeLink(nodeId: string, reference?: CanvasResourceReference) {
+    return `[${escapeAgentMarkdownLinkText(agentNodeLinkLabel(nodeId, reference))}](${AGENT_NODE_LINK_PREFIX}${encodeURIComponent(nodeId)})`;
+}
+
+/**
+ * Replace internal canvas node IDs in assistant Markdown with semantic links.
+ * Fenced code is left untouched, while the historical "新节点 ID" wording is
+ * shortened so the assistant exposes a node card instead of an implementation ID.
+ */
+export function rewriteAgentNodeLinks(text: string, references: CanvasResourceReference[] = []) {
+    if (!text) return text;
+
+    const referenceByNodeId = new Map(references.filter((reference) => reference.nodeId).map((reference) => [reference.nodeId, reference]));
+    const exactNodeIds = [...referenceByNodeId.keys()].sort((left, right) => right.length - left.length).map(escapeAgentNodePattern);
+    const nodeIdPattern = exactNodeIds.length ? `(?:${exactNodeIds.join("|")}|${BUILTIN_AGENT_NODE_ID_PATTERN})` : BUILTIN_AGENT_NODE_ID_PATTERN;
+    const nodeTokenPattern = new RegExp(`(?<![A-Za-z0-9_-])(?:\\x60(${nodeIdPattern})\\x60|(${nodeIdPattern}))(?![A-Za-z0-9_-])`, "gu");
+    const newNodePrefixPattern = /(新节点|节点|新建节点)\s*ID(?=\s*[：:])/gu;
+    let inFence = false;
+
+    return text.split(/(\r?\n)/u).map((part) => {
+        if (/^\r?\n$/u.test(part)) return part;
+        const fence = /^\s{0,3}(`{3,}|~{3,})/u.test(part);
+        if (fence) {
+            inFence = !inFence;
+            return part;
+        }
+        if (inFence) return part;
+
+        const normalized = part.replace(newNodePrefixPattern, "$1");
+        return normalized.replace(nodeTokenPattern, (match, backtickedId: string | undefined, plainId: string | undefined) => {
+            const nodeId = backtickedId || plainId;
+            return nodeId ? createAgentNodeLink(nodeId, referenceByNodeId.get(nodeId)) : match;
+        });
+    }).join("");
+}
+
+function agentNodeIdFromHref(href?: string) {
+    if (!href?.startsWith(AGENT_NODE_LINK_PREFIX)) return null;
+    try {
+        const nodeId = decodeURIComponent(href.slice(AGENT_NODE_LINK_PREFIX.length));
+        return nodeId || null;
+    } catch {
+        return null;
+    }
+}
+
+function createAgentMessageMarkdownComponents(references: CanvasResourceReference[], onFocusNode?: (nodeId: string) => void): Components {
+    const referenceByNodeId = new Map(references.filter((reference) => reference.nodeId).map((reference) => [reference.nodeId, reference]));
+    return {
+        a: ({ children, href, className, ...props }) => {
+            const nodeId = agentNodeIdFromHref(href);
+            if (!nodeId) {
+                return <a {...props} href={href} className={`ai-message-markdown-link ${className || ""}`.trim()} target="_blank" rel="noreferrer">{children}</a>;
+            }
+
+            const reference = referenceByNodeId.get(nodeId);
+            const title = reference?.title || reference?.label || "画布节点";
+            const previewUrl = reference?.previewUrl;
+            return (
+                <a
+                    {...props}
+                    href={href}
+                    className="agent-message-node-link"
+                    data-agent-node-id={nodeId}
+                    aria-label={`定位到画布中的${title}`}
+                    title={`定位到画布中的${title}`}
+                    onClick={(event) => {
+                        event.preventDefault();
+                        onFocusNode?.(nodeId);
+                    }}
+                >
+                    {previewUrl ? <img className="agent-message-node-link-preview" src={previewUrl} alt="" loading="lazy" /> : <span className="agent-message-node-link-icon" aria-hidden="true"><CircleDot className="size-3.5" /></span>}
+                    <span className="agent-message-node-link-copy">
+                        <span className="agent-message-node-link-kind">{agentNodeTypeLabel(nodeId, reference)}</span>
+                        <span className="agent-message-node-link-title">{reference?.title || reference?.label || children}</span>
+                    </span>
+                </a>
+            );
+        },
+    };
+}
+
 export function AgentChatMessage({
     item,
     theme,
@@ -138,13 +268,16 @@ export function AgentChatMessage({
     const isUser = item.role === "user";
     const isSystem = item.role === "system";
     const displayedText = useTypewriterText(item.text, item.role === "assistant" && isStreaming);
-    const color = item.role === "error" ? "#ef4444" : theme.node.text;
+    const markdownComponents = useMemo(() => createAgentMessageMarkdownComponents(references, onFocusNode), [onFocusNode, references]);
+    const agentMarkdownText = rewriteAgentNodeLinks(displayedText, references);
+    const errorTone = item.errorSeverity === "warning" ? "warning" : "error";
+    const color = item.role === "error" ? (errorTone === "warning" ? "#b45309" : "#ef4444") : theme.node.text;
     if (item.reasoning) {
         return <AgentReasoningFeed items={[item]} theme={theme} />;
     }
     if (isSystem) {
         return (
-            <div className="agent-status-message flex items-start gap-2 text-xs">
+            <div className="agent-status-message agent-status-message--system flex items-start gap-2 text-xs">
                 <AgentTimelineMarker theme={theme} tone="muted" icon={<Sparkles className="size-3" />} />
                 <div className="min-w-0 flex-1 py-0.5 leading-5" style={{ color: theme.node.muted }}>
                     {item.text}
@@ -163,17 +296,17 @@ export function AgentChatMessage({
     }
     if (item.role === "error") {
         return (
-            <div className="agent-status-message flex items-start gap-2">
-                <AgentTimelineMarker theme={theme} tone="error" icon={<CircleAlert className="size-3.5" />} />
+            <div className={`agent-status-message agent-status-message--${errorTone} flex items-start gap-2`}>
+                <AgentTimelineMarker theme={theme} tone={errorTone} icon={errorTone === "warning" ? <CircleAlert className="size-3.5" /> : <CircleAlert className="size-3.5" />} />
                 <div className="min-w-0 flex-1 py-0.5 text-[13px] leading-5">
-                    <div className="font-medium" style={{ color }}>
-                        {item.title || "Agent 暂时无法继续"}
+                    <div className="agent-error-title font-medium" style={{ color }}>
+                        {item.title || (errorTone === "warning" ? "Agent 正在重试" : "Agent 暂时无法继续")}
                     </div>
-                    <div className="mt-0.5 whitespace-pre-wrap break-words" style={{ color: theme.node.muted }}>
+                    <div className="agent-error-detail whitespace-pre-wrap break-words" style={{ color: theme.node.muted }}>
                         {item.text}
                     </div>
                     {item.meta ? (
-                        <div className="mt-1 text-[var(--fs-label)]" style={{ color: theme.node.muted }}>
+                        <div className="agent-error-meta text-[var(--fs-label)]" style={{ color: theme.node.muted }}>
                             {item.meta}
                         </div>
                     ) : null}
@@ -188,6 +321,11 @@ export function AgentChatMessage({
     }
     return (
         <div className={`flex items-start gap-3 ${isUser ? "justify-end" : "justify-start"}`}>
+            {!isUser ? (
+                <span className="agent-message-icon agent-message-icon--assistant" aria-hidden="true">
+                    <MessageCircle className="size-4" />
+                </span>
+            ) : null}
             <div className={`agent-message-body min-w-0 text-sm leading-6 ${isUser ? "agent-message-user max-w-[82%] px-4 py-3 text-right" : "max-w-full flex-1 text-left"}`} style={{ color }}>
                 {item.interjection ? (
                     <span
@@ -198,8 +336,8 @@ export function AgentChatMessage({
                     </span>
                 ) : null}
                 {item.role === "assistant" ? (
-                    <AIMessageMarkdown className="text-left" isStreaming={isStreaming} streamingAnimation="none">
-                        {displayedText}
+                    <AIMessageMarkdown className="text-left" isStreaming={isStreaming} streamingAnimation="none" components={markdownComponents}>
+                        {agentMarkdownText}
                     </AIMessageMarkdown>
                 ) : (
                     <AgentMessageText text={item.text} references={references} />
@@ -207,6 +345,11 @@ export function AgentChatMessage({
                 {item.attachments?.length ? <AgentMessageAttachments attachments={item.attachments} /> : null}
                 {item.meta ? <div className="mt-1 text-[var(--fs-label)] opacity-45">{item.meta}</div> : null}
             </div>
+            {isUser ? (
+                <span className="agent-message-icon agent-message-icon--user" aria-hidden="true">
+                    <UserRound className="size-4" />
+                </span>
+            ) : null}
         </div>
     );
 }
@@ -229,6 +372,9 @@ export function AgentReasoningFeed({
         <div className="agent-reasoning" style={{ "--agent-reasoning-accent": theme.accent.primary } as CSSProperties}>
             <details className={`agent-reasoning-card${streaming ? " is-streaming" : ""}`}>
                 <summary className="agent-reasoning-summary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current/20">
+                    <span className={`agent-reasoning-icon${streaming ? " is-live" : ""}`} aria-hidden="true">
+                        <BrainCircuit className="size-4" />
+                    </span>
                     <span className="agent-reasoning-copy">
                         <span className="agent-reasoning-title">{streaming ? "模型正在思考" : "模型思考"}</span>
                         <span className="agent-reasoning-subtitle">{streaming ? "实时整理 · 点击查看" : `${countLabel}点击查看`}</span>
@@ -580,6 +726,7 @@ export function AgentOperationFeed({
     if (!latest) return null;
     const category = agentOperationCategory(latest);
     const categoryLabel = agentToolCategoryLabel(agentToolName(latest.title || "工具执行", latest.detail), category);
+    const categoryIcon = agentToolCategoryIcon(category);
     const label = agentOperationSegmentLabel(items);
     // 只看最新一步的状态。前面的参数错误如果已被自动纠正，不应让整段
     // 操作流继续保持红色并默认展开，否则用户会误以为最终动作仍然失败。
@@ -597,6 +744,9 @@ export function AgentOperationFeed({
                 aria-label={`${expanded ? "收起" : "展开"} ${items.length} 步${categoryLabel}记录，最新一步：${label}`}
                 onClick={() => setUserExpanded(!expanded)}
             >
+                <span className="agent-operation-icon" aria-hidden="true">
+                    {categoryIcon}
+                </span>
                 <span className="agent-operation-kind">
                     <span>{categoryLabel}</span>
                 </span>
@@ -679,7 +829,12 @@ export function AgentQuestionBar({ question, theme, onAnswer, disabled = false }
         <div className="agent-question-bar mx-3 mb-2 overflow-hidden rounded-xl" style={{ color: theme.node.text }}>
             <div className="flex items-start gap-2 px-3 pt-2.5">
                 <HelpCircle className="mt-[1px] size-3.5 shrink-0" style={{ color: theme.accent.primary }} />
-                <span className="min-w-0 flex-1 text-xs font-semibold leading-5">{question.question}</span>
+                <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 text-[10px] opacity-55">
+                        {question.round && question.maxRounds ? `确认 ${question.round}/${question.maxRounds}` : "需要确认"}
+                    </div>
+                    <div className="text-xs font-semibold leading-5">{question.question}</div>
+                </div>
             </div>
             <div className="flex flex-wrap gap-2 px-3 pb-2 pt-2">
                 {question.options.map((option) => (
@@ -701,6 +856,21 @@ export function AgentQuestionBar({ question, theme, onAnswer, disabled = false }
                         {option.detail ? <span className="mt-0.5 block break-words text-[10px] leading-4 opacity-60">{option.detail}</span> : null}
                     </button>
                 ))}
+                <button
+                    type="button"
+                    disabled={disabled}
+                    title="使用安全默认方案继续"
+                    className="max-w-full rounded-md border-0 px-3 py-1.5 text-left text-xs font-medium transition focus-visible:outline focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    style={{ background: theme.accent.primary, color: theme.accent.onPrimary }}
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        onAnswer("直接开始");
+                    }}
+                >
+                    按默认方案开始
+                </button>
             </div>
             <div className="px-3 pb-2 text-[10px] opacity-50">{question.allowFreeform === false ? "请从上面选一项。" : "点一项即可，也可以在下方输入框里自己说明。"}</div>
         </div>
@@ -1248,8 +1418,8 @@ export function AgentPanelTabs<T extends string>({
  * 的模型品牌 glyph —— 那个圆环标志会被读成"这条是模型/OpenAI 出品"，与它实际表达的
  * "这是谁的一行"无关。
  */
-function AgentTimelineMarker({ theme, tone, icon }: { theme: (typeof canvasThemes)[keyof typeof canvasThemes]; tone: "agent" | "muted" | "approval" | "error"; icon: ReactNode }) {
-    const color = tone === "error" ? "#ef4444" : tone === "approval" ? "#f97316" : tone === "agent" ? theme.accent.primary : theme.node.muted;
+function AgentTimelineMarker({ theme, tone, icon }: { theme: (typeof canvasThemes)[keyof typeof canvasThemes]; tone: "agent" | "muted" | "approval" | "warning" | "error"; icon: ReactNode }) {
+    const color = tone === "error" ? "#ef4444" : tone === "warning" ? "#b45309" : tone === "approval" ? "#f97316" : tone === "agent" ? theme.accent.primary : theme.node.muted;
     return (
         <span className="agent-timeline-marker relative" aria-hidden="true">
             <span className="relative grid size-5 place-items-center rounded-full" style={{ background: tone === "agent" ? theme.accent.primarySoft : theme.node.fill, color }}>
