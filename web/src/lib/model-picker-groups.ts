@@ -18,22 +18,21 @@ export function modelChannelLabel(config: AiConfig, value: string) {
     return cost?.channelLabel?.trim() || channel.name || "未命名渠道";
 }
 
-// 一级按渠道展示；二级保留每条渠道模型的独立选择值、能力和售价。
+// 一级按模型展示名跨渠道聚合；二级保留每条渠道模型的独立选择值、能力和售价。
 export function groupModelsForPicker(config: AiConfig, options: string[]): ModelPickerGroup[] {
     const groups = new Map<string, ModelPickerGroup>();
     for (const channel of config.channels) {
         const models = options.filter((value) => resolveModelChannel(config, value).id === channel.id);
         const directModels = models.filter((value) => isDirectSystemModel(config, value));
-        if (directModels.length) {
-            const key = JSON.stringify(["system-channel", channel.id]);
-            groups.set(key, {
-                key,
-                label: channel.name || "未命名渠道",
-                icon: modelIcon(config, directModels[0]),
-                scope: "平台服务",
-                kind: "channel",
-                models: directModels.map((value) => ({ key: value, label: configuredModelDisplayName(config, value), models: [value] })),
-            });
+        for (const value of directModels) {
+            const label = configuredModelDisplayName(config, value);
+            const key = JSON.stringify(["product", label]);
+            let group = groups.get(key);
+            if (!group) {
+                group = { key, label, icon: modelIcon(config, value), scope: "平台服务", kind: "product", models: [] };
+                groups.set(key, group);
+            }
+            group.models.push({ key: value, label: modelChannelLabel(config, value), models: [value] });
         }
         const otherModels = models.filter((value) => !isDirectSystemModel(config, value));
         if (otherModels.length) {

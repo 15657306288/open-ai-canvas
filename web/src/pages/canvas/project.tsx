@@ -2990,6 +2990,7 @@ function InfiniteCanvasPage() {
                                         canvasId={projectId}
                                         domainProjectId={currentProject?.projectId}
                                         nodeCount={nodes.length}
+                                        selectedNodeIds={Array.from(selectedNodeIds)}
                                         references={agentMentionReferences}
                                         prefillPrompt={agentPrefillPrompt}
                                         open={assistantOpen}

@@ -132,12 +132,14 @@ describe("batch creation table", () => {
                 { id: "reference-2", label: "参考图 2" },
                 { id: "reference-3", label: "参考图 3" },
             ],
-            rows: [{ id: "row-1", enabled: true, inputNodeIds: ["a", "b", "c"], prompt: "x" }],
+            rows: [{ id: "row-1", enabled: true, inputNodeIds: ["a", "b", "c"], prompt: "x", outputNodeId: "output-1", outputNodeIds: ["output-1", "output-2"] }],
         };
 
         const next = removeLastBatchReferenceColumn(table);
         expect(next?.referenceColumns?.map((column) => column.id)).toEqual(["reference-1", "reference-2"]);
         expect(next?.rows[0].inputNodeIds).toEqual(["a", "b"]);
+        expect(next?.rows[0].outputNodeId).toBeUndefined();
+        expect(next?.rows[0].outputNodeIds).toBeUndefined();
         expect(removeLastBatchReferenceColumn({ ...table, referenceColumns: [{ id: "reference-1", label: "参考图 1" }] })).toBeNull();
     });
 
@@ -183,13 +185,14 @@ describe("batch creation table", () => {
                 { id: "reference-2", label: "参考图 2" },
             ],
             rows: [
-                { id: "row-1", enabled: true, inputNodeIds: ["a", "b"], prompt: "one" },
-                { id: "row-2", enabled: true, inputNodeIds: ["c", "d"], prompt: "two" },
+                { id: "row-1", enabled: true, inputNodeIds: ["a", "b"], prompt: "one", outputNodeId: "output-1", outputNodeIds: ["output-1"] },
+                { id: "row-2", enabled: true, inputNodeIds: ["c", "d"], prompt: "two", outputNodeId: "output-2", outputNodeIds: ["output-2"] },
             ],
         };
         const next = moveBatchReferenceCell(table, "row-1", 0, "row-2", 1);
         expect(next.rows[0].inputNodeIds).toEqual(["d", "b"]);
         expect(next.rows[1].inputNodeIds).toEqual(["c", "a"]);
+        expect(next.rows.every((row) => row.outputNodeId === undefined && row.outputNodeIds === undefined)).toBe(true);
     });
 
     test("uses a non-empty global prompt instead of the row prompt", () => {

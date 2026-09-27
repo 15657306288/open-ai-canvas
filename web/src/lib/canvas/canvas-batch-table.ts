@@ -119,7 +119,12 @@ export function removeLastBatchReferenceColumn(table: CanvasBatchTableData): Can
     return {
         ...table,
         referenceColumns: nextColumns,
-        rows: table.rows.map((row) => ({ ...row, inputNodeIds: nextColumns.map((_, index) => row.inputNodeIds[index] || "") })),
+        rows: table.rows.map((row) => {
+            const inputNodeIds = nextColumns.map((_, index) => row.inputNodeIds[index] || "");
+            return row.inputNodeIds[nextColumns.length]
+                ? { ...row, inputNodeIds, outputNodeId: undefined, outputNodeIds: undefined }
+                : { ...row, inputNodeIds };
+        }),
     };
 }
 
@@ -159,7 +164,17 @@ export function moveBatchReferenceCell(table: CanvasBatchTableData, sourceRowId:
     const targetNodeId = nextTarget.inputNodeIds[targetColumnIndex];
     nextTarget.inputNodeIds[targetColumnIndex] = sourceNodeId;
     nextSource.inputNodeIds[sourceColumnIndex] = targetNodeId || "";
-    return { ...table, rows: nextRows };
+    const changedRowIds = new Set<string>();
+    for (const rowId of [sourceRowId, targetRowId]) {
+        const before = table.rows.find((row) => row.id === rowId)?.inputNodeIds || [];
+        const after = nextRows.find((row) => row.id === rowId)?.inputNodeIds || [];
+        if (before.length !== after.length || before.some((id, index) => id !== after[index])) changedRowIds.add(rowId);
+    }
+    if (!changedRowIds.size) return table;
+    return {
+        ...table,
+        rows: nextRows.map((row) => changedRowIds.has(row.id) ? { ...row, outputNodeId: undefined, outputNodeIds: undefined } : row),
+    };
 }
 
 /** 将已连接的图片按表格行顺序写入指定列。 */
