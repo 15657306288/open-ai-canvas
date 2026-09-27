@@ -10,6 +10,13 @@ import type { AddNodeMenuCommand, AddNodeMenuContext, NodeToolbarGroup, ToolCate
 /** 模块级注册表 */
 const registry = new Map<ToolbarId, ToolDefinition[]>();
 const addNodeMenuRegistry: AddNodeMenuCommand[] = [];
+const selectionToolbarAllowedTools = new Set([
+    "selection-auto-arrange",
+    "selection-batch-download",
+    "selection-create-storyboard",
+    "selection-batch-connect",
+    "selection-send-to-agent",
+]);
 
 /** 批量注册工具到指定工具栏 */
 export function registerToolbarTools(tools: ToolDefinition[]) {
@@ -82,7 +89,7 @@ export function resolveToolbarEntries(toolbar: ToolbarId, ctx: ToolContext, pref
  * 供需要后处理工具列表的场景使用（如节点悬停工具栏合并图片工具）。
  */
 export function resolveToolbarTools(toolbar: ToolbarId, ctx: ToolContext, prefs: ToolbarPrefs | null): ToolDefinition[] {
-    const allTools = getToolbarTools(toolbar);
+    const allTools = getToolbarTools(toolbar).filter((tool) => toolbar !== "selection" || selectionToolbarAllowedTools.has(tool.id));
     const applicableTools = allTools.filter((tool) => !tool.applicable || tool.applicable(ctx));
     const effectivePrefs = prefs ?? defaultToolbarPrefs(toolbar);
     const hiddenSet = new Set(effectivePrefs.hidden);
