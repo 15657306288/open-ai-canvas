@@ -15,7 +15,7 @@ import { cloneCanvasDrawing } from "@/lib/canvas/canvas-drawing-storage";
 import { createZip } from "@/lib/zip";
 import { getMediaBlob } from "@/services/file-storage";
 import { getImageBlob } from "@/services/image-storage";
-import { buildCanvasMediaDownloadFileName } from "@/lib/canvas/canvas-media-download";
+import { buildCanvasMediaDownloadFileName, canvasMediaFileExtension } from "@/lib/canvas/canvas-media-download";
 import { isDrawingEngineAvailable, type CanvasDrawingEngine } from "@/lib/canvas/canvas-drawing-engine";
 import { useUserStore } from "@/stores/use-user-store";
 import { useEffectiveConfig } from "@/stores/use-config-store";
@@ -246,7 +246,7 @@ export function useCanvasNodeOperations({
                     continue;
                 }
                 const baseName = buildCanvasMediaDownloadFileName(canvasTitle, node).replace(/\.[^.]+$/, "");
-                const extension = blob.type.split("/")[1]?.split(";")[0] || "bin";
+                const extension = canvasMediaFileExtension(node);
                 let name = `${baseName}.${extension}`;
                 let suffix = 2;
                 while (usedNames.has(name)) name = `${baseName}-${suffix++}.${extension}`;
