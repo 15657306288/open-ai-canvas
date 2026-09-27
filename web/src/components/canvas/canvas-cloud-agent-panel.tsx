@@ -775,7 +775,7 @@ export function CanvasCloudAgentPanel({ canvasId, domainProjectId, nodeCount, se
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={reducedMotion ? { opacity: 0 } : { opacity: 0, y: 12, scale: 0.985 }}
                         transition={{ duration: reducedMotion ? 0 : 0.26, ease: [0.16, 1, 0.3, 1] }}
-                        className="canvas-agent-panel fixed z-[var(--z-modal-overlay)] flex min-w-0 flex-col overflow-hidden"
+                        className="canvas-agent-panel fixed z-[calc(var(--z-toast)+1)] flex min-w-0 flex-col overflow-hidden"
                         style={{ ...panelLayout.style, "--agent-surface-base": theme.node.panel, "--agent-ink": theme.node.text, "--agent-accent": theme.accent.primary, "--agent-shadow-color": theme.spatial.shadow } as CSSProperties & Record<`--${string}`, string>}
                         aria-label="Agent 工作台"
                         data-canvas-no-zoom
@@ -998,7 +998,7 @@ function AgentLauncher({ theme, statusColor, approvalPending, reducedMotion, onO
             type="button"
             aria-label={`打开${appearance.agentName}`}
             title={`${approvalPending ? "Agent 等待你的审批" : "打开 Agent 助手"} · 拖动可调整位置，聚焦后可用方向键移动`}
-            className={cn("canvas-agent-launcher fixed z-[var(--z-modal-overlay)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current/35", dragging && "is-dragging", live && "canvas-agent-launcher-live2d")}
+            className={cn("canvas-agent-launcher fixed z-[calc(var(--z-toast)+1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current/35", dragging && "is-dragging", live && "canvas-agent-launcher-live2d")}
             style={{ ...position, width, height, color: theme.node.text, "--canvas-agent-launcher-shadow": theme.spatial.shadow } as CSSProperties}
             data-canvas-no-zoom
             {...handlers}

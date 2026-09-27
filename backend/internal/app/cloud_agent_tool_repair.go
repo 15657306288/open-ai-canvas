@@ -39,8 +39,7 @@ func cloudAgentTrackToolRepair(runID string, state *cloudAgentRuntime, call clou
 	}
 	detail, _ := result.(map[string]any)
 	var argumentErr *cloudAgentArgumentError
-	retryable, _ := detail["retryable"].(bool)
-	if (!errors.As(err, &argumentErr) && !retryable) || detail["taskSubmitted"] == true || detail["phase"] == "completion" {
+	if !errors.As(err, &argumentErr) || detail["taskSubmitted"] == true || detail["phase"] == "completion" {
 		return false
 	}
 	if state.ToolRepairs == nil {
