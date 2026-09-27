@@ -1,7 +1,6 @@
 package skills
 
 import (
-	"embed"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -11,12 +10,12 @@ import (
 	"time"
 	"unicode/utf8"
 
+	builtinAssets "infinite-canvas/backend/builtin"
 	"infinite-canvas/backend/internal/kernel"
 	"infinite-canvas/backend/internal/model"
 )
 
-//go:embed builtin
-var builtinSkillFiles embed.FS
+var builtinSkillFiles = builtinAssets.FS
 
 type builtinSkillMetadata struct {
 	Name             string
@@ -81,7 +80,7 @@ func (s *Service) EnsureBuiltinSkills() error {
 func loadBuiltinSkillPackages(tombstones interface {
 	BuiltinSkillTombstoned(string) (bool, error)
 }) ([]builtinSkillPackage, error) {
-	entries, err := builtinSkillFiles.ReadDir("builtin")
+	entries, err := builtinSkillFiles.ReadDir(".")
 	if err != nil {
 		return nil, fmt.Errorf("读取内置技能目录失败: %w", err)
 	}
@@ -100,7 +99,7 @@ func loadBuiltinSkillPackages(tombstones interface {
 		}
 		seen[skillID] = struct{}{}
 
-		base := path.Join("builtin", skillID)
+		base := skillID
 		body, err := builtinSkillFiles.ReadFile(path.Join(base, "SKILL.md"))
 		if err != nil {
 			return nil, fmt.Errorf("读取内置技能 %s 入口文件失败: %w", skillID, err)

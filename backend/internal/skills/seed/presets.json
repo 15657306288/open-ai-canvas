@@ -1,7 +1,7 @@
 {
   "version": 1,
   "updated": "2026-09-22",
-  "note": "技能目录来自 backend/internal/skills/builtin/ 下的 Markdown 技能包；此文件只保存场景组合，不保存技能正文。",
+  "note": "技能目录来自 backend/builtin/ 下的 Markdown 技能包；此文件只保存场景组合，不保存技能正文。",
   "presets": [
     {
       "presetId": "short-drama-starter",
