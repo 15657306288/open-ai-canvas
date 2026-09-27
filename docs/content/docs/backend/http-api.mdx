@@ -339,6 +339,21 @@ CSV 使用中文表头、UTF-8 BOM、CRLF；金额按整数分精确转换为两
 
 常量：后端 `service/error_codes.go`，前端 `web/src/services/api/error-codes.ts`。
 
+## 技能库分类 API
+
+以下接口需要登录。技能库分类与技能广场共享分类分离：`skills.tag` 仍表示共享市场分类；用户技能库分类记录在用户自己的技能状态中，只影响该用户技能库和画布 Agent。
+
+| 方法 | 路径 | 行为 |
+| --- | --- | --- |
+| GET | `/api/skills/library-categories?scope=mine\|created` | 返回当前用户可见的个人分类和平台分类，以及所选视图下每类数量、全部技能数和未分类数量。`mine` 包含自己创建及已加入的公开技能；`created` 只统计自己创建的技能。 |
+| POST | `/api/skills/library-categories` | 请求 `{ "name": "分镜", "scope": "personal" }`。`scope` 可省略并默认为 `personal`；管理员可指定 `platform`，该分类对所有用户可见、可分配和筛选。同一用户可见范围内分类名唯一。 |
+| DELETE | `/api/skills/library-categories/:id` | 删除个人分类（仅分类所有者）或平台分类（仅管理员），只解除该分类与技能的关联，不删除技能。 |
+| PATCH | `/api/skills/:id/library-category` | 请求 `{ "categoryId": "分类 ID" }` 设置分类；空字符串清除分类。仅允许对自己创建或已加入的技能操作，并且只能使用当前用户的个人分类或平台分类。 |
+
+`GET /api/skills` 可带 `libraryCategoryId` 或 `libraryUncategorized=true`，仅用于 `scope=mine` / `scope=created`，且两者不能同时使用。它们可与共享分类筛选 `tag` 同时提供，结果需同时满足两个筛选条件。分类列表的数量不受搜索词影响，表示对应技能库范围内的完整数量。
+
+技能列表响应中的 `categories` 是技能广场共享分类，包含 `value`、`label` 和 `count`；`count` 统计已启用且公开的技能，不受当前搜索词、分页和视图筛选影响。它与技能库个人/平台分类是两套独立分类。
+
 ## 画布工具 API
 
 以下接口均要求登录，使用标准业务信封：

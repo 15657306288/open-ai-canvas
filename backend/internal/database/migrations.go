@@ -27,7 +27,7 @@ const cloudAgentGeminiCacheChecksum = "sha256:cloud-agent-gemini-cache-v36-20260
 const cloudAgentGeminiCacheIdentityChecksum = "sha256:cloud-agent-gemini-cache-identity-v37-20260925"
 const prefixedIDSequenceReconcileChecksum = "sha256:prefixed-id-sequence-reconcile-v38-20260926"
 const skillLibraryCategoriesChecksum = "sha256:skill-library-categories-v39-20260926"
-const builtinSkillTombstonesChecksum = "sha256:builtin-skill-tombstones-v40-20260926"
+const builtinSkillTombstonesChecksum = "sha256:builtin-skill-tombstones-v40-20260927"
 
 const postgresSchemaMigrationLockID int64 = 73123910420260830
 
