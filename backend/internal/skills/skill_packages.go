@@ -134,7 +134,7 @@ func (s *Service) EnsureSkillPackages() error {
 			}
 			// User-installed ZIP/GitHub skills are authoritative in skill_files and
 			// must never be replaced by the legacy instruction column at startup.
-			if skill.Source == skillSourceUser {
+			if skill.Source == skillSourceUser || skill.SourceType == "builtin" {
 				continue
 			}
 			if strings.TrimSpace(skill.Instruction) == "" {
