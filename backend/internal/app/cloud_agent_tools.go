@@ -437,19 +437,30 @@ func compileCloudAgentTools(req CloudAgentRequest, includeProfileTool bool) []ma
 		map[string]any{"items": map[string]any{"type": "array", "maxItems": 20, "items": map[string]any{"type": "object", "properties": map[string]any{"id": str("短标识，如 1"), "title": str("这一项要做什么"), "status": map[string]any{"type": "string", "enum": []string{"pending", "doing", "done"}}}, "required": []string{"id", "title", "status"}, "additionalProperties": false}}},
 		"items")
 	add("ask_user",
-		"创作需求有多个合理方向，或信息不足且假设显著影响结果时，先调用本工具给一个问题和 2-6 个可点选项；不要只在正文列候选，正文没有选项面板。本轮就此收尾，用户点选或自行输入后自动续轮。已指定方向、授权自主决定、存在安全默认值或明确说“直接开始”时不要问，直接执行。一次只问一件事；服务端最多允许 2 轮确认，达到上限后会要求你采用安全默认值继续并说明假设。",
+		"创作需求存在会显著影响结果的歧义时才调用本工具。本轮只问一次：简单单项决策使用 options；多个相关参数（题材、画幅、画风、模型偏好、补充说明等）使用 fields 返回一张带推荐值、可编辑、可跳过非必填项的紧凑表单。已指定方向、授权自主决定、存在安全默认值或明确说“直接开始”时不要问，直接执行。本轮就此收尾，用户提交后自动续轮；服务端最多允许 2 轮确认。",
 		map[string]any{
-			"question": str("要用户决定的这一个问题，一句话说清"),
+			"question":   str("要用户确认的主题，一句话说清"),
+			"questionId": str("可选的稳定问题标识"),
 			"options": map[string]any{"type": "array", "minItems": 2, "maxItems": 6, "items": map[string]any{
 				"type":       "object",
-				"properties": map[string]any{"label": str("选项文字（用户点它即把这句话作为回答）"), "detail": str("可选：一句补充说明")},
+				"properties": map[string]any{"label": str("选项文字"), "detail": str("可选：一句补充说明")},
 				"required":   []string{"label"}, "additionalProperties": false,
 			}},
-			"allowFreeform": map[string]any{"type": "boolean", "description": "是否同时允许用户自己输入（默认允许）"},
+			"fields": map[string]any{"type": "array", "minItems": 1, "maxItems": 6, "description": "多个相关创作参数组成的动态表单；与 options 二选一", "items": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"id": str("稳定字段 ID，如 aspectRatio"), "title": str("字段显示名称"),
+					"type":         map[string]any{"type": "string", "enum": []string{"single_select", "segmented", "text", "textarea", "model_picker"}},
+					"options":      map[string]any{"type": "array", "maxItems": 8, "items": map[string]any{"type": "object", "properties": map[string]any{"id": str("稳定选项 ID"), "label": str("选项名称"), "detail": str("可选说明"), "recommended": map[string]any{"type": "boolean"}}, "required": []string{"label"}, "additionalProperties": false}},
+					"defaultValue": str("推荐默认值；可选"), "required": map[string]any{"type": "boolean"}, "allowCustom": map[string]any{"type": "boolean"}, "placeholder": str("可选输入提示"),
+				},
+				"required": []string{"id", "title", "type"}, "additionalProperties": false,
+			}},
+			"allowFreeform": map[string]any{"type": "boolean", "description": "是否允许在表单外补充说明（默认允许）"},
 			"round":         map[string]any{"type": "integer", "minimum": 1, "maximum": cloudAgentMaxConfirmationRounds, "description": "可选确认轮次；服务端以持久化轮次为准"},
 			"maxRounds":     map[string]any{"type": "integer", "minimum": 1, "maximum": cloudAgentMaxConfirmationRounds, "description": "可选确认上限；服务端以固定上限为准"},
 		},
-		"question", "options")
+		"question")
 	if len(req.ContextScope) > 0 {
 		add("director_scene_read", "读取当前画布的导演台白模场景摘要。只返回场景、镜头、演员、道具和空间关系所需的安全字段，不返回模型 URL、存储 key、密钥或完整导演场景 JSON；先读再编辑/预演。", map[string]any{
 			"sceneId":   str("可选的导演场景 ID；省略时返回场景目录"),
