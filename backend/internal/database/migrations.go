@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 40
+const CurrentSchemaVersion int64 = 41
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -28,6 +28,7 @@ const cloudAgentGeminiCacheIdentityChecksum = "sha256:cloud-agent-gemini-cache-i
 const prefixedIDSequenceReconcileChecksum = "sha256:prefixed-id-sequence-reconcile-v38-20260926"
 const skillLibraryCategoriesChecksum = "sha256:skill-library-categories-v39-20260926"
 const builtinSkillTombstonesChecksum = "sha256:builtin-skill-tombstones-v40-20260927"
+const resourceThumbnailChecksum = "sha256:resource-thumbnail-v41-20260927"
 
 const postgresSchemaMigrationLockID int64 = 73123910420260830
 
@@ -134,6 +135,9 @@ var schemaMigrations = []migration{
 	}},
 	{version: 40, name: "builtin_skill_tombstones", checksum: builtinSkillTombstonesChecksum, apply: func(tx *gorm.DB) error {
 		return tx.AutoMigrate(&model.BuiltinSkillTombstone{})
+	}},
+	{version: 41, name: "resource_thumbnail", checksum: resourceThumbnailChecksum, apply: func(tx *gorm.DB) error {
+		return tx.AutoMigrate(&model.Resource{})
 	}},
 }
 
