@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"infinite-canvas/backend/internal/model"
@@ -11,7 +13,10 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 40
+// The production server used a legacy cloud lineage that occupied versions
+// 39-45 with renamed migrations. Keep the current code compatible with that
+// database while continuing the local lineage after v40.
+const CurrentSchemaVersion int64 = 47
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -28,6 +33,11 @@ const cloudAgentGeminiCacheIdentityChecksum = "sha256:cloud-agent-gemini-cache-i
 const prefixedIDSequenceReconcileChecksum = "sha256:prefixed-id-sequence-reconcile-v38-20260926"
 const skillLibraryCategoriesChecksum = "sha256:skill-library-categories-v39-20260926"
 const builtinSkillTombstonesChecksum = "sha256:builtin-skill-tombstones-v40-20260927"
+const legacyChannelModelDescriptionV24Checksum = "sha256:channel-model-description-v24-20260918"
+const legacyChannelModelLabelV28Checksum = "sha256:channel-model-label-v28"
+const cloudAgentGeminiCacheV43Checksum = "sha256:cloud-agent-gemini-cache-v43-20260926"
+const cloudAgentGeminiCacheIdentityV44Checksum = "sha256:cloud-agent-gemini-cache-identity-v44-20260926"
+const prefixedIDSequenceReconcileV45Checksum = "sha256:prefixed-id-sequence-reconcile-v45-20260926"
 
 const postgresSchemaMigrationLockID int64 = 73123910420260830
 
@@ -135,6 +145,21 @@ var schemaMigrations = []migration{
 	{version: 40, name: "builtin_skill_tombstones", checksum: builtinSkillTombstonesChecksum, apply: func(tx *gorm.DB) error {
 		return tx.AutoMigrate(&model.BuiltinSkillTombstone{})
 	}},
+	// Local lineage already applied the equivalent changes at v36-v40. These
+	// append-only records let it reach the production schema without replaying
+	// those migrations, while the legacy-lineage branch below remaps them to
+	// the server's historical names and checksums.
+	{version: 41, name: "post_skill_lineage_compatibility_41", checksum: "sha256:post-skill-lineage-compatibility-v41", apply: func(*gorm.DB) error { return nil }},
+	{version: 42, name: "post_skill_lineage_compatibility_42", checksum: "sha256:post-skill-lineage-compatibility-v42", apply: func(*gorm.DB) error { return nil }},
+	{version: 43, name: "cloud_agent_gemini_cache", checksum: cloudAgentGeminiCacheV43Checksum, apply: func(tx *gorm.DB) error {
+		return tx.AutoMigrate(&model.CloudAgentGeminiCache{})
+	}},
+	{version: 44, name: "cloud_agent_gemini_cache_identity", checksum: cloudAgentGeminiCacheIdentityV44Checksum, apply: migrateCloudAgentGeminiCacheIdentity},
+	{version: 45, name: "prefixed_id_sequence_reconcile", checksum: prefixedIDSequenceReconcileV45Checksum, apply: migratePrefixedIDSequenceReconcile},
+	{version: 46, name: "current_skill_tables", checksum: "sha256:current-skill-tables-v46-20260927", apply: func(tx *gorm.DB) error {
+		return tx.AutoMigrate(&model.SkillLibraryCategory{}, &model.UserSkillState{}, &model.BuiltinSkillTombstone{})
+	}},
+	{version: 47, name: "model_catalog_presentation", checksum: "sha256:model-catalog-presentation-v47-20260927", apply: migrateModelCatalogPresentation},
 }
 
 func migratePrefixedIDSequenceReconcile(tx *gorm.DB) error {
@@ -170,6 +195,115 @@ func migrateOAuthStateAcceptedTerms(tx *gorm.DB) error {
 		return nil
 	}
 	return tx.Migrator().AddColumn(&model.OAuthState{}, "AcceptedTerms")
+}
+
+func migrateTaskMediaRecovery(tx *gorm.DB) error {
+	for _, field := range []string{"MediaRecoveryJSON", "MediaStage"} {
+		if !tx.Migrator().HasColumn(&model.Task{}, field) {
+			if err := tx.Migrator().AddColumn(&model.Task{}, field); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// migrateModelCatalogPresentation keeps the provider model key and prices
+// intact while restoring the friendly family labels used by the picker. The
+// old catalog copied raw SKU names into display_name, which turned every
+// variant into a separate top-level group.
+func migrateModelCatalogPresentation(tx *gorm.DB) error {
+	var channels []model.ModelChannel
+	if err := tx.Where("scope = ? AND deleted_at IS NULL", model.ChannelScopeSystem).Find(&channels).Error; err != nil {
+		return fmt.Errorf("读取系统模型渠道：%w", err)
+	}
+	if len(channels) == 0 {
+		return nil
+	}
+	channelIDs := make([]string, 0, len(channels))
+	for _, channel := range channels {
+		channelIDs = append(channelIDs, channel.ID)
+	}
+	var models []model.ChannelModel
+	if err := tx.Where("channel_id IN ? AND deleted_at IS NULL", channelIDs).Find(&models).Error; err != nil {
+		return fmt.Errorf("读取系统模型目录：%w", err)
+	}
+	for _, item := range models {
+		family, icon := modelPresentationFamily(item.ModelKey)
+		if family == "" {
+			continue
+		}
+		updates := map[string]any{}
+		displayName := strings.TrimSpace(item.DisplayName)
+		label := strings.TrimSpace(item.ChannelLabel)
+		needsFriendlyName := displayName == "" || strings.EqualFold(displayName, item.ModelKey)
+		if needsFriendlyName {
+			updates["display_name"] = family
+			displayName = family
+		}
+		if strings.TrimSpace(item.Icon) == "" && icon != "" {
+			updates["icon"] = icon
+		}
+		if needsFriendlyName || label == "" || strings.EqualFold(label, item.ModelKey) || strings.EqualFold(label, displayName) {
+			updates["channel_label"] = modelPresentationLabel(item.ModelKey, family)
+		}
+		if len(updates) == 0 {
+			continue
+		}
+		if err := tx.Model(&model.ChannelModel{}).Where("id = ?", item.ID).Updates(updates).Error; err != nil {
+			return fmt.Errorf("更新模型 %s 展示信息：%w", item.ID, err)
+		}
+	}
+	return nil
+}
+
+func modelPresentationFamily(modelKey string) (string, string) {
+	key := strings.ToLower(strings.TrimSpace(modelKey))
+	switch {
+	case strings.Contains(key, "grok"):
+		return "Grok", "Grok"
+	case strings.Contains(key, "deepseek"):
+		return "DeepSeek", "DeepSeek"
+	case strings.Contains(key, "gemini"):
+		return "Gemini", "Gemini"
+	case strings.Contains(key, "claude"):
+		return "Claude", "Claude"
+	case strings.Contains(key, "minimax"):
+		return "MiniMax", "Minimax"
+	case strings.HasPrefix(key, "gpt-") || strings.HasPrefix(key, "o1") || strings.HasPrefix(key, "o3") || strings.HasPrefix(key, "o4") || strings.Contains(key, "codex"):
+		return "OpenAI", "OpenAI"
+	case strings.Contains(key, "seedance") || strings.Contains(key, "doubao"):
+		return "火山引擎", "ByteDance"
+	case strings.Contains(key, "qwen") || strings.Contains(key, "wan"):
+		return "通义万相", "Qwen"
+	case strings.Contains(key, "sora"):
+		return "Sora", "OpenAI"
+	default:
+		return "", ""
+	}
+}
+
+func modelPresentationLabel(modelKey, family string) string {
+	key := strings.TrimSpace(strings.ReplaceAll(modelKey, "_", "-"))
+	if key == "" {
+		return family
+	}
+	parts := strings.Split(key, "-")
+	start := 0
+	lowerFamily := strings.ToLower(strings.ReplaceAll(family, " ", "-"))
+	for start < len(parts) {
+		part := strings.ToLower(parts[start])
+		if part == "sh" || part == "model" || part == lowerFamily {
+			start++
+			continue
+		}
+		break
+	}
+	suffix := strings.TrimSpace(strings.Join(parts[start:], " "))
+	if suffix == "" {
+		return family
+	}
+	return family + " " + suffix
 }
 
 func migrateChannelCreditCost(tx *gorm.DB) error {
@@ -279,31 +413,104 @@ func migrateChannelPresentation(tx *gorm.DB) error {
 }
 
 func migrationsForDatabase(db *gorm.DB) ([]migration, error) {
+	plan := append([]migration(nil), schemaMigrations...)
 	var applied schemaMigration
 	err := db.First(&applied, "version = ?", 6).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return schemaMigrations, nil
-	}
-	if err != nil {
+		err = nil
+	} else if err != nil {
 		return nil, fmt.Errorf("读取数据库迁移 6：%w", err)
 	}
-	if applied.Name != "asset_library_folders" {
-		return schemaMigrations, nil
-	}
-	legacy := migration{version: 6, name: "asset_library_folders", checksum: assetLibraryFoldersChecksum, apply: migrateSchemaV7}
-	if err := validateMigrationRecord(applied, legacy); err != nil {
-		return nil, err
-	}
-	plan := append([]migration(nil), schemaMigrations...)
-	for index, item := range plan {
-		switch item.version {
-		case 6:
-			plan[index] = legacy
-		case 7:
-			plan[index] = migration{version: 7, name: "resource_playback_variant", checksum: resourcePlaybackChecksum, apply: migrateSchemaV6}
+	if err == nil && applied.Name == "asset_library_folders" {
+		legacy := migration{version: 6, name: "asset_library_folders", checksum: assetLibraryFoldersChecksum, apply: migrateSchemaV7}
+		if err := validateMigrationRecord(applied, legacy); err != nil {
+			return nil, err
+		}
+		for index, item := range plan {
+			switch item.version {
+			case 6:
+				plan[index] = legacy
+			case 7:
+				plan[index] = migration{version: 7, name: "resource_playback_variant", checksum: resourcePlaybackChecksum, apply: migrateSchemaV6}
+			}
 		}
 	}
+
+	// The production server was migrated from the pre-merge lineage where
+	// channel description was v24 and channel label was v28. Its records must
+	// keep their original names/checksums so startup validation remains strict.
+	var legacyV24 schemaMigration
+	err = db.First(&legacyV24, "version = ?", 24).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, fmt.Errorf("读取数据库迁移 24：%w", err)
+	}
+	if err == nil && (legacyV24.Name == "channel_model_description" || legacyV24.Checksum == legacyChannelModelDescriptionV24Checksum) {
+		legacyMigrations := map[int64]migration{
+			24: {version: 24, name: "channel_model_description", checksum: legacyChannelModelDescriptionV24Checksum, apply: migrateChannelModelDescription},
+			28: {version: 28, name: "channel_model_label", checksum: legacyChannelModelLabelV28Checksum, apply: migrateChannelModelLabel},
+			29: shiftedMigration(plan, 28, 29),
+			30: shiftedMigration(plan, 29, 30),
+			31: shiftedMigration(plan, 30, 31),
+			32: shiftedMigration(plan, 31, 32),
+			34: legacyRemovedMigration(34, "canvas_collaboration_operations", "sha256:canvas-collaboration-v30-20260920"),
+			35: legacyRemovedMigration(35, "canvas_durable_branches", "sha256:canvas-durable-branches-v31-20260920"),
+			36: legacyRemovedMigration(36, "canvas_media_grants", "sha256:canvas-media-grants-v32-20260920"),
+			37: legacyRemovedMigration(37, "canvas_template_library", "sha256:canvas-template-library-v28-20260919"),
+			38: legacyRemovedMigration(38, "doubao_account_pool_and_network_proxy", "sha256:doubao-account-pool-network-proxy-v38-20260921"),
+			39: migration{version: 39, name: "channel_model_tags_post_legacy_lineage", checksum: "sha256:channel-model-tags-v39-20260924", apply: migrateChannelModelTags},
+			40: migration{version: 40, name: "oauth_state_accepted_terms_post_legacy_lineage", checksum: "sha256:oauth-state-accepted-terms-v40-20260924", apply: migrateOAuthStateAcceptedTerms},
+			41: migration{version: 41, name: "task_media_recovery_post_legacy_lineage", checksum: "sha256:task-media-recovery-v41-20260924", apply: migrateTaskMediaRecovery},
+			42: migration{version: 42, name: "auth_notifications_post_legacy_lineage", checksum: "sha256:auth-notifications-v42-20260924", apply: migrateSchemaV35},
+			43: migration{version: 43, name: "cloud_agent_gemini_cache", checksum: cloudAgentGeminiCacheV43Checksum, apply: func(tx *gorm.DB) error {
+				return tx.AutoMigrate(&model.CloudAgentGeminiCache{})
+			}},
+			44: migration{version: 44, name: "cloud_agent_gemini_cache_identity", checksum: cloudAgentGeminiCacheIdentityV44Checksum, apply: migrateCloudAgentGeminiCacheIdentity},
+			45: migration{version: 45, name: "prefixed_id_sequence_reconcile", checksum: prefixedIDSequenceReconcileV45Checksum, apply: migratePrefixedIDSequenceReconcile},
+		}
+		filtered := make([]migration, 0, len(plan)+5)
+		for _, item := range plan {
+			if item.version == 33 || item.version == 46 {
+				continue
+			}
+			if replacement, found := legacyMigrations[item.version]; found {
+				filtered = append(filtered, replacement)
+				delete(legacyMigrations, item.version)
+				continue
+			}
+			filtered = append(filtered, item)
+		}
+		for _, item := range legacyMigrations {
+			filtered = append(filtered, item)
+		}
+		for _, item := range plan {
+			if item.version == 46 {
+				filtered = append(filtered, item)
+				break
+			}
+		}
+		sort.Slice(filtered, func(i, j int) bool { return filtered[i].version < filtered[j].version })
+		plan = filtered
+	}
 	return plan, nil
+}
+
+func shiftedMigration(plan []migration, from, to int64) migration {
+	for _, item := range plan {
+		if item.version == from {
+			item.version = to
+			return item
+		}
+	}
+	panic(fmt.Sprintf("缺少迁移定义 %d，无法兼容历史迁移谱系", from))
+}
+
+func legacyRemovedMigration(version int64, name, checksum string) migration {
+	return migration{
+		version:  version,
+		name:     name,
+		checksum: checksum,
+		apply:    func(*gorm.DB) error { return nil },
+	}
 }
 
 func migrateSchemaV2(tx *gorm.DB) error {
