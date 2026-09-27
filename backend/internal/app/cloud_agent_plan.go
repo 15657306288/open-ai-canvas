@@ -1,9 +1,12 @@
 package app
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"slices"
+	"sort"
 	"strings"
 )
 
@@ -138,6 +141,34 @@ func cloudAgentApplyPlanUpdate(state *cloudAgentRuntime, call cloudAgentCall) (a
 	return map[string]any{"items": args.Items, "pendingTitles": cloudAgentPendingPlanItems(args.Items)}, nil
 }
 
+func cloudAgentConfirmationPointFingerprint(_ string, options []map[string]any) string {
+	// The choices are the durable identity of a decision point. Using the choice
+	// labels/details rather than question wording prevents harmless paraphrases
+	// from consuming a second confirmation round.
+	parts := make([]string, 0, len(options))
+	for _, option := range options {
+		label := strings.ToLower(strings.Join(strings.Fields(stringValue(option["label"])), " "))
+		detail := strings.ToLower(strings.Join(strings.Fields(stringValue(option["detail"])), " "))
+		parts = append(parts, label+"\x00"+detail)
+	}
+	sort.Strings(parts)
+	canonical := strings.Join(parts, "\x00")
+	sum := sha256.Sum256([]byte(canonical))
+	return hex.EncodeToString(sum[:])
+}
+
+func cloudAgentHasConfirmationFingerprint(state *cloudAgentRuntime, fingerprint string) bool {
+	if state == nil || fingerprint == "" {
+		return false
+	}
+	for _, existing := range state.ConfirmationFingerprints {
+		if existing == fingerprint {
+			return true
+		}
+	}
+	return false
+}
+
 func cloudAgentAskUser(call cloudAgentCall, states ...*cloudAgentRuntime) (any, error) {
 	var state *cloudAgentRuntime
 	if len(states) > 0 {
@@ -184,8 +215,11 @@ func cloudAgentAskUser(call cloudAgentCall, states ...*cloudAgentRuntime) (any, 
 	}
 	maxRounds := cloudAgentMaxConfirmationRounds
 	currentRound := 1
+	fingerprint := cloudAgentConfirmationPointFingerprint(question, options)
+	duplicate := false
 	if state != nil {
 		currentRound = state.ConfirmationRounds + 1
+		duplicate = cloudAgentHasConfirmationFingerprint(state, fingerprint)
 	}
 	payload := map[string]any{
 		"phase":         "question",
@@ -195,14 +229,23 @@ func cloudAgentAskUser(call cloudAgentCall, states ...*cloudAgentRuntime) (any, 
 		"round":         currentRound,
 		"maxRounds":     maxRounds,
 	}
-	if currentRound > maxRounds {
+	if duplicate || currentRound > maxRounds {
 		payload["phase"] = "defaulted"
 		payload["defaulted"] = true
-		payload["text"] = "确认次数已达到上限。请使用安全默认方案继续，不要再次询问；最终回复中列出采用的默认假设。"
+		payload["reason"] = "repeated_confirmation_point"
+		if currentRound > maxRounds {
+			payload["reason"] = "confirmation_round_limit"
+		}
+		payload["text"] = "确认次数已达到上限或确认点已重复。请使用安全默认方案继续，不要再次询问；最终回复中列出采用的默认假设。"
+		if state != nil {
+			state.PendingConfirmationFingerprint = ""
+		}
 		return payload, nil
 	}
 	if state != nil {
 		state.ConfirmationRounds = currentRound
+		state.ConfirmationFingerprints = append(state.ConfirmationFingerprints, fingerprint)
+		state.PendingConfirmationFingerprint = fingerprint
 	}
 	return payload, nil
 }

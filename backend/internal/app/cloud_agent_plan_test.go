@@ -53,6 +53,8 @@ func TestCloudAgentInheritedPlanReachesFirstModelRequest(t *testing.T) {
 	run, state := agentInterjectionState(t, s, root.ID)
 	state.Plan = []cloudAgentPlanItem{{ID: "1", Title: "生成镜头2视频", Status: "doing"}}
 	state.ConfirmationRounds = 1
+	state.ConfirmationFingerprints = []string{strings.Repeat("a", 64)}
+	state.PendingConfirmationFingerprint = state.ConfirmationFingerprints[0]
 	if err := cloudAgentSave(run, &state); err != nil {
 		t.Fatal(err)
 	}
@@ -127,22 +129,39 @@ func TestCloudAgentAskUserTracksConfirmationRoundsAndDefaults(t *testing.T) {
 	call.Function.Name = "ask_user"
 	call.Function.Arguments = `{"question":"选哪个方向？","options":[{"label":"A"},{"label":"B"}]}`
 	state := &cloudAgentRuntime{}
-	for round := 1; round <= cloudAgentMaxConfirmationRounds; round++ {
-		result, err := cloudAgentAskUser(call, state)
-		if err != nil {
-			t.Fatal(err)
-		}
-		body := result.(map[string]any)
-		if body["phase"] != "question" || body["round"] != round || body["maxRounds"] != cloudAgentMaxConfirmationRounds {
-			t.Fatalf("round %d payload = %+v", round, body)
-		}
-	}
 	result, err := cloudAgentAskUser(call, state)
 	if err != nil {
 		t.Fatal(err)
 	}
 	body := result.(map[string]any)
-	if body["phase"] != "defaulted" || body["defaulted"] != true || state.ConfirmationRounds != cloudAgentMaxConfirmationRounds {
+	if body["phase"] != "question" || body["round"] != 1 || state.ConfirmationRounds != 1 || state.PendingConfirmationFingerprint == "" {
+		t.Fatalf("first ask_user payload/state = %+v / %+v", body, state)
+	}
+	call.Function.Arguments = `{"question":"哪一个方向更合适？","options":[{"label":"B"},{"label":"A"}]}`
+	result, err = cloudAgentAskUser(call, state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = result.(map[string]any)
+	if body["phase"] != "defaulted" || body["defaulted"] != true || body["reason"] != "repeated_confirmation_point" || state.ConfirmationRounds != 1 {
+		t.Fatalf("repeated ask_user payload/state = %+v / %+v", body, state)
+	}
+	call.Function.Arguments = `{"question":"换一个说法","options":[{"label":"A"},{"label":"C"}]}`
+	result, err = cloudAgentAskUser(call, state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = result.(map[string]any)
+	if body["phase"] != "question" || body["round"] != 2 || state.ConfirmationRounds != cloudAgentMaxConfirmationRounds {
+		t.Fatalf("second confirmation payload/state = %+v / %+v", body, state)
+	}
+	call.Function.Arguments = `{"question":"最后一个方向","options":[{"label":"D"},{"label":"E"}]}`
+	result, err = cloudAgentAskUser(call, state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = result.(map[string]any)
+	if body["phase"] != "defaulted" || body["defaulted"] != true || body["reason"] != "confirmation_round_limit" || state.ConfirmationRounds != cloudAgentMaxConfirmationRounds {
 		t.Fatalf("exhausted ask_user payload/state = %+v / %+v", body, state)
 	}
 }

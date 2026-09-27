@@ -201,6 +201,9 @@ func TestCloudAgentTerminalRunWithOlderCapabilityCanContinueOnCurrentContract(t 
 	if childState.ParentID != parent.ID || len(childState.TextHistory) != 2 || childState.TextHistory[1].Content != "旧合同下的可信回复" {
 		t.Fatalf("historical conversation context was not preserved: %+v", childState)
 	}
+	if childState.ConfirmationRounds != 0 || len(childState.ConfirmationFingerprints) != 0 {
+		t.Fatalf("normal completed parent incorrectly inherited confirmation budget: rounds=%d fingerprints=%v", childState.ConfirmationRounds, childState.ConfirmationFingerprints)
+	}
 	var storedParent model.CloudAgentExecution
 	if err = db.First(&storedParent, "id = ?", parent.ID).Error; err != nil {
 		t.Fatal(err)

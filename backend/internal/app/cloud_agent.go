@@ -61,16 +61,18 @@ func cloudAgentStepLimit(req CloudAgentRequest) int {
 }
 
 type cloudAgentState struct {
-	Version            int                       `json:"version"`
-	Request            CloudAgentRequest         `json:"request"`
-	ParentID           string                    `json:"parentId"`
-	Fingerprint        string                    `json:"fingerprint"`
-	CreativeAnchor     cloudAgentCreativeAnchor  `json:"creativeAnchor,omitempty"`
-	Plan               []cloudAgentPlanItem      `json:"plan,omitempty"`
-	ConfirmationRounds int                       `json:"confirmationRounds,omitempty"`
-	Skills             []cloudAgentSkill         `json:"skills,omitempty"`
-	Profile            cloudAgentProfileSnapshot `json:"profile"`
-	Policy             cloudAgentPolicySnapshot  `json:"policy"`
+	Version                        int                       `json:"version"`
+	Request                        CloudAgentRequest         `json:"request"`
+	ParentID                       string                    `json:"parentId"`
+	Fingerprint                    string                    `json:"fingerprint"`
+	CreativeAnchor                 cloudAgentCreativeAnchor  `json:"creativeAnchor,omitempty"`
+	Plan                           []cloudAgentPlanItem      `json:"plan,omitempty"`
+	ConfirmationRounds             int                       `json:"confirmationRounds,omitempty"`
+	ConfirmationFingerprints       []string                  `json:"confirmationFingerprints,omitempty"`
+	PendingConfirmationFingerprint string                    `json:"pendingConfirmationFingerprint,omitempty"`
+	Skills                         []cloudAgentSkill         `json:"skills,omitempty"`
+	Profile                        cloudAgentProfileSnapshot `json:"profile"`
+	Policy                         cloudAgentPolicySnapshot  `json:"policy"`
 }
 
 type CloudAgentRun struct {
@@ -285,7 +287,7 @@ func (s *Service) cloudAgentTask(userID, id string) (*model.Task, cloudAgentStat
 	if task.ID != cloudAgentID(userID, state.Request.IdempotencyKey) || task.ProjectID != state.Request.CanvasID {
 		return nil, input.Agent, kernel.NotFound("Agent 运行不存在")
 	}
-	input.Agent = cloudAgentState{Version: 1, Request: state.Request, ParentID: state.ParentID, Fingerprint: state.Fingerprint, CreativeAnchor: state.CreativeAnchor, ConfirmationRounds: state.ConfirmationRounds, Skills: state.Skills, Profile: state.Profile, Policy: state.Policy}
+	input.Agent = cloudAgentState{Version: 1, Request: state.Request, ParentID: state.ParentID, Fingerprint: state.Fingerprint, CreativeAnchor: state.CreativeAnchor, ConfirmationRounds: state.ConfirmationRounds, ConfirmationFingerprints: append([]string(nil), state.ConfirmationFingerprints...), PendingConfirmationFingerprint: state.PendingConfirmationFingerprint, Skills: state.Skills, Profile: state.Profile, Policy: state.Policy}
 	return task, input.Agent, nil
 }
 
@@ -380,6 +382,7 @@ func (s *Service) CreateCloudAgentRun(userID string, req CloudAgentRequest, pare
 	var creativeAnchor cloudAgentCreativeAnchor
 	var inheritedPlan []cloudAgentPlanItem
 	inheritedConfirmationRounds := 0
+	var inheritedConfirmationFingerprints []string
 	if parentID != "" {
 		parent, _, parentErr := s.cloudAgentTask(userID, parentID)
 		if parentErr != nil {
@@ -415,7 +418,10 @@ func (s *Service) CreateCloudAgentRun(userID string, req CloudAgentRequest, pare
 			return nil, WrapAppError(409, "上一轮 Agent 历史记录不完整，无法继续对话；请新建对话", err)
 		}
 		inheritedPlan = parentState.Plan
-		inheritedConfirmationRounds = parentState.ConfirmationRounds
+		if parentRun.Status == "completed" && parentState.PendingConfirmationFingerprint != "" {
+			inheritedConfirmationRounds = parentState.ConfirmationRounds
+			inheritedConfirmationFingerprints = append([]string(nil), parentState.ConfirmationFingerprints...)
+		}
 		// 视觉事实跨轮继承：这一轮已经看过的画面与模型自己写下的观察随锚点带过来，
 		// 否则新轮会把看过的图重新标成"没有视觉识别证据"并再花一次视觉 token。
 		creativeAnchor = parentState.CreativeAnchor
@@ -472,7 +478,7 @@ func (s *Service) CreateCloudAgentRun(userID string, req CloudAgentRequest, pare
 	if err != nil {
 		return nil, err
 	}
-	state := cloudAgentState{Version: 1, Request: req, ParentID: parentID, Fingerprint: fingerprint, CreativeAnchor: creativeAnchor, Plan: inheritedPlan, ConfirmationRounds: inheritedConfirmationRounds, Skills: skillSnapshots, Profile: profile, Policy: policy}
+	state := cloudAgentState{Version: 1, Request: req, ParentID: parentID, Fingerprint: fingerprint, CreativeAnchor: creativeAnchor, Plan: inheritedPlan, ConfirmationRounds: inheritedConfirmationRounds, ConfirmationFingerprints: inheritedConfirmationFingerprints, Skills: skillSnapshots, Profile: profile, Policy: policy}
 	canonical := cloudAgentCanonicalFor(system, history, req.Prompt, req, len(profile.Layers) > 0)
 	// Keep the catalog out of TextHistory (which defines conversation turns),
 	// while exposing it as a fresh data message for this run immediately before

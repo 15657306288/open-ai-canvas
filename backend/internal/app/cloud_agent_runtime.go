@@ -113,21 +113,23 @@ type cloudAgentRuntime struct {
 	// AutoPreparedMedia is the durable admission checkpoint for permissionMode=auto.
 	// It prevents a worker restart between dry admission and billed submission from
 	// re-running admission or creating the draft node a second time.
-	AutoPreparedMedia      *cloudAgentPreparedMedia                `json:"autoPreparedMedia,omitempty"`
-	AutoPreparedCallHash   string                                  `json:"autoPreparedCallHash,omitempty"`
-	Decisions              map[string]string                       `json:"decisions"`
-	DecisionSettings       map[string]string                       `json:"decisionSettings,omitempty"`
-	DecisionPreparedHashes map[string]string                       `json:"decisionPreparedHashes,omitempty"`
-	ActionNudged           bool                                    `json:"actionNudged,omitempty"`
-	EmptyOutputNudged      int                                     `json:"emptyOutputNudged,omitempty"`
-	StepSnapshotHash       string                                  `json:"stepSnapshotHash,omitempty"`
-	StoryboardTaskID       string                                  `json:"storyboardTaskId,omitempty"`
-	Plan                   []cloudAgentPlanItem                    `json:"plan,omitempty"`
-	ConfirmationRounds     int                                     `json:"confirmationRounds,omitempty"`
-	PendingInterjections   []cloudAgentInterjection                `json:"pendingInterjections,omitempty"`
-	TransientReferences    map[string]cloudAgentTransientReference `json:"transientReferences,omitempty"`
-	InterjectionIDs        []string                                `json:"interjectionIds,omitempty"`
-	Events                 []CloudAgentEvent                       `json:"events"`
+	AutoPreparedMedia              *cloudAgentPreparedMedia                `json:"autoPreparedMedia,omitempty"`
+	AutoPreparedCallHash           string                                  `json:"autoPreparedCallHash,omitempty"`
+	Decisions                      map[string]string                       `json:"decisions"`
+	DecisionSettings               map[string]string                       `json:"decisionSettings,omitempty"`
+	DecisionPreparedHashes         map[string]string                       `json:"decisionPreparedHashes,omitempty"`
+	ActionNudged                   bool                                    `json:"actionNudged,omitempty"`
+	EmptyOutputNudged              int                                     `json:"emptyOutputNudged,omitempty"`
+	StepSnapshotHash               string                                  `json:"stepSnapshotHash,omitempty"`
+	StoryboardTaskID               string                                  `json:"storyboardTaskId,omitempty"`
+	Plan                           []cloudAgentPlanItem                    `json:"plan,omitempty"`
+	ConfirmationRounds             int                                     `json:"confirmationRounds,omitempty"`
+	ConfirmationFingerprints       []string                                `json:"confirmationFingerprints,omitempty"`
+	PendingConfirmationFingerprint string                                  `json:"pendingConfirmationFingerprint,omitempty"`
+	PendingInterjections           []cloudAgentInterjection                `json:"pendingInterjections,omitempty"`
+	TransientReferences            map[string]cloudAgentTransientReference `json:"transientReferences,omitempty"`
+	InterjectionIDs                []string                                `json:"interjectionIds,omitempty"`
+	Events                         []CloudAgentEvent                       `json:"events"`
 	// EmptyOutputEscalated 记录"空输出已经升级重试过几次"（关思考 + 放大输出预算）。
 	EmptyOutputEscalated int `json:"emptyOutputEscalated,omitempty"`
 	// StepTimeoutEscalated 记录"单步墙钟到点后已经关思考重试过几次"。
@@ -219,7 +221,7 @@ func (s *Service) ensureCloudAgentExecution(task *model.Task, initial cloudAgent
 	if err != nil {
 		return err
 	}
-	state := cloudAgentRuntime{Request: initial.Request, Policy: initial.Policy, ParentID: initial.ParentID, Fingerprint: initial.Fingerprint, CreativeAnchor: initial.CreativeAnchor, TextHistory: input.TextHistory, Skills: initial.Skills, Profile: initial.Profile, Canonical: canonical, ActiveTaskID: task.ID, TaskIDs: []string{task.ID}, Step: 1, Decisions: map[string]string{}, Plan: initial.Plan, ConfirmationRounds: initial.ConfirmationRounds, Events: []CloudAgentEvent{}, StepLimits: limits}
+	state := cloudAgentRuntime{Request: initial.Request, Policy: initial.Policy, ParentID: initial.ParentID, Fingerprint: initial.Fingerprint, CreativeAnchor: initial.CreativeAnchor, TextHistory: input.TextHistory, Skills: initial.Skills, Profile: initial.Profile, Canonical: canonical, ActiveTaskID: task.ID, TaskIDs: []string{task.ID}, Step: 1, Decisions: map[string]string{}, Plan: initial.Plan, ConfirmationRounds: initial.ConfirmationRounds, ConfirmationFingerprints: append([]string(nil), initial.ConfirmationFingerprints...), PendingConfirmationFingerprint: "", Events: []CloudAgentEvent{}, StepLimits: limits}
 	if len(initial.Skills) > 0 {
 		// skillIds makes the enablement auditable: usage telemetry can attribute a
 		// run to the skills it actually loaded instead of only counting the total.
@@ -386,6 +388,27 @@ func validateCloudAgentRuntime(run *model.CloudAgentExecution, state *cloudAgent
 	}
 	if state.ConfirmationRounds < 0 || state.ConfirmationRounds > cloudAgentMaxConfirmationRounds {
 		return errors.New("Agent runtime confirmation round is invalid")
+	}
+	if len(state.ConfirmationFingerprints) > cloudAgentMaxConfirmationRounds {
+		return errors.New("Agent runtime confirmation fingerprint history is invalid")
+	}
+	seenConfirmationPoints := make(map[string]struct{}, len(state.ConfirmationFingerprints))
+	for _, fingerprint := range state.ConfirmationFingerprints {
+		if !cloudAgentSHA256(fingerprint) {
+			return errors.New("Agent runtime confirmation fingerprint is invalid")
+		}
+		if _, exists := seenConfirmationPoints[fingerprint]; exists {
+			return errors.New("Agent runtime confirmation fingerprint history contains duplicates")
+		}
+		seenConfirmationPoints[fingerprint] = struct{}{}
+	}
+	if state.PendingConfirmationFingerprint != "" {
+		if !cloudAgentSHA256(state.PendingConfirmationFingerprint) {
+			return errors.New("Agent runtime pending confirmation fingerprint is invalid")
+		}
+		if _, exists := seenConfirmationPoints[state.PendingConfirmationFingerprint]; !exists {
+			return errors.New("Agent runtime pending confirmation fingerprint is not recorded")
+		}
 	}
 	if state.ImageInspectCalls < 0 {
 		return errors.New("Agent runtime image inspection budget is invalid")
