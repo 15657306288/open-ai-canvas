@@ -669,7 +669,7 @@ export function ReferenceToolsPopover({ canAutoMention, autoLinkEnabled, onAutoM
             rootClassName="canvas-reference-tools-popover"
             getPopupContainer={(trigger) => trigger.closest("[data-node-id]") || document.body}
             arrow={false}
-            align={{ offset: [0, -8] }}
+            align={{ offset: [0, -16] }}
             styles={{ root: { width: "min(280px, calc(100vw - 24px))" }, container: { width: "100%" }, content: { width: "100%", padding: 10 } }}
             content={
                 <div className="canvas-reference-tools-panel" style={{ "--autolink-accent": accent } as CSSProperties}>
@@ -690,11 +690,11 @@ export function ReferenceToolsPopover({ canAutoMention, autoLinkEnabled, onAutoM
                             role="switch"
                             aria-checked={autoLinkEnabled}
                             aria-label={autoLinkEnabled ? "关闭 AutoLink" : "开启 AutoLink"}
-                            className="canvas-reference-autolink-switch relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors"
+                            className="canvas-reference-autolink-switch relative inline-flex shrink-0 items-center rounded-full border"
                             style={{ background: autoLinkEnabled ? `${accent}14` : "transparent", borderColor: autoLinkEnabled ? accent : "color-mix(in srgb, currentColor 22%, transparent)", color: accent }}
                             onClick={() => onAutoLinkEnabledChange(!autoLinkEnabled)}
                         >
-                            <span className={`size-3.5 rounded-full shadow-sm transition-transform ${autoLinkEnabled ? "translate-x-[18px]" : "translate-x-0.5"}`} style={{ background: autoLinkEnabled ? accent : "currentColor" }} />
+                            <span className="canvas-reference-autolink-knob size-3.5 rounded-full shadow-sm" style={{ background: autoLinkEnabled ? accent : "currentColor" }} />
                         </button>
                     </div>
                     <button

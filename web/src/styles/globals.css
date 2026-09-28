@@ -9621,7 +9621,49 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
 
     .canvas-reference-autolink-switch:hover,
     .canvas-reference-autolink-switch:focus-visible {
-        box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 10%, transparent);
+        box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 12%, transparent), 0 5px 14px color-mix(in srgb, currentColor 12%, transparent);
+        transform: translateY(-1px);
+    }
+
+    .canvas-reference-autolink-switch {
+        width: 42px !important;
+        height: 24px !important;
+        justify-content: flex-start !important;
+        overflow: hidden;
+        border-color: color-mix(in srgb, currentColor 24%, transparent) !important;
+        background: color-mix(in srgb, currentColor 7%, transparent) !important;
+        padding: 2px !important;
+        transition: transform var(--motion-dur-fast) var(--motion-ease-out), border-color var(--motion-dur-fast) var(--motion-ease-out), background-color var(--motion-dur-fast) var(--motion-ease-out), box-shadow var(--motion-dur-fast) var(--motion-ease-out);
+    }
+
+    .canvas-reference-autolink-switch[aria-checked="true"] {
+        border-color: color-mix(in srgb, currentColor 68%, transparent) !important;
+        background: color-mix(in srgb, currentColor 18%, transparent) !important;
+    }
+
+    .canvas-reference-autolink-knob {
+        display: block;
+        flex: 0 0 16px;
+        transform: translateX(0) scale(.92);
+        transform-origin: center;
+        transition: transform 220ms var(--motion-ease-out), box-shadow 220ms var(--motion-ease-out), background-color 220ms var(--motion-ease-out);
+    }
+
+    .canvas-reference-autolink-switch[aria-checked="true"] .canvas-reference-autolink-knob {
+        transform: translateX(18px) scale(1);
+        box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 14%, transparent), 0 2px 8px color-mix(in srgb, currentColor 32%, transparent);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .canvas-reference-autolink-switch,
+        .canvas-reference-autolink-knob {
+            transition-duration: 0.01ms;
+        }
+    }
+
+    .no-motion .canvas-reference-autolink-switch,
+    .no-motion .canvas-reference-autolink-knob {
+        transition: none;
     }
 
     .canvas-node-composer-camera-tools-trigger:focus,
@@ -9885,14 +9927,14 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
 
     .canvas-reference-tools-panel {
         display: grid;
-        gap: 10px;
+        gap: 14px;
         color: var(--foreground);
     }
 
     .canvas-reference-tools-heading {
         display: flex;
         align-items: flex-start;
-        gap: 9px;
+        gap: 12px;
         padding: 2px 2px 4px;
     }
 
@@ -9917,10 +9959,10 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
         min-height: 48px;
         align-items: center;
         justify-content: space-between;
-        gap: 10px;
+        gap: 14px;
         border: 1px solid color-mix(in srgb, var(--foreground) 10%, transparent);
         border-radius: 10px;
-        padding: 7px 9px;
+        padding: 9px 11px;
         background: color-mix(in srgb, var(--foreground) 4%, transparent);
         transition: border-color var(--motion-dur-fast) var(--motion-ease-out), background-color var(--motion-dur-fast) var(--motion-ease-out);
     }
