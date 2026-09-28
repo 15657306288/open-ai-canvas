@@ -9853,6 +9853,125 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
         padding-inline: 0 !important;
     }
 
+    .canvas-autolink-trigger {
+        position: relative;
+        border: 1px solid color-mix(in srgb, var(--autolink-accent) 26%, transparent) !important;
+        background: color-mix(in srgb, var(--autolink-accent) 8%, transparent) !important;
+        color: var(--autolink-accent) !important;
+        font-weight: 560 !important;
+        transition: border-color var(--motion-dur-fast) var(--motion-ease-out), background-color var(--motion-dur-fast) var(--motion-ease-out), box-shadow var(--motion-dur-fast) var(--motion-ease-out), color var(--motion-dur-fast) var(--motion-ease-out);
+    }
+
+    .canvas-autolink-trigger:hover,
+    .canvas-autolink-trigger:focus-visible,
+    .canvas-autolink-trigger.is-enabled {
+        border-color: color-mix(in srgb, var(--autolink-accent) 58%, transparent) !important;
+        background: color-mix(in srgb, var(--autolink-accent) 14%, transparent) !important;
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--autolink-accent) 10%, transparent);
+    }
+
+    .canvas-autolink-trigger.is-disabled {
+        color: var(--muted-foreground) !important;
+        border-color: color-mix(in srgb, currentColor 22%, transparent) !important;
+        background: transparent !important;
+        box-shadow: none;
+    }
+
+    .canvas-autolink-trigger-dot {
+        width: 5px;
+        height: 5px;
+        margin-left: 1px;
+        border-radius: 999px;
+        background: currentColor;
+        box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 12%, transparent);
+    }
+
+    .canvas-reference-tools-panel {
+        display: grid;
+        gap: 10px;
+        color: var(--foreground);
+    }
+
+    .canvas-reference-tools-heading {
+        display: flex;
+        align-items: flex-start;
+        gap: 9px;
+        padding: 2px 2px 4px;
+    }
+
+    .canvas-reference-tools-heading-icon,
+    .canvas-autolink-row-icon {
+        display: inline-grid;
+        flex: 0 0 auto;
+        place-items: center;
+        border: 1px solid color-mix(in srgb, var(--autolink-accent) 30%, transparent);
+        border-radius: 8px;
+        color: var(--autolink-accent);
+        background: color-mix(in srgb, var(--autolink-accent) 12%, transparent);
+    }
+
+    .canvas-reference-tools-heading-icon {
+        width: 26px;
+        height: 26px;
+    }
+
+    .canvas-autolink-row {
+        display: flex;
+        min-height: 48px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        border: 1px solid color-mix(in srgb, var(--foreground) 10%, transparent);
+        border-radius: 10px;
+        padding: 7px 9px;
+        background: color-mix(in srgb, var(--foreground) 4%, transparent);
+        transition: border-color var(--motion-dur-fast) var(--motion-ease-out), background-color var(--motion-dur-fast) var(--motion-ease-out);
+    }
+
+    .canvas-autolink-row.is-enabled {
+        border-color: color-mix(in srgb, var(--autolink-accent) 30%, transparent);
+        background: color-mix(in srgb, var(--autolink-accent) 7%, transparent);
+    }
+
+    .canvas-autolink-copy {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .canvas-autolink-row-icon {
+        width: 25px;
+        height: 25px;
+    }
+
+    .canvas-autolink-copy > span:last-child {
+        display: grid;
+        min-width: 0;
+        gap: 1px;
+    }
+
+    .canvas-autolink-copy strong {
+        font-size: 12px;
+        line-height: 1.35;
+    }
+
+    .canvas-autolink-copy small {
+        overflow: hidden;
+        color: var(--muted-foreground);
+        font-size: 10px;
+        line-height: 1.35;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .canvas-reference-tools-popover .canvas-reference-tools-mention-button {
+        height: 32px;
+        border-radius: 9px;
+        font-weight: 560;
+        background: color-mix(in srgb, var(--autolink-accent) 8%, transparent) !important;
+    }
+
     .canvas-reference-tools-popover {
         width: 280px !important;
         max-width: calc(100vw - 24px) !important;
