@@ -110,10 +110,12 @@ export function CachedResourceImage({ storageKey, src = "", fallback = null, loa
                 .then((url) => {
                     if (url && url !== cachedSrc) {
                         const controller = new AbortController();
-                        void prepareCanvasImage(url, controller.signal).then(() => setDisplayed({ identity, src: url })).catch(() => {
-                            setFailedIdentity(identity);
-                            onError?.(e);
-                        });
+                        void prepareCanvasImage(url, controller.signal)
+                            .then(() => setDisplayed({ identity, src: url }))
+                            .catch(() => {
+                                setFailedIdentity(identity);
+                                onError?.(e);
+                            });
                         return;
                     }
                     setFailedIdentity(identity);
