@@ -136,5 +136,6 @@
 - API、数据表、SSE、资源存储、部署或安全边界变化时同步对应专题文档；不要只改代码和根 README。
 - 文档默认中文，不写过期日期，不公开密码、Token、Cookie、真实账号或机器敏感路径。命令、端口、环境变量必须以当前脚本和 Compose 为准。
 - Git 提交说明使用 `<type>(<scope>): <业务模块> - <变更摘要>`，`type` 为 `feat|fix|refactor|perf|docs|test|build|ci|chore|revert`。
+- **每次 dev PR 必须更新内部版本号**：根目录 `VERSION` 使用格式 `<主版本>+<PR 分支最新提交的 SHA>`（7 位），例如 `v1.5.7.1+0bdc019`。版本取 `VERSION` 文件中的语义版本号，只在发布 / 部署同步时变更；其中 commit 取 **bump 之前** 的 PR 分支 HEAD。bump 在 PR 合并前、push 前完成；分隔符固定为 `+`，不能用 `_`。`backend/internal/hostupdate/version.go` 的 `parseVersion` 只将 `+` 后面的元数据截断，直接用 `-` 预发布分隔；`1.5.7.1_0bdc0193` 会使核心段包含 `strconv.Atoi` 不能解析的字符串，导致更新检测异常。运行更新的检查（`backend/internal/hostupdate/manager_ops.go` 等）对接口 `build.version` 做约束并报告错误；运行版本以 `VERSION` 的内部版本号为唯一来源，不能通过 ldflags `buildinfo.Version`、前端 `VITE_APP_VERSION` 等再维护一份版本号。
 
 交付前至少检查：改动是否聚焦、调用方和类型是否同步、错误/权限/数据归属是否完整、必要文档是否同步、验证是否如实说明、是否留下密钥或本地数据。
