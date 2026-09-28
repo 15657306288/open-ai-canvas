@@ -11,6 +11,14 @@ import type { AddNodeMenuCommand, AddNodeMenuContext, NodeToolbarGroup, ToolCate
 const registry = new Map<ToolbarId, ToolDefinition[]>();
 const addNodeMenuRegistry: AddNodeMenuCommand[] = [];
 const selectionToolbarAllowedTools = new Set([
+    "selection-align-left",
+    "selection-align-center-x",
+    "selection-align-right",
+    "selection-align-top",
+    "selection-align-center-y",
+    "selection-align-bottom",
+    "selection-distribute-x",
+    "selection-distribute-y",
     "selection-auto-arrange",
     "selection-batch-download",
     "selection-create-storyboard",
@@ -108,7 +116,7 @@ export function resolveNodeToolbarPlacement(tool: ToolDefinition, ctx: ToolConte
     const placement = tool.nodeToolbar;
     return {
         group: typeof placement?.group === "function" ? placement.group(ctx) : placement?.group || "more",
-        order: typeof placement?.order === "function" ? placement.order(ctx) : placement?.order ?? tool.defaultOrder,
+        order: typeof placement?.order === "function" ? placement.order(ctx) : (placement?.order ?? tool.defaultOrder),
     };
 }
 

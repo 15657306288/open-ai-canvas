@@ -3,14 +3,14 @@ import { AlignHorizontalJustifyCenter, AlignHorizontalJustifyEnd, AlignHorizonta
 import { registerToolbarTools, type ToolDefinition } from "@/lib/canvas/tool-registry";
 
 export const selectionToolbarTools: ToolDefinition[] = [
-    { id: "selection-align-left", toolbar: "selection", category: "layout", label: "左对齐", icon: <AlignHorizontalJustifyStart />, defaultVisible: false, defaultOrder: 10, run: (ctx) => ctx.handlers.onAlign("left") },
-    { id: "selection-align-center-x", toolbar: "selection", category: "layout", label: "水平居中", icon: <AlignHorizontalJustifyCenter />, defaultVisible: false, defaultOrder: 20, run: (ctx) => ctx.handlers.onAlign("centerX") },
-    { id: "selection-align-right", toolbar: "selection", category: "layout", label: "右对齐", icon: <AlignHorizontalJustifyEnd />, defaultVisible: false, defaultOrder: 30, run: (ctx) => ctx.handlers.onAlign("right") },
-    { id: "selection-align-top", toolbar: "selection", category: "layout", label: "顶对齐", icon: <AlignVerticalJustifyStart />, defaultVisible: false, defaultOrder: 40, run: (ctx) => ctx.handlers.onAlign("top") },
-    { id: "selection-align-center-y", toolbar: "selection", category: "layout", label: "垂直居中", icon: <AlignVerticalJustifyCenter />, defaultVisible: false, defaultOrder: 50, run: (ctx) => ctx.handlers.onAlign("centerY") },
-    { id: "selection-align-bottom", toolbar: "selection", category: "layout", label: "底对齐", icon: <AlignVerticalJustifyEnd />, defaultVisible: false, defaultOrder: 60, run: (ctx) => ctx.handlers.onAlign("bottom") },
-    { id: "selection-distribute-x", toolbar: "selection", category: "layout", label: "水平等距", icon: <AlignHorizontalSpaceBetween />, defaultVisible: false, defaultOrder: 70, disabled: (ctx) => ctx.selectedCount < 3, run: (ctx) => ctx.handlers.onAlign("distributeX") },
-    { id: "selection-distribute-y", toolbar: "selection", category: "layout", label: "垂直等距", icon: <AlignVerticalSpaceBetween />, defaultVisible: false, defaultOrder: 80, disabled: (ctx) => ctx.selectedCount < 3, run: (ctx) => ctx.handlers.onAlign("distributeY") },
+    { id: "selection-align-left", toolbar: "selection", category: "layout", label: "左对齐", icon: <AlignHorizontalJustifyStart />, defaultVisible: true, defaultOrder: 10, run: (ctx) => ctx.handlers.onAlign("left") },
+    { id: "selection-align-center-x", toolbar: "selection", category: "layout", label: "水平居中", icon: <AlignHorizontalJustifyCenter />, defaultVisible: true, defaultOrder: 20, run: (ctx) => ctx.handlers.onAlign("centerX") },
+    { id: "selection-align-right", toolbar: "selection", category: "layout", label: "右对齐", icon: <AlignHorizontalJustifyEnd />, defaultVisible: true, defaultOrder: 30, run: (ctx) => ctx.handlers.onAlign("right") },
+    { id: "selection-align-top", toolbar: "selection", category: "layout", label: "顶对齐", icon: <AlignVerticalJustifyStart />, defaultVisible: true, defaultOrder: 40, run: (ctx) => ctx.handlers.onAlign("top") },
+    { id: "selection-align-center-y", toolbar: "selection", category: "layout", label: "垂直居中", icon: <AlignVerticalJustifyCenter />, defaultVisible: true, defaultOrder: 50, run: (ctx) => ctx.handlers.onAlign("centerY") },
+    { id: "selection-align-bottom", toolbar: "selection", category: "layout", label: "底对齐", icon: <AlignVerticalJustifyEnd />, defaultVisible: true, defaultOrder: 60, run: (ctx) => ctx.handlers.onAlign("bottom") },
+    { id: "selection-distribute-x", toolbar: "selection", category: "layout", label: "水平等距", icon: <AlignHorizontalSpaceBetween />, defaultVisible: true, defaultOrder: 70, disabled: (ctx) => ctx.selectedCount < 3, run: (ctx) => ctx.handlers.onAlign("distributeX") },
+    { id: "selection-distribute-y", toolbar: "selection", category: "layout", label: "垂直等距", icon: <AlignVerticalSpaceBetween />, defaultVisible: true, defaultOrder: 80, disabled: (ctx) => ctx.selectedCount < 3, run: (ctx) => ctx.handlers.onAlign("distributeY") },
     { id: "selection-arrange-row", toolbar: "selection", category: "arrange", label: "横向排列", icon: <AlignHorizontalSpaceAround />, defaultVisible: false, defaultOrder: 90, run: (ctx) => ctx.handlers.onArrange("row") },
     { id: "selection-arrange-column", toolbar: "selection", category: "arrange", label: "纵向排列", icon: <AlignVerticalSpaceAround />, defaultVisible: false, defaultOrder: 100, run: (ctx) => ctx.handlers.onArrange("column") },
     { id: "selection-arrange-grid", toolbar: "selection", category: "arrange", label: "宫格排列", icon: <Grid3X3 />, defaultVisible: false, defaultOrder: 110, run: (ctx) => ctx.handlers.onArrange("grid") },

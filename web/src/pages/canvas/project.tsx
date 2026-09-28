@@ -2685,7 +2685,7 @@ function InfiniteCanvasPage() {
             >
                 跳转到画布主内容
             </a>
-            <main id="canvas-main" tabIndex={-1} className="flex h-full min-h-0 overflow-hidden outline-none" style={{ background: resolvedCanvasAppearance.background, color: theme.node.text }}>
+            <main id="canvas-main" tabIndex={-1} className={`canvas-main-with-workspace ${workspaceOpen ? "canvas-workspace-expanded" : ""} flex h-full min-h-0 overflow-hidden outline-none`} style={{ background: resolvedCanvasAppearance.background, color: theme.node.text }}>
                 {!focusMode && !versions.preview ? (
                     <CanvasWorkspacePanel
                         key={projectId}
