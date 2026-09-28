@@ -667,6 +667,7 @@ export function ReferenceToolsPopover({ canAutoMention, autoLinkEnabled, onAutoM
             trigger="click"
             placement="topRight"
             rootClassName="canvas-reference-tools-popover"
+            getPopupContainer={(trigger) => trigger.closest("[data-node-id]") || document.body}
             arrow={false}
             align={{ offset: [0, -8] }}
             styles={{ root: { width: "min(280px, calc(100vw - 24px))" }, container: { width: "100%" }, content: { width: "100%", padding: 10 } }}

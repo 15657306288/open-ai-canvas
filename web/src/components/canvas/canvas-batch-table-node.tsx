@@ -444,22 +444,18 @@ export function CanvasBatchTableNodeContent({ node, nodes, connections, batch, t
                             ) : null}
                         </div>
                         <span className="shrink-0 tabular-nums" style={{ color: theme.node.muted }}>已连 {connectedImageCount} · 完成 {completed}/{table.rows.length}</span>
-                        {!readOnly ? (
-                            <div className="ml-auto pr-2" onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
-                                <ReferenceToolsPopover
-                                    canAutoMention={canAutoMention}
-                                    autoLinkEnabled={autoLinkEnabled}
-                                    onAutoMention={autoMentionRows}
-                                    onAutoLinkEnabledChange={setAutoLinkEnabled}
-                                    accent={theme.accent.primary}
-                                    compact={false}
-                                    label="AutoLink"
-                                />
-                            </div>
-                        ) : null}
                     </div>
                     {!readOnly ? (
                         <div className="ml-auto flex shrink-0 items-center gap-1.5" onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
+                            <ReferenceToolsPopover
+                                canAutoMention={canAutoMention}
+                                autoLinkEnabled={autoLinkEnabled}
+                                onAutoMention={autoMentionRows}
+                                onAutoLinkEnabledChange={setAutoLinkEnabled}
+                                accent={theme.accent.primary}
+                                compact={false}
+                                label="AutoLink"
+                            />
                             <Tooltip title="增量同步画布连线，不会删除已有任务行">
                                 <Button size="small" type="text" icon={<Rows3 className="size-3.5" />} onClick={onFillRows}>同步连线</Button>
                             </Tooltip>
