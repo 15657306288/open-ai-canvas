@@ -2886,6 +2886,7 @@ function InfiniteCanvasPage() {
                                                     setSelectedNodeIds(new Set());
                                                     setContextMenu(null);
                                                 }}
+                                                onConnectionDelete={deleteConnection}
                                                 onConnectionContextMenu={(event, connectionId) => {
                                                     setSelectedConnectionId(connectionId);
                                                     setSelectedNodeIds(new Set());

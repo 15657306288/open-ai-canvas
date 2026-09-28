@@ -16,7 +16,9 @@ export const ConnectionPath = React.memo(function ConnectionPath({
     active,
     visualMode = "full",
     hideVisual = false,
+    selected = false,
     onSelect,
+    onDelete,
     onContextMenu,
 }: {
     connection: CanvasConnection;
@@ -27,20 +29,25 @@ export const ConnectionPath = React.memo(function ConnectionPath({
     active: boolean;
     visualMode?: "full" | "hover-only";
     hideVisual?: boolean;
+    selected?: boolean;
     onSelect: () => void;
+    onDelete?: () => void;
     onContextMenu?: (event: ReactMouseEvent<SVGPathElement>) => void;
 }) {
     const theme = canvasThemes[useActiveTheme()];
     const [hovered, setHovered] = useState(false);
-    const { pathD, startX, startY, endX, endY } = canvasConnectionPath(connection, from, to, fromScrollTop, toScrollTop);
+    const { pathD, startX, startY, endX, endY, control1X, control2X } = canvasConnectionPath(connection, from, to, fromScrollTop, toScrollTop);
     const emphasized = active || hovered;
     const showVisual = !hideVisual && (visualMode === "full" || hovered);
     const showEmphasis = !hideVisual && emphasized;
+    const showFlow = showVisual && (visualMode === "full" || emphasized);
+    const showDelete = !hideVisual && selected && Boolean(onDelete);
+    const midpoint = cubicPoint(startX, startY, control1X, startY, control2X, endY, endX, endY, 0.5);
     const gradientId = `canvas-flow-${connection.id.replace(/[^a-zA-Z0-9_-]/g, "")}`;
 
     return (
         <g>
-            {showEmphasis ? <defs>
+            {showFlow ? <defs>
                 <linearGradient id={gradientId} gradientUnits="userSpaceOnUse" x1={startX} y1={startY} x2={endX} y2={endY}>
                     <stop offset="0%" stopColor={theme.node.muted} stopOpacity={0.18} />
                     <stop offset="48%" stopColor={theme.accent.primary} stopOpacity={0.58} />
@@ -112,13 +119,13 @@ export const ConnectionPath = React.memo(function ConnectionPath({
                 <circle cx={startX} cy={startY} r={emphasized ? 3.5 : 2.5} fill={emphasized ? theme.accent.primary : theme.node.muted} fillOpacity={emphasized ? 0.9 : 0.72} vectorEffect="non-scaling-stroke" style={{ pointerEvents: "none" }} />
                 <circle cx={endX} cy={endY} r={emphasized ? 3.5 : 2.5} fill={emphasized ? theme.accent.primary : theme.node.muted} fillOpacity={emphasized ? 0.9 : 0.72} vectorEffect="non-scaling-stroke" style={{ pointerEvents: "none" }} />
             </> : null}
-            {showVisual && emphasized ? <path
+            {showFlow ? <path
                 className="canvas-connection-flow"
                 d={pathD}
                 stroke={`url(#${gradientId})`}
                 strokeWidth="2.2"
                 vectorEffect="non-scaling-stroke"
-                strokeOpacity="0.84"
+                strokeOpacity={emphasized ? "0.84" : "0.36"}
                 strokeDasharray="18 26"
                 fill="none"
                 strokeLinecap="round"
@@ -138,9 +145,31 @@ export const ConnectionPath = React.memo(function ConnectionPath({
                 strokeLinecap="round"
                 style={{ pointerEvents: "none" }}
             /> : null}
+            {showDelete ? <g
+                data-canvas-no-zoom
+                data-connection-delete-control={connection.id}
+                role="button"
+                tabIndex={0}
+                aria-label="删除连线"
+                transform={`translate(${midpoint.x} ${midpoint.y})`}
+                style={{ cursor: "pointer", pointerEvents: "all" }}
+                onClick={(event) => {
+                    event.stopPropagation();
+                    onDelete?.();
+                }}
+                onKeyDown={(event) => {
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onDelete?.();
+                }}
+            >
+                <circle r="11" fill={theme.node.panel} stroke={theme.accent.primary} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+                <path d="M -3.5 -3.5 L 3.5 3.5 M 3.5 -3.5 L -3.5 3.5" stroke={theme.accent.primary} strokeWidth="1.8" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+            </g> : null}
         </g>
     );
-}, (previous, next) => previous.connection === next.connection && previous.from === next.from && previous.to === next.to && previous.active === next.active && previous.visualMode === next.visualMode && previous.hideVisual === next.hideVisual && previous.fromScrollTop === next.fromScrollTop && previous.toScrollTop === next.toScrollTop);
+}, (previous, next) => previous.connection === next.connection && previous.from === next.from && previous.to === next.to && previous.active === next.active && previous.selected === next.selected && previous.visualMode === next.visualMode && previous.hideVisual === next.hideVisual && previous.fromScrollTop === next.fromScrollTop && previous.toScrollTop === next.toScrollTop);
 
 export function canvasConnectionPath(connection: CanvasConnection, from: CanvasNodeData, to: CanvasNodeData, fromScrollTop = 0, toScrollTop = 0) {
     const startX = from.position.x + from.width;
@@ -149,7 +178,15 @@ export function canvasConnectionPath(connection: CanvasConnection, from: CanvasN
     const endY = connectionHandleY(to, connection.toHandleId, toScrollTop);
     const dx = Math.abs(endX - startX);
     const curvature = Math.max(dx * 0.5, 50);
-    return { pathD: `M ${startX} ${startY} C ${startX + curvature} ${startY}, ${endX - curvature} ${endY}, ${endX} ${endY}`, startX, startY, endX, endY };
+    return { pathD: `M ${startX} ${startY} C ${startX + curvature} ${startY}, ${endX - curvature} ${endY}, ${endX} ${endY}`, startX, startY, endX, endY, control1X: startX + curvature, control2X: endX - curvature };
+}
+
+function cubicPoint(x0: number, y0: number, x1: number, y1: number, x2: number, y2: number, x3: number, y3: number, t: number) {
+    const inverse = 1 - t;
+    return {
+        x: inverse ** 3 * x0 + 3 * inverse ** 2 * t * x1 + 3 * inverse * t ** 2 * x2 + t ** 3 * x3,
+        y: inverse ** 3 * y0 + 3 * inverse ** 2 * t * y1 + 3 * inverse * t ** 2 * y2 + t ** 3 * y3,
+    };
 }
 
 export function activeConnectionPath(node: CanvasNodeData | undefined, handle: ConnectionHandle, mouseWorld: Position, target?: CanvasNodeData, nodeScrollTop = 0) {

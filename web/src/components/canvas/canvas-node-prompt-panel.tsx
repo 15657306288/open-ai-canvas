@@ -671,19 +671,25 @@ export function ReferenceToolsPopover({ canAutoMention, autoLinkEnabled, onAutoM
             align={{ offset: [0, -8] }}
             styles={{ root: { width: "min(280px, calc(100vw - 24px))" }, container: { width: "100%" }, content: { width: "100%", padding: 10 } }}
             content={
-                <div className="space-y-1.5">
-                    <div>
-                        <div className="text-sm font-medium leading-5">智能引用</div>
-                        <div className="mt-0.5 text-xs leading-4 text-black/50 dark:text-white/50">输入素材序号或名称后按 Tab，可快速引用</div>
+                <div className="canvas-reference-tools-panel" style={{ "--autolink-accent": accent } as CSSProperties}>
+                    <div className="canvas-reference-tools-heading">
+                        <span className="canvas-reference-tools-heading-icon"><Link2 className="size-3.5" /></span>
+                        <div>
+                            <div className="text-sm font-semibold leading-5">智能引用</div>
+                            <div className="mt-0.5 text-xs leading-4 text-black/50 dark:text-white/50">输入素材序号或名称后按 Tab，可快速引用</div>
+                        </div>
                     </div>
-                    <div className="flex min-h-6 items-center justify-between gap-3">
-                        <div className="flex items-center gap-2 text-sm"><Link2 className="size-3.5" />AutoLink</div>
+                    <div className={`canvas-autolink-row ${autoLinkEnabled ? "is-enabled" : ""}`}>
+                        <div className="canvas-autolink-copy">
+                            <span className="canvas-autolink-row-icon"><Link2 className="size-3.5" /></span>
+                            <span><strong>AutoLink</strong><small>{autoLinkEnabled ? "输入名称后自动匹配" : "已暂停自动匹配"}</small></span>
+                        </div>
                         <button
                             type="button"
                             role="switch"
                             aria-checked={autoLinkEnabled}
                             aria-label={autoLinkEnabled ? "关闭 AutoLink" : "开启 AutoLink"}
-                            className="canvas-reference-autolink-switch relative inline-flex h-5 w-9 items-center rounded-full border transition-colors"
+                            className="canvas-reference-autolink-switch relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors"
                             style={{ background: autoLinkEnabled ? `${accent}14` : "transparent", borderColor: autoLinkEnabled ? accent : "color-mix(in srgb, currentColor 22%, transparent)", color: accent }}
                             onClick={() => onAutoLinkEnabledChange(!autoLinkEnabled)}
                         >
@@ -704,12 +710,14 @@ export function ReferenceToolsPopover({ canAutoMention, autoLinkEnabled, onAutoM
         >
             <button
                 type="button"
-                className={`canvas-node-composer-settings-trigger canvas-node-composer-reference-tools-trigger inline-flex shrink-0 items-center gap-1 ${compact ? "is-compact" : ""}`}
+                className={`canvas-node-composer-settings-trigger canvas-node-composer-reference-tools-trigger canvas-autolink-trigger inline-flex shrink-0 items-center gap-1 ${autoLinkEnabled ? "is-enabled" : "is-disabled"} ${compact ? "is-compact" : ""}`}
+                style={{ "--autolink-accent": accent } as CSSProperties}
                 aria-label="打开智能引用"
                 title="智能引用"
             >
                 <SlidersHorizontal className="size-3.5" />
                 {!compact ? <span>{label}</span> : null}
+                {!compact ? <span className="canvas-autolink-trigger-dot" aria-hidden /> : null}
             </button>
         </Popover>
     );
