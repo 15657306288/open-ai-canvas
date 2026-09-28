@@ -9855,26 +9855,23 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
 
     .canvas-autolink-trigger {
         position: relative;
-        border: 1px solid color-mix(in srgb, var(--autolink-accent) 26%, transparent) !important;
-        background: color-mix(in srgb, var(--autolink-accent) 8%, transparent) !important;
-        color: var(--autolink-accent) !important;
+        border: 1px solid transparent !important;
+        background: transparent !important;
+        color: var(--muted-foreground) !important;
         font-weight: 560 !important;
         transition: border-color var(--motion-dur-fast) var(--motion-ease-out), background-color var(--motion-dur-fast) var(--motion-ease-out), box-shadow var(--motion-dur-fast) var(--motion-ease-out), color var(--motion-dur-fast) var(--motion-ease-out);
     }
 
     .canvas-autolink-trigger:hover,
-    .canvas-autolink-trigger:focus-visible,
-    .canvas-autolink-trigger.is-enabled {
+    .canvas-autolink-trigger:focus-visible {
         border-color: color-mix(in srgb, var(--autolink-accent) 58%, transparent) !important;
         background: color-mix(in srgb, var(--autolink-accent) 14%, transparent) !important;
+        color: var(--autolink-accent) !important;
         box-shadow: 0 0 0 3px color-mix(in srgb, var(--autolink-accent) 10%, transparent);
     }
 
     .canvas-autolink-trigger.is-disabled {
         color: var(--muted-foreground) !important;
-        border-color: color-mix(in srgb, currentColor 22%, transparent) !important;
-        background: transparent !important;
-        box-shadow: none;
     }
 
     .canvas-autolink-trigger-dot {
@@ -9975,6 +9972,7 @@ html:not(.dark) .canvas-generation-settings-trigger.ant-btn[aria-expanded="true"
     .canvas-reference-tools-popover {
         width: 280px !important;
         max-width: calc(100vw - 24px) !important;
+        transform-origin: bottom right;
     }
 
     .canvas-reference-tools-popover .ant-popover-content,
