@@ -671,6 +671,8 @@ function createInlinePreview(reference: CanvasResourceReference) {
         media.className = `canvas-resource-inline-preview is-${reference.kind}`;
         media.setAttribute("src", reference.previewUrl);
         media.setAttribute("alt", "");
+        // 预览地址失效（视频直链、过期 blob 等）时退回占位符，不让 chip 出现破图。
+        media.onerror = () => media.replaceWith(createInlinePreviewFallback(reference));
         return media;
     }
     if (reference.kind === "video" && reference.mediaUrl) {
@@ -684,6 +686,10 @@ function createInlinePreview(reference: CanvasResourceReference) {
         media.onloadedmetadata = () => primeVideoPreviewFrame(media);
         return media;
     }
+    return createInlinePreviewFallback(reference);
+}
+
+function createInlinePreviewFallback(reference: CanvasResourceReference) {
     const fallback = document.createElement("span");
     fallback.className = "canvas-resource-inline-preview is-fallback";
     fallback.textContent = reference.sourceType === CanvasNodeType.Drawing ? "✎" : reference.kind === "audio" ? "♪" : reference.kind === "video" ? "▶" : reference.kind === "image" ? "□" : reference.kind === "skill" ? "✦" : "";
