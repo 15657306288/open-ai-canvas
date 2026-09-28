@@ -311,7 +311,7 @@ func multimodalTextReferenceProfile(protocol string, modelName string) multimoda
 		profile.images = true
 	case strings.Contains(value, "claude") || strings.Contains(protocolValue, "claude"):
 		profile.images = true
-	case strings.Contains(value, "grok"):
+	case strings.Contains(value, "grok") && !isPureTextGrokModel(value):
 		profile.images, profile.videos = true, true
 	case strings.Contains(value, "deepseek") && (strings.Contains(value, "vl") || strings.Contains(value, "vision") || strings.Contains(value, "multimodal")):
 		profile.images = true
@@ -325,6 +325,15 @@ func multimodalTextReferenceProfile(protocol string, modelName string) multimoda
 		profile.maxVideoBytes = 200 * 1024 * 1024
 	}
 	return profile
+}
+
+func isPureTextGrokModel(value string) bool {
+	for _, token := range []string{"build-", "chat-", "composer-"} {
+		if strings.Contains(value, token) {
+			return true
+		}
+	}
+	return strings.HasSuffix(value, "-build") || strings.HasSuffix(value, "-chat") || strings.HasSuffix(value, "-composer")
 }
 
 func DecodeModelCapabilityConfig(raw string) (*ModelCapabilityConfig, error) {

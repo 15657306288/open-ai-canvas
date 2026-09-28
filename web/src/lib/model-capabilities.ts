@@ -140,7 +140,7 @@ function multimodalTextReferenceProfile(protocol?: ModelProtocol, model = ""): M
         profile.images = true;
     } else if (value.includes("claude") || protocolValue.includes("claude")) {
         profile.images = true;
-    } else if (value.includes("grok")) {
+    } else if (value.includes("grok") && !/\b(build|chat|composer)\b/.test(value)) {
         profile.images = true;
         profile.videos = true;
     } else if (value.includes("deepseek") && (value.includes("vl") || value.includes("vision") || value.includes("multimodal"))) {
