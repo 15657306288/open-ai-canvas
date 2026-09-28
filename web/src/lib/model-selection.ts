@@ -223,9 +223,12 @@ export function resolveCompatibleModel(config: AiConfig, selected: string, requi
     if (!requirements?.capability) return selected;
     const options = selectableModelsByCapability(config, requirements.capability);
     if (!options.length) return selected;
+    const input = requirements.input;
+    const hasInputConstraints = Boolean(input && (input.imageCount + input.videoCount + input.audioCount + input.characterCount > 0));
     const selectedGroup = groupModelsByDisplayName(config, options).find((group) => group.models.includes(selected));
-    if (!selectedGroup) return selected;
-    return compatibleModelInGroup(config, selectedGroup.models, requirements, selected);
+    if (!selectedGroup) return hasInputConstraints ? compatibleModelInGroup(config, options, requirements, selected) || selected : selected;
+    const compatible = compatibleModelInGroup(config, selectedGroup.models, requirements, selected);
+    return compatible || (hasInputConstraints ? compatibleModelInGroup(config, options, requirements, selected) || selected : selected);
 }
 
 // 同显示名分组的模型族：尺寸/比例/分辨率选项取组内全部模型配置的并集，

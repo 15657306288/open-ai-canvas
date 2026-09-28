@@ -1,7 +1,7 @@
 /* Creation-specific geometry. Shared controls still use the workspace tokens. */
 .creation-mode-tabs { position: relative; isolation: isolate; display: grid; width: min(456px, 100%); margin: 0 auto 20px; padding: 4px; border-radius: 18px; background: var(--user-surface-muted); }
-.creation-mode-indicator { position: absolute; z-index: -1; inset: 0; border-radius: 14px; background: var(--user-surface); box-shadow: 0 2px 8px color-mix(in srgb, var(--user-ink) 5%, transparent); }
-.creation-mode-button { position: relative; isolation: isolate; display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; height: 44px; padding: 0 12px; border: 0; border-radius: 14px; background: transparent; color: var(--user-ink-muted); font-size: 14px; font-weight: 600; cursor: pointer; transition: color var(--user-motion), transform var(--user-motion); }
+.creation-mode-indicator { position: absolute; z-index: 0; inset: 0; pointer-events: none; border-radius: 14px; background: var(--user-surface); box-shadow: 0 2px 8px color-mix(in srgb, var(--user-ink) 5%, transparent); }
+.creation-mode-button { position: relative; z-index: 1; isolation: isolate; display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; height: 44px; padding: 0 12px; border: 0; border-radius: 14px; background: transparent; color: var(--user-ink-muted); font-size: 14px; font-weight: 600; cursor: pointer; pointer-events: auto; transition: color var(--user-motion), transform var(--user-motion); }
 .creation-mode-button svg { width: 18px; height: 18px; stroke-width: 1.8; color: currentColor; }
 .creation-mode-button[aria-pressed="true"], .creation-mode-button:hover { color: var(--user-ink); }
 .creation-mode-button:active { transform: scale(.97); }
