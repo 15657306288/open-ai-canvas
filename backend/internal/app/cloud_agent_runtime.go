@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -21,6 +22,44 @@ import (
 
 // A deterministic checkpoint failure must not be retried forever like a transient DB error.
 var errCloudAgentCheckpoint = errors.New("invalid Agent checkpoint")
+
+// cloudAgentCheckpointError keeps the save stage attached to a deterministic
+// checkpoint failure.  Previously every failure was flattened to the same
+// sentinel and advanceCloudAgent consequently told users that context had
+// overflowed even when the actual problem was a corrupt event or an encoding
+// failure.
+type cloudAgentCheckpointError struct {
+	Stage string
+	Err   error
+}
+
+func (e *cloudAgentCheckpointError) Error() string {
+	if e == nil {
+		return errCloudAgentCheckpoint.Error()
+	}
+	if e.Stage == "" {
+		return fmt.Sprintf("%v: %v", errCloudAgentCheckpoint, e.Err)
+	}
+	return fmt.Sprintf("%v (%s): %v", errCloudAgentCheckpoint, e.Stage, e.Err)
+}
+
+func (e *cloudAgentCheckpointError) Unwrap() error {
+	if e == nil {
+		return errCloudAgentCheckpoint
+	}
+	return e.Err
+}
+
+func (e *cloudAgentCheckpointError) Is(target error) bool {
+	return target == errCloudAgentCheckpoint || (e != nil && errors.Is(e.Err, target))
+}
+
+func cloudAgentCheckpointFailure(stage string, err error) error {
+	if err == nil {
+		err = errors.New("unknown checkpoint failure")
+	}
+	return &cloudAgentCheckpointError{Stage: stage, Err: err}
+}
 
 type CloudAgentEvent struct {
 	EventID   string         `json:"eventId"`
@@ -625,6 +664,79 @@ func cloudAgentContainsString(values []string, target string) bool {
 	}
 	return false
 }
+
+const cloudAgentStateJSONLimit = 512 << 10
+
+func cloudAgentCheckpointJSON(state *cloudAgentRuntime) ([]byte, error) {
+	checkpoint := *state
+	checkpoint.Canonical.Messages = nil
+	checkpoint.TextHistory = nil
+	checkpoint.Events = nil
+	return json.Marshal(checkpoint)
+}
+
+// cloudAgentPruneReadCacheForCheckpoint is a last-resort durability guard.
+// ToolReadResults is a replay cache: losing one entry means a later read may
+// execute again, but allowing that cache to make the whole runtime impossible
+// to checkpoint loses the run and prevents context compaction from starting.
+// Remove the largest entries first so a single oversized canvas/skill result
+// cannot strand the run above the 512 KiB state limit.
+func cloudAgentPruneReadCacheForCheckpoint(state *cloudAgentRuntime, limit int) (removed int) {
+	if state == nil || len(state.ToolReadResults) == 0 || limit <= 0 {
+		return 0
+	}
+	raw, err := cloudAgentCheckpointJSON(state)
+	if err != nil || len(raw) <= limit {
+		return 0
+	}
+	type candidate struct {
+		key       string
+		bytes     int
+		inContext bool
+		error     bool
+	}
+	candidates := make([]candidate, 0, len(state.ToolReadResults))
+	for key, cached := range state.ToolReadResults {
+		entryBytes, _ := json.Marshal(cached)
+		candidates = append(candidates, candidate{
+			key:       key,
+			bytes:     len(entryBytes),
+			inContext: cloudAgentReadResultInContext(state, cached.Result),
+			error:     cached.Error != "",
+		})
+	}
+	// Prefer dropping errors and entries already absent from the current
+	// transcript. Keep results currently visible to the model for as long as
+	// possible because compaction may need them for a replay after eviction.
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].inContext != candidates[j].inContext {
+			return !candidates[i].inContext
+		}
+		if candidates[i].error != candidates[j].error {
+			return candidates[i].error
+		}
+		if candidates[i].bytes != candidates[j].bytes {
+			return candidates[i].bytes > candidates[j].bytes
+		}
+		return candidates[i].key < candidates[j].key
+	})
+	for _, item := range candidates {
+		if raw, err = cloudAgentCheckpointJSON(state); err != nil || len(raw) <= limit {
+			break
+		}
+		delete(state.ToolReadResults, item.key)
+		delete(state.ToolReadReplays, item.key)
+		removed++
+	}
+	if len(state.ToolReadResults) == 0 {
+		state.ToolReadResults = nil
+	}
+	if len(state.ToolReadReplays) == 0 {
+		state.ToolReadReplays = nil
+	}
+	return removed
+}
+
 func cloudAgentSave(run *model.CloudAgentExecution, state *cloudAgentRuntime) error {
 	if run == nil || state == nil {
 		return errors.New("Agent runtime state is missing")
@@ -639,25 +751,31 @@ func cloudAgentSave(run *model.CloudAgentExecution, state *cloudAgentRuntime) er
 	}
 	if run.ID != "" {
 		if err := validateCloudAgentRuntime(run, state); err != nil {
-			return fmt.Errorf("%w: %v", errCloudAgentCheckpoint, err)
+			return cloudAgentCheckpointFailure("runtime validation", err)
 		}
 		for index, event := range state.Events {
 			sequence := state.EventSeqBase + index + 1
 			if event.Seq != sequence || event.RunID != run.ID || event.EventID != fmt.Sprintf("%s:%d", run.ID, sequence) {
-				return fmt.Errorf("%w: Agent event sequence or identity is invalid", errCloudAgentCheckpoint)
+				return cloudAgentCheckpointFailure("event identity", errors.New("Agent event sequence or identity is invalid"))
 			}
 		}
 	}
-	checkpoint := *state
-	checkpoint.Canonical.Messages = nil
-	checkpoint.TextHistory = nil
-	checkpoint.Events = nil
-	raw, err := json.Marshal(checkpoint)
+	// The canonical transcript and event journal are persisted separately. The
+	// bounded StateJSON therefore contains only runtime metadata and replay
+	// caches, and the latter must never be allowed to block a checkpoint.
+	raw, err := cloudAgentCheckpointJSON(state)
 	if err != nil {
-		return fmt.Errorf("%w: %v", errCloudAgentCheckpoint, err)
+		return cloudAgentCheckpointFailure("state encode", err)
 	}
-	if len(raw) > 512<<10 {
-		return fmt.Errorf("%w: Agent 状态超过 512KB 上限", errCloudAgentCheckpoint)
+	if len(raw) > cloudAgentStateJSONLimit {
+		cloudAgentPruneReadCacheForCheckpoint(state, cloudAgentStateJSONLimit)
+		raw, err = cloudAgentCheckpointJSON(state)
+		if err != nil {
+			return cloudAgentCheckpointFailure("state encode after cache pruning", err)
+		}
+	}
+	if len(raw) > cloudAgentStateJSONLimit {
+		return cloudAgentCheckpointFailure("state size", fmt.Errorf("Agent 状态超过 512KB 上限（%d bytes）", len(raw)))
 	}
 	run.CanvasID, run.ActiveTaskID, run.MediaTaskID = state.Request.CanvasID, state.ActiveTaskID, state.MediaTaskID
 	run.ParentID = state.ParentID
@@ -671,7 +789,7 @@ func cloudAgentSave(run *model.CloudAgentExecution, state *cloudAgentRuntime) er
 	for _, event := range state.Events {
 		body, err := json.Marshal(event)
 		if err != nil {
-			return fmt.Errorf("%w: encode Agent event: %v", errCloudAgentCheckpoint, err)
+			return cloudAgentCheckpointFailure("event encode", err)
 		}
 		run.Journal = append(run.Journal, model.CloudAgentEventRecord{RunID: run.ID, UserID: run.UserID, Sequence: event.Seq, EventJSON: string(body), CreatedAt: event.CreatedAt})
 	}
@@ -679,14 +797,14 @@ func cloudAgentSave(run *model.CloudAgentExecution, state *cloudAgentRuntime) er
 	for index, message := range state.Canonical.Messages {
 		body, err := json.Marshal(message)
 		if err != nil {
-			return fmt.Errorf("%w: encode Agent message: %v", errCloudAgentCheckpoint, err)
+			return cloudAgentCheckpointFailure("canonical message encode", err)
 		}
 		run.Transcript = append(run.Transcript, model.CloudAgentMessageRecord{RunID: run.ID, UserID: run.UserID, Kind: "canonical", Sequence: index + 1, MessageJSON: string(body)})
 	}
 	for index, message := range state.TextHistory {
 		body, err := json.Marshal(message)
 		if err != nil {
-			return fmt.Errorf("%w: encode Agent history: %v", errCloudAgentCheckpoint, err)
+			return cloudAgentCheckpointFailure("history encode", err)
 		}
 		run.Transcript = append(run.Transcript, model.CloudAgentMessageRecord{RunID: run.ID, UserID: run.UserID, Kind: "history", Sequence: index + 1, MessageJSON: string(body)})
 	}
@@ -858,7 +976,17 @@ func (s *Service) wakeCloudAgentScheduler() {
 func (s *Service) advanceCloudAgent(run *model.CloudAgentExecution) (err error) {
 	defer func() {
 		if errors.Is(err, errCloudAgentCheckpoint) {
-			err = s.terminateCloudAgent(run, "Agent 上下文或执行记录超过安全限制，本轮已停止；已有任务结果保留在任务中心")
+			message := "Agent 运行状态保存失败，本轮已停止；已有任务结果保留在任务中心"
+			var checkpointErr *cloudAgentCheckpointError
+			if errors.As(err, &checkpointErr) {
+				log.Printf("agent checkpoint rejected run=%s stage=%s error=%v", run.ID, checkpointErr.Stage, checkpointErr.Err)
+				if checkpointErr.Stage == "state size" {
+					message = "Agent 上下文或执行记录超过安全限制，本轮已停止；已有任务结果保留在任务中心"
+				}
+			} else {
+				message = "Agent 运行状态保存失败，本轮已停止；已有任务结果保留在任务中心"
+			}
+			err = s.terminateCloudAgent(run, message)
 		}
 	}()
 	if run.CleanupPending {

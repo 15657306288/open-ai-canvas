@@ -68,7 +68,7 @@ func cloudAgentCompactionReadingFor(budget cloudAgentContextBudget, projectedTok
 	if budget.InputBudgetTokens > 0 {
 		reading.PressureRatio = math.Round(float64(projectedTokens)/float64(budget.InputBudgetTokens)*10000) / 10000
 	}
-	if budget.Source == "" || budget.Source == "default" {
+	if !budget.Configured || budget.Source == "" || budget.Source == "default" {
 		return reading, false
 	}
 	return reading, true
@@ -470,7 +470,7 @@ func (s *Service) writeCloudAgentContextCheckpoint(run *model.CloudAgentExecutio
 	recent := cloudAgentCompleteTurnTail(state.Canonical.Messages, cloudAgentContextKeepPairs)
 	history, err := cloudAgentCheckpointHistory(checkpoint, recent)
 	if err != nil {
-		return fmt.Errorf("%w: %v", errCloudAgentCheckpoint, err)
+		return cloudAgentCheckpointFailure("compaction checkpoint history", err)
 	}
 	return s.repo.MutateCloudAgent(run.UserID, run.ID, run.Revision, func(current *model.CloudAgentExecution, _ *repository.Repository) error {
 		state.ContextCheckpoint = &checkpoint

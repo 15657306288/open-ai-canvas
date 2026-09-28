@@ -16,7 +16,7 @@ import (
 // The production server used a legacy cloud lineage that occupied versions
 // 39-45 with renamed migrations. Keep the current code compatible with that
 // database while continuing the local lineage after v40.
-const CurrentSchemaVersion int64 = 47
+const CurrentSchemaVersion int64 = 48
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -38,6 +38,7 @@ const legacyChannelModelLabelV28Checksum = "sha256:channel-model-label-v28"
 const cloudAgentGeminiCacheV43Checksum = "sha256:cloud-agent-gemini-cache-v43-20260926"
 const cloudAgentGeminiCacheIdentityV44Checksum = "sha256:cloud-agent-gemini-cache-identity-v44-20260926"
 const prefixedIDSequenceReconcileV45Checksum = "sha256:prefixed-id-sequence-reconcile-v45-20260926"
+const resourceThumbnailChecksum = "sha256:resource-thumbnail-v48-20260927"
 
 const postgresSchemaMigrationLockID int64 = 73123910420260830
 
@@ -160,6 +161,9 @@ var schemaMigrations = []migration{
 		return tx.AutoMigrate(&model.SkillLibraryCategory{}, &model.UserSkillState{}, &model.BuiltinSkillTombstone{})
 	}},
 	{version: 47, name: "model_catalog_presentation", checksum: "sha256:model-catalog-presentation-v47-20260927", apply: migrateModelCatalogPresentation},
+	{version: 48, name: "resource_thumbnail", checksum: resourceThumbnailChecksum, apply: func(tx *gorm.DB) error {
+		return tx.AutoMigrate(&model.Resource{})
+	}},
 }
 
 func migratePrefixedIDSequenceReconcile(tx *gorm.DB) error {

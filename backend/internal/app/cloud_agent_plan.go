@@ -141,15 +141,20 @@ func cloudAgentApplyPlanUpdate(state *cloudAgentRuntime, call cloudAgentCall) (a
 	return map[string]any{"items": args.Items, "pendingTitles": cloudAgentPendingPlanItems(args.Items)}, nil
 }
 
-func cloudAgentConfirmationPointFingerprint(_ string, options []map[string]any) string {
-	// The choices are the durable identity of a decision point. Using the choice
-	// labels/details rather than question wording prevents harmless paraphrases
-	// from consuming a second confirmation round.
-	parts := make([]string, 0, len(options))
+func cloudAgentConfirmationPointFingerprint(_ string, options []map[string]any, fields []map[string]any) string {
+	// Options and form field definitions are the durable identity of a decision point.
+	// Question wording is intentionally ignored so harmless paraphrases do not consume
+	// another confirmation round.
+	parts := make([]string, 0, len(options)+len(fields))
 	for _, option := range options {
 		label := strings.ToLower(strings.Join(strings.Fields(stringValue(option["label"])), " "))
 		detail := strings.ToLower(strings.Join(strings.Fields(stringValue(option["detail"])), " "))
-		parts = append(parts, label+"\x00"+detail)
+		parts = append(parts, "option\x00"+label+"\x00"+detail)
+	}
+	for _, field := range fields {
+		id := strings.ToLower(strings.Join(strings.Fields(stringValue(field["id"])), " "))
+		typ := strings.ToLower(strings.Join(strings.Fields(stringValue(field["type"])), " "))
+		parts = append(parts, "field\x00"+id+"\x00"+typ+"\x00"+stringValue(field["defaultValue"]))
 	}
 	sort.Strings(parts)
 	canonical := strings.Join(parts, "\x00")
@@ -175,11 +180,27 @@ func cloudAgentAskUser(call cloudAgentCall, states ...*cloudAgentRuntime) (any, 
 		state = states[0]
 	}
 	var args struct {
-		Question string `json:"question"`
-		Options  []struct {
+		Question   string `json:"question"`
+		QuestionID string `json:"questionId"`
+		Options    []struct {
 			Label  string `json:"label"`
 			Detail string `json:"detail"`
 		} `json:"options"`
+		Fields []struct {
+			ID      string `json:"id"`
+			Title   string `json:"title"`
+			Type    string `json:"type"`
+			Options []struct {
+				ID          string `json:"id"`
+				Label       string `json:"label"`
+				Detail      string `json:"detail"`
+				Recommended bool   `json:"recommended"`
+			} `json:"options"`
+			DefaultValue string `json:"defaultValue"`
+			Required     bool   `json:"required"`
+			AllowCustom  bool   `json:"allowCustom"`
+			Placeholder  string `json:"placeholder"`
+		} `json:"fields"`
 		AllowFreeform *bool `json:"allowFreeform"`
 		Round         int   `json:"round"`
 		MaxRounds     int   `json:"maxRounds"`
@@ -203,11 +224,52 @@ func cloudAgentAskUser(call cloudAgentCall, states ...*cloudAgentRuntime) (any, 
 		}
 		options = append(options, entry)
 	}
-	if len(options) < 2 {
-		return nil, BadAuthRequest("ask_user 至少要给 2 个候选项；若你自己能定，直接做完继续，不要问")
+	fields := make([]map[string]any, 0, len(args.Fields))
+	validTypes := map[string]bool{"single_select": true, "segmented": true, "text": true, "textarea": true, "model_picker": true}
+	for _, field := range args.Fields {
+		id := strings.TrimSpace(field.ID)
+		title := strings.TrimSpace(field.Title)
+		if id == "" || title == "" || !validTypes[field.Type] {
+			continue
+		}
+		entry := map[string]any{"id": truncateRunes(id, 80), "title": truncateRunes(title, 80), "type": field.Type, "required": field.Required, "allowCustom": field.AllowCustom}
+		if value := strings.TrimSpace(field.DefaultValue); value != "" {
+			entry["defaultValue"] = truncateRunes(value, 200)
+		}
+		if placeholder := strings.TrimSpace(field.Placeholder); placeholder != "" {
+			entry["placeholder"] = truncateRunes(placeholder, 200)
+		}
+		fieldOptions := make([]map[string]any, 0, len(field.Options))
+		for _, option := range field.Options {
+			label := strings.TrimSpace(option.Label)
+			if label == "" {
+				continue
+			}
+			optionEntry := map[string]any{"label": truncateRunes(label, 100), "recommended": option.Recommended}
+			if id := strings.TrimSpace(option.ID); id != "" {
+				optionEntry["id"] = truncateRunes(id, 80)
+			}
+			if detail := strings.TrimSpace(option.Detail); detail != "" {
+				optionEntry["detail"] = truncateRunes(detail, 180)
+			}
+			fieldOptions = append(fieldOptions, optionEntry)
+		}
+		if len(fieldOptions) > 8 {
+			fieldOptions = fieldOptions[:8]
+		}
+		if len(fieldOptions) > 0 {
+			entry["options"] = fieldOptions
+		}
+		fields = append(fields, entry)
 	}
-	if len(options) > 6 {
-		options = options[:6]
+	if len(fields) > 6 {
+		fields = fields[:6]
+	}
+	if len(fields) > 0 && len(options) > 0 {
+		return nil, BadAuthRequest("ask_user 的 options 与 fields 只能二选一；多个参数请只使用 fields")
+	}
+	if len(fields) == 0 && len(options) < 2 {
+		return nil, BadAuthRequest("ask_user 必须提供动态表单字段，或至少 2 个候选项；若你自己能定，直接做完继续，不要问")
 	}
 	allowFreeform := true
 	if args.AllowFreeform != nil {
@@ -215,7 +277,7 @@ func cloudAgentAskUser(call cloudAgentCall, states ...*cloudAgentRuntime) (any, 
 	}
 	maxRounds := cloudAgentMaxConfirmationRounds
 	currentRound := 1
-	fingerprint := cloudAgentConfirmationPointFingerprint(question, options)
+	fingerprint := cloudAgentConfirmationPointFingerprint(question, options, fields)
 	duplicate := false
 	if state != nil {
 		currentRound = state.ConfirmationRounds + 1
@@ -223,11 +285,18 @@ func cloudAgentAskUser(call cloudAgentCall, states ...*cloudAgentRuntime) (any, 
 	}
 	payload := map[string]any{
 		"phase":         "question",
+		"kind":          "form",
 		"question":      truncateRunes(question, 400),
 		"options":       options,
+		"fields":        fields,
+		"questionId":    truncateRunes(strings.TrimSpace(args.QuestionID), 100),
 		"allowFreeform": allowFreeform,
 		"round":         currentRound,
 		"maxRounds":     maxRounds,
+	}
+	if len(fields) == 0 {
+		payload["kind"] = "choice"
+		delete(payload, "fields")
 	}
 	if duplicate || currentRound > maxRounds {
 		payload["phase"] = "defaulted"

@@ -124,6 +124,24 @@ func TestCloudAgentAskUserRequiresChoices(t *testing.T) {
 	}
 }
 
+func TestCloudAgentAskUserAcceptsDynamicForm(t *testing.T) {
+	call := cloudAgentCall{ID: "ask-form-1"}
+	call.Function.Name = "ask_user"
+	call.Function.Arguments = `{"question":"确认创作方向","questionId":"canvas-setup","fields":[{"id":"genre","title":"题材","type":"single_select","options":[{"id":"comedy","label":"搞笑"},{"id":"other","label":"其他"}],"defaultValue":"comedy","allowCustom":true},{"id":"aspectRatio","title":"画幅","type":"segmented","options":[{"id":"9:16","label":"9:16"},{"id":"16:9","label":"16:9"}],"defaultValue":"9:16"},{"id":"notes","title":"补充说明","type":"textarea","placeholder":"可选"}]}`
+	result, err := cloudAgentAskUser(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := result.(map[string]any)
+	if body["kind"] != "form" || body["questionId"] != "canvas-setup" {
+		t.Fatalf("dynamic form payload = %+v", body)
+	}
+	fields, ok := body["fields"].([]map[string]any)
+	if !ok || len(fields) != 3 {
+		t.Fatalf("dynamic form fields = %#v", body["fields"])
+	}
+}
+
 func TestCloudAgentAskUserTracksConfirmationRoundsAndDefaults(t *testing.T) {
 	call := cloudAgentCall{ID: "ask-1"}
 	call.Function.Name = "ask_user"

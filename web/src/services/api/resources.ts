@@ -104,7 +104,7 @@ const resourceCache = new Map<string, RemoteResource>();
 const resourceRequests = new Map<string, Promise<RemoteResource>>();
 const missingResourceIds = new Set<string>();
 export type ResourceAccessPurpose = "display" | "copy" | "download" | "browser-process" | "provider-input";
-export type ResourceAccessVariant = "original" | "playback";
+export type ResourceAccessVariant = "original" | "playback" | "thumbnail";
 export type ResourceAccess = {
     resourceId: string;
     requestedVariant: ResourceAccessVariant;
@@ -116,6 +116,8 @@ export type ResourceAccess = {
     refreshAt: string;
     revision: string;
     fallbackReason?: string;
+    originalWidth?: number;
+    originalHeight?: number;
 };
 
 type ResourceAccessBatchItem = { resourceId: string; access?: ResourceAccess; error?: { msg?: string } };
