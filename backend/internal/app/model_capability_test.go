@@ -16,6 +16,7 @@ func TestKnownMultimodalTextModelFamiliesDefaultToReferenceMedia(t *testing.T) {
 		{protocol: "chat-completion", model: "gemini-3.8-flash-high", maxImages: 16, maxVideos: 3},
 		{protocol: "chat-completion", model: "gpt-5.6-sol", maxImages: 16},
 		{protocol: "claude-api", model: "claude-fable-5.1", maxImages: 16},
+		{protocol: "chat-completion", model: "grok-4.7", maxImages: 16, maxVideos: 3},
 		{protocol: "chat-completion", model: "deepseek-vl2", maxImages: 16},
 		{protocol: "chat-completion", model: "plain-text-model"},
 	}

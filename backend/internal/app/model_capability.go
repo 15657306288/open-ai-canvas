@@ -311,6 +311,8 @@ func multimodalTextReferenceProfile(protocol string, modelName string) multimoda
 		profile.images = true
 	case strings.Contains(value, "claude") || strings.Contains(protocolValue, "claude"):
 		profile.images = true
+	case strings.Contains(value, "grok"):
+		profile.images, profile.videos = true, true
 	case strings.Contains(value, "deepseek") && (strings.Contains(value, "vl") || strings.Contains(value, "vision") || strings.Contains(value, "multimodal")):
 		profile.images = true
 	}
