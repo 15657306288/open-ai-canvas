@@ -104,7 +104,7 @@ export function CanvasNodeContextMenu({
     useEffect(() => {
         const close = (event: PointerEvent) => {
             const target = event.target;
-            if (target instanceof Element && target.closest(".ant-popover")) return;
+            if (target instanceof Element && target.closest(".ant-popover,[data-canvas-context-menu]")) return;
             onClose();
         };
         const closeOnEscape = (event: KeyboardEvent) => {
@@ -112,10 +112,10 @@ export function CanvasNodeContextMenu({
             if (categoryOpen) setCategoryOpen(false);
             else onClose();
         };
-        window.addEventListener("pointerdown", close);
+        window.addEventListener("pointerdown", close, true);
         window.addEventListener("keydown", closeOnEscape);
         return () => {
-            window.removeEventListener("pointerdown", close);
+            window.removeEventListener("pointerdown", close, true);
             window.removeEventListener("keydown", closeOnEscape);
         };
     }, [categoryOpen, onClose]);

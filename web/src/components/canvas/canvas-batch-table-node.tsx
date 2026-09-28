@@ -4,6 +4,7 @@ import { App, Button, Checkbox, Segmented, Select, Switch, Tooltip } from "antd"
 import { Copy, Film, Image as ImageIcon, ListChecks, LoaderCircle, Minus, Play, Plus, Rows3, Trash2, Upload, X } from "lucide-react";
 
 import { CachedResourceImage } from "@/components/cached-resource-image";
+import { ReferenceToolsPopover } from "@/components/canvas/canvas-node-prompt-panel";
 import { CanvasResourceMentionTextarea } from "@/components/canvas/canvas-resource-mention-textarea";
 import { AppModal } from "@/components/ui/product/app-modal";
 import {
@@ -28,7 +29,7 @@ import {
 } from "@/lib/canvas/canvas-batch-table";
 import type { BatchReferenceFillMode } from "@/lib/canvas/canvas-batch-table";
 import { BATCH_REFERENCE_CELL_DROP_EVENT, BATCH_REFERENCE_CELL_HOVER_EVENT, findBatchReferenceCellAtPoint, type BatchReferenceCellDropDetail, type BatchReferenceCellRect, type BatchReferenceCellRef } from "@/lib/canvas/canvas-batch-table-drop";
-import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
+import { autoMentionCanvasResourceReferences, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import type { CanvasTheme } from "@/lib/canvas-theme";
 import type { CanvasBatchOperation, CanvasBatchRow, CanvasBatchTableData, CanvasConnection, CanvasGenerationBatch, CanvasGenerationBatchItem, CanvasNodeData } from "@/types/canvas";
 
@@ -132,6 +133,7 @@ export function CanvasBatchTableNodeContent({ node, nodes, connections, batch, t
     const [fillTargetColumn, setFillTargetColumn] = useState(0);
     const [fillMode, setFillMode] = useState<BatchReferenceFillMode>("sequential");
     const [fillOverwrite, setFillOverwrite] = useState(true);
+    const [autoLinkEnabled, setAutoLinkEnabled] = useState(true);
     // 点击已有参考图缩略图时打开的替换面板；记录目标单元格。
     const [replaceCell, setReplaceCell] = useState<ReferenceCell | null>(null);
     // 拖到哪一格：格子自己拖是内部状态，画布素材拖进来由 window 事件通知。
@@ -147,6 +149,19 @@ export function CanvasBatchTableNodeContent({ node, nodes, connections, batch, t
     const draggingCellRef = useRef<ReferenceCell | null>(null);
     const dragStartRef = useRef<{ x: number; y: number; pointerId: number; cell: ReferenceCell } | null>(null);
     const suppressClickRef = useRef(false);
+
+    const canAutoMention = useMemo(() => table.rows.some((row) => {
+        const references = batchRowMentionReferences(row, referenceColumns, nodeById);
+        return autoMentionCanvasResourceReferences(row.prompt, references) !== row.prompt;
+    }), [nodeById, referenceColumns, table.rows]);
+
+    const autoMentionRows = useCallback(() => {
+        table.rows.forEach((row) => {
+            const references = batchRowMentionReferences(row, referenceColumns, nodeById);
+            const prompt = autoMentionCanvasResourceReferences(row.prompt, references);
+            if (prompt !== row.prompt) onUpdateRow(row.id, { prompt });
+        });
+    }, [nodeById, onUpdateRow, referenceColumns, table.rows]);
 
     useEffect(() => {
         const validRowIds = new Set(table.rows.map((row) => row.id));
@@ -429,6 +444,19 @@ export function CanvasBatchTableNodeContent({ node, nodes, connections, batch, t
                             ) : null}
                         </div>
                         <span className="shrink-0 tabular-nums" style={{ color: theme.node.muted }}>已连 {connectedImageCount} · 完成 {completed}/{table.rows.length}</span>
+                        {!readOnly ? (
+                            <div className="ml-auto pr-2" onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
+                                <ReferenceToolsPopover
+                                    canAutoMention={canAutoMention}
+                                    autoLinkEnabled={autoLinkEnabled}
+                                    onAutoMention={autoMentionRows}
+                                    onAutoLinkEnabledChange={setAutoLinkEnabled}
+                                    accent={theme.accent.primary}
+                                    compact={false}
+                                    label="AutoLink"
+                                />
+                            </div>
+                        ) : null}
                     </div>
                     {!readOnly ? (
                         <div className="ml-auto flex shrink-0 items-center gap-1.5" onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
@@ -553,6 +581,7 @@ export function CanvasBatchTableNodeContent({ node, nodes, connections, batch, t
                                         readOnly={readOnly}
                                         sendOnEnter={false}
                                         mentionMenuWidth={300}
+                                        autoLinkEnabled={autoLinkEnabled}
                                         aria-label={`任务 ${index + 1} 提示词`}
                                         placeholder={hasGlobalPrompt ? "已使用全局提示词，可在此填写行级覆盖" : "描述生成目标，输入 @ 引用本行参考图"}
                                         containerClassName="h-[108px]"

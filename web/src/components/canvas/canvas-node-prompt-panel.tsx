@@ -661,7 +661,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
     );
 }
 
-function ReferenceToolsPopover({ canAutoMention, autoLinkEnabled, onAutoMention, onAutoLinkEnabledChange, accent, compact }: { canAutoMention: boolean; autoLinkEnabled: boolean; onAutoMention: () => void; onAutoLinkEnabledChange: (enabled: boolean) => void; accent: string; compact: boolean }) {
+export function ReferenceToolsPopover({ canAutoMention, autoLinkEnabled, onAutoMention, onAutoLinkEnabledChange, accent, compact, label = "引用" }: { canAutoMention: boolean; autoLinkEnabled: boolean; onAutoMention: () => void; onAutoLinkEnabledChange: (enabled: boolean) => void; accent: string; compact: boolean; label?: string }) {
     return (
         <Popover
             trigger="click"
@@ -709,7 +709,7 @@ function ReferenceToolsPopover({ canAutoMention, autoLinkEnabled, onAutoMention,
                 title="智能引用"
             >
                 <SlidersHorizontal className="size-3.5" />
-                {!compact ? <span>引用</span> : null}
+                {!compact ? <span>{label}</span> : null}
             </button>
         </Popover>
     );
