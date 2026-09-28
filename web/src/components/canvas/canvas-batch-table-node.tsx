@@ -30,6 +30,7 @@ import {
 import type { BatchReferenceFillMode } from "@/lib/canvas/canvas-batch-table";
 import { BATCH_REFERENCE_CELL_DROP_EVENT, BATCH_REFERENCE_CELL_HOVER_EVENT, findBatchReferenceCellAtPoint, type BatchReferenceCellDropDetail, type BatchReferenceCellRect, type BatchReferenceCellRef } from "@/lib/canvas/canvas-batch-table-drop";
 import { autoMentionCanvasResourceReferences, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
+import { canvasNodeVideoPreviewUrl } from "@/lib/canvas/canvas-media-preview";
 import type { CanvasTheme } from "@/lib/canvas-theme";
 import type { CanvasBatchOperation, CanvasBatchRow, CanvasBatchTableData, CanvasConnection, CanvasGenerationBatch, CanvasGenerationBatchItem, CanvasNodeData } from "@/types/canvas";
 
@@ -87,7 +88,7 @@ export function CanvasBatchTableNodeContent({ node, nodes, connections, batch, t
         label: referenceColumns[index]?.label || `参考图 ${index + 1}`,
         nodeIds: nodeIds.filter((nodeId) => {
             const source = nodeById.get(nodeId);
-            return source?.type === "image" && hasNodeMedia(source);
+            return (source?.type === "image" || source?.type === "video") && hasNodeMedia(source);
         }),
     })), [connections, node, nodeById, referenceColumns]);
     const connectedImageIds = useMemo(() => Array.from(new Set(connectedReferenceGroups.flatMap((group) => group.nodeIds))), [connectedReferenceGroups]);
@@ -848,7 +849,7 @@ function batchRowMentionReferences(row: CanvasBatchRow, columns: ReturnType<type
     return columns.flatMap((column, index) => {
         const source = nodeById.get(row.inputNodeIds[index]);
         if (!source) return [];
-        return [{ id: `${row.id}:${column.id}:${source.id}`, nodeId: source.id, kind: "image" as const, label: `参考图${index + 1}`, title: `${column.label} · ${source.title || "图片"}`, previewUrl: source.metadata?.previewContent || source.metadata?.content, storageKey: source.metadata?.storageKey, active: true, sourceType: source.type, mentionToken: batchReferenceMentionToken(index) }];
+        return [{ id: `${row.id}:${column.id}:${source.id}`, nodeId: source.id, kind: "image" as const, label: `参考图${index + 1}`, title: `${column.label} · ${source.title || "图片"}`, previewUrl: source.type === "video" ? canvasNodeVideoPreviewUrl(source) : source.metadata?.previewContent || source.metadata?.content, storageKey: source.type === "video" ? source.metadata?.videoPreview?.storageKey : source.metadata?.storageKey, active: true, sourceType: source.type, mentionToken: batchReferenceMentionToken(index) }];
     });
 }
 
@@ -962,7 +963,7 @@ function ReferenceThumbnail({ node, label, theme, readOnly, rowId, columnIndex, 
                 }}
             >
                 {/* 图片必须绝对定位铺满方格：作为 grid item 时 h-full 会退化成按原始宽高比排版，比格子还高，只能被裁掉一截。 */}
-                {filled ? <CachedResourceImage eager draggable={false} src={node.metadata?.previewContent || node.metadata?.content} storageKey={node.metadata?.storageKey} alt={node.title || "参考图"} className="absolute inset-0 size-full object-cover" fallback={fallback} /> : fallback}
+                {filled ? <CachedResourceImage eager draggable={false} src={node.type === "video" ? canvasNodeVideoPreviewUrl(node) : node.metadata?.previewContent || node.metadata?.content} storageKey={node.type === "video" ? node.metadata?.videoPreview?.storageKey : node.metadata?.storageKey} alt={node.title || "参考图"} className="absolute inset-0 size-full object-cover" fallback={fallback} /> : fallback}
                 {filled && !readOnly ? <span className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end bg-gradient-to-t from-black/70 to-transparent px-1 pb-1 pt-5 text-[9px] font-medium text-white opacity-0 transition-opacity group-hover/cell:opacity-100">替换</span> : null}
                 {/* 复制和清空都放进格子内部，跟格同高，不会在某一格下面另起一行把行高撞高。 */}
                 {filled && !readOnly ? (

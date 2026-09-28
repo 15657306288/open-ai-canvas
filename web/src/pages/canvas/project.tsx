@@ -108,6 +108,7 @@ import { deriveStoryboardPipelineProgress } from "@/lib/canvas/canvas-storyboard
 import { CanvasOperationChangeToast, CanvasMergeStatusToast, CanvasUploadStatusToast } from "./canvas-project-feedback";
 import { backendProviderConfig, getGenerationCount } from "@/lib/canvas/canvas-project-generation";
 import { cancelGenerationTask } from "@/services/api/task-center";
+import { canvasNodeVideoPreviewUrl } from "@/lib/canvas/canvas-media-preview";
 import { CanvasSyncStatus } from "./canvas-sync-status";
 import { CanvasVersionHistory, useCanvasVersionHistory } from "./canvas-version-history";
 import { CanvasVersionPreview } from "./canvas-version-preview";
@@ -1219,7 +1220,7 @@ function InfiniteCanvasPage() {
     );
 
     const handleBatchReferenceCellHover = useCallback((clientX: number, clientY: number, draggedNodes: CanvasNodeData[]) => {
-        if (!draggedNodes.some((node) => node.type === CanvasNodeType.Image)) {
+        if (!draggedNodes.some((node) => node.type === CanvasNodeType.Image || node.type === CanvasNodeType.Video)) {
             dispatchBatchReferenceCellHover(null);
             return;
         }
@@ -1229,7 +1230,7 @@ function InfiniteCanvasPage() {
 
     const handleBatchReferenceCellDrop = useCallback((clientX: number, clientY: number, draggedNodes: CanvasNodeData[]) => {
         dispatchBatchReferenceCellHover(null);
-        const source = draggedNodes.find((node) => node.type === CanvasNodeType.Image);
+        const source = draggedNodes.find((node) => node.type === CanvasNodeType.Image || node.type === CanvasNodeType.Video);
         const hit = source ? findBatchReferenceCellAtPoint(clientX, clientY) : null;
         if (!source || !hit) return;
         const sourceElement = Array.from(document.querySelectorAll<HTMLElement>("[data-node-id]")).find((element) => element.dataset.nodeId === source.id);
@@ -1237,7 +1238,7 @@ function InfiniteCanvasPage() {
             nodeId: source.id,
             rowId: hit.rowId,
             columnIndex: hit.columnIndex,
-            imageSrc: source.metadata?.previewContent || source.metadata?.content,
+            imageSrc: source.type === CanvasNodeType.Video ? canvasNodeVideoPreviewUrl(source) : source.metadata?.previewContent || source.metadata?.content,
             fromRect: sourceElement ? toBatchReferenceCellRect(sourceElement) : undefined,
             toRect: toBatchReferenceCellRect(hit.element),
         });

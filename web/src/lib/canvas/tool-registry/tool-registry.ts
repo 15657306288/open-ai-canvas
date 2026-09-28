@@ -10,19 +10,10 @@ import type { AddNodeMenuCommand, AddNodeMenuContext, NodeToolbarGroup, ToolCate
 /** 模块级注册表 */
 const registry = new Map<ToolbarId, ToolDefinition[]>();
 const addNodeMenuRegistry: AddNodeMenuCommand[] = [];
+// 框选工具条只保留：批量下载、创建分镜组、发送到 Agent；对齐/整理类按钮按用户要求移除。
 const selectionToolbarAllowedTools = new Set([
-    "selection-align-left",
-    "selection-align-center-x",
-    "selection-align-right",
-    "selection-align-top",
-    "selection-align-center-y",
-    "selection-align-bottom",
-    "selection-distribute-x",
-    "selection-distribute-y",
-    "selection-auto-arrange",
     "selection-batch-download",
     "selection-create-storyboard",
-    "selection-batch-connect",
     "selection-send-to-agent",
 ]);
 

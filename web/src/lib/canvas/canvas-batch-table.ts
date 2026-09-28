@@ -225,7 +225,7 @@ export function batchRowReady(row: CanvasBatchRow, table: CanvasBatchTableData, 
     if (inputs.length < (table.operation === "try_on" ? 2 : 1)) return false;
     return inputs.every((id) => {
         const node = nodes.get(id);
-        return node?.type === "image" && Boolean(node.metadata?.content || node.metadata?.storageKey);
+        return (node?.type === "image" || node?.type === "video") && Boolean(node.metadata?.content || node.metadata?.storageKey);
     });
 }
 
