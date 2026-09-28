@@ -150,7 +150,7 @@ export function useCanvasBatchTable({ nodesRef, connectionsRef, setNodes, setCon
             const columns = batchInputColumns(node, connectionsRef.current).map((column) =>
                 column.filter((inputNodeId) => {
             const input = nodeById.get(inputNodeId);
-            return input?.type === CanvasNodeType.Image && Boolean(input.metadata?.content || input.metadata?.storageKey);
+            return (input?.type === CanvasNodeType.Image || input?.type === CanvasNodeType.Video) && Boolean(input.metadata?.content || input.metadata?.storageKey);
                 }),
             );
         if (!columns.some((column) => column.length)) {

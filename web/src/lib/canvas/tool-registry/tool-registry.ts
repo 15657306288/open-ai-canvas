@@ -10,11 +10,10 @@ import type { AddNodeMenuCommand, AddNodeMenuContext, NodeToolbarGroup, ToolCate
 /** 模块级注册表 */
 const registry = new Map<ToolbarId, ToolDefinition[]>();
 const addNodeMenuRegistry: AddNodeMenuCommand[] = [];
+// 框选工具条只保留：批量下载、创建分镜组、发送到 Agent；对齐/整理类按钮按用户要求移除。
 const selectionToolbarAllowedTools = new Set([
-    "selection-auto-arrange",
     "selection-batch-download",
     "selection-create-storyboard",
-    "selection-batch-connect",
     "selection-send-to-agent",
 ]);
 
@@ -108,7 +107,7 @@ export function resolveNodeToolbarPlacement(tool: ToolDefinition, ctx: ToolConte
     const placement = tool.nodeToolbar;
     return {
         group: typeof placement?.group === "function" ? placement.group(ctx) : placement?.group || "more",
-        order: typeof placement?.order === "function" ? placement.order(ctx) : placement?.order ?? tool.defaultOrder,
+        order: typeof placement?.order === "function" ? placement.order(ctx) : (placement?.order ?? tool.defaultOrder),
     };
 }
 
