@@ -56,8 +56,21 @@ export function ModelPicker({
     const [open, setOpen] = useState(false);
     const [activeGroupKey, setActiveGroupKey] = useState<string | null>(null);
     const [triggerWidth, setTriggerWidth] = useState<number | null>(null);
+    const [menuMaxHeight, setMenuMaxHeight] = useState<number | null>(null);
     const menuRef = useRef<HTMLDivElement>(null);
     const triggerRef = useRef<HTMLButtonElement>(null);
+
+    // 创作页组合器贴近视口底部时 antd 会把浮层翻到触发器上方并整体推出屏幕，
+    // 表现成“模型框点不动”。这里按触发器上下可用空间限制菜单高度，保证菜单始终完整可见。
+    const syncMenuMaxHeight = () => {
+        const trigger = triggerRef.current;
+        if (!trigger) return;
+        const rect = trigger.getBoundingClientRect();
+        const gutter = 16;
+        const spaceAbove = rect.top - gutter;
+        const spaceBelow = window.innerHeight - rect.bottom - gutter;
+        setMenuMaxHeight(Math.round(Math.max(180, Math.min(460, Math.max(spaceAbove, spaceBelow)))));
+    };
     const options = useMemo(() => Array.from(new Set(selectableModelsByCapability(config, capability).filter(Boolean))), [capability, config]);
     const optionGroups = useMemo(() => groupModelsForPicker(config, options), [config, options]);
     const storedCurrent = value?.trim() || "";
@@ -117,9 +130,22 @@ export function ModelPicker({
         return () => window.removeEventListener("pointerdown", closeOnOutsidePointer, true);
     }, [open]);
 
+    useEffect(() => {
+        if (!open) return;
+        syncMenuMaxHeight();
+        const handleViewportChange = () => syncMenuMaxHeight();
+        window.addEventListener("resize", handleViewportChange);
+        window.addEventListener("scroll", handleViewportChange, true);
+        return () => {
+            window.removeEventListener("resize", handleViewportChange);
+            window.removeEventListener("scroll", handleViewportChange, true);
+        };
+    }, [open]);
+
     const setPickerOpen = (nextOpen: boolean) => {
         if (nextOpen && !options.length) onMissingConfig?.();
         if (nextOpen) window.dispatchEvent(new CustomEvent("model-picker-open", { detail: pickerId }));
+        if (nextOpen) syncMenuMaxHeight();
         if (nextOpen) {
             setActiveGroupKey(optionGroups.find((group) => group.models.some((item) => item.models.includes(current)))?.key ?? null);
         }
@@ -172,6 +198,10 @@ export function ModelPicker({
                     background: theme.node.panel,
                     color: theme.node.text,
                     "--canvas-model-picker-trigger-width": triggerWidth ? String(triggerWidth) + "px" : undefined,
+                    maxHeight: menuMaxHeight ? String(menuMaxHeight) + "px" : undefined,
+                    // 样式表里 .is-model-list 的 max-height 带 !important，内联值压不过它，
+                    // 所以同时写 CSS 变量，由该规则用 var() 读取。
+                    "--creation-model-picker-menu-max-height": menuMaxHeight ? String(menuMaxHeight) + "px" : undefined,
                 } as CSSProperties
             }
             role="listbox"

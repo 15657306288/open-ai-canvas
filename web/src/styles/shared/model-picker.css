@@ -828,7 +828,8 @@ html:not(.dark) .creation-home .creation-chat-composer .creation-model-picker.ca
     height: 32px !important;
 }
 .creation-model-picker-surface .creation-model-picker-menu.is-model-list {
-    max-height: min(460px, calc(100vh - 24px)) !important;
+    /* 组合器贴近视口底部时按可用空间收敛高度，避免菜单被翻到屏外 */
+    max-height: var(--creation-model-picker-menu-max-height, min(460px, calc(100vh - 24px))) !important;
     overflow-x: hidden !important;
     overflow-y: auto !important;
 }
