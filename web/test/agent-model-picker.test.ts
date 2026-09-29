@@ -25,3 +25,9 @@ test("Agent 对话和设置复用创作页模型选择器，并且只展示文�
     expect(twoPane).toContain("align-items: start");
     expect(twoPane).not.toContain("min-height: 300px");
 });
+
+test("模型选择器保留直接点击兜底，避免画布拖拽事件吞掉打开动作", async () => {
+    const picker = await Bun.file(new URL("../src/components/model-picker.tsx", import.meta.url)).text();
+    expect(picker).toContain("if (!open) setPickerOpen(true);");
+    expect(picker).toContain("event.stopPropagation();");
+});

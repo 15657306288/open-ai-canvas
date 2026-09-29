@@ -313,6 +313,9 @@ func TestImportAdminChannelModelsOnlyImportsSelectedModels(t *testing.T) {
 	if len(imported) != 1 || imported[0].ModelKey != "model-b" {
 		t.Fatalf("imported models = %#v, want only model-b", imported)
 	}
+	if imported[0].Capability != "text" || imported[0].Protocol != model.ChannelInterfaceOpenAIResponse || imported[0].ProviderModelKey != "model-b" || imported[0].CapabilityConfigJSON == "" {
+		t.Fatalf("imported model contract = %#v, want inferred text protocol and capability config", imported[0])
+	}
 }
 
 func TestImportAdminChannelModelsRejectsUnknownSelection(t *testing.T) {

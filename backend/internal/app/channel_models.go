@@ -87,6 +87,13 @@ func (s *Service) EnsureSystemChannelModels() error {
 			if err := s.syncInitialChannelModels(&channels[index], channelModelNames(channels[index])); err != nil {
 				return err
 			}
+			items, err = s.repo.ChannelModels(channels[index].ID, true)
+			if err != nil {
+				return err
+			}
+		}
+		if err := s.repairOpenAIChannelModels(&channels[index], items); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -96,11 +103,15 @@ func (s *Service) AdminChannelModels(actor *model.User, channelID string) ([]mod
 	if err := s.RequireAdmin(actor); err != nil {
 		return nil, err
 	}
-	if _, err := s.adminSystemChannel(channelID); err != nil {
+	channel, err := s.adminSystemChannel(channelID)
+	if err != nil {
 		return nil, err
 	}
 	items, err := s.ensureChannelModels(channelID, true)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.repairOpenAIChannelModels(channel, items); err != nil {
 		return nil, err
 	}
 	for index := range items {
@@ -182,7 +193,7 @@ func (s *Service) FetchAdminChannelModels(ctx context.Context, actor *model.User
 		if idErr != nil {
 			return nil, idErr
 		}
-		missing = append(missing, model.ChannelModel{ID: modelID, ChannelID: channelID, ModelKey: name, ProviderModelKey: name, DisplayName: name, BillingMode: "fixed_request", Enabled: false, PriceVersion: 1})
+		missing = append(missing, discoveredOpenAIChannelModel(channel, modelID, name))
 	}
 	added, err := s.repo.CreateMissingChannelModels(missing)
 	if err != nil {
@@ -267,7 +278,7 @@ func (s *Service) ImportAdminChannelModels(ctx context.Context, actor *model.Use
 		if idErr != nil {
 			return nil, idErr
 		}
-		missing = append(missing, model.ChannelModel{ID: modelID, ChannelID: channelID, ModelKey: name, DisplayName: name, BillingMode: "fixed_request", Enabled: false, PriceConfigured: false, PriceVersion: 1})
+		missing = append(missing, discoveredOpenAIChannelModel(channel, modelID, name))
 		known[key] = struct{}{}
 	}
 	added, err := s.repo.CreateMissingChannelModels(missing)
@@ -1025,6 +1036,108 @@ func (s *Service) capabilityForProtocol(protocol model.ChannelInterfaceType) str
 		return ""
 	}
 	return protocolCapabilityFromMetadata(metadata)
+}
+
+// discoveredOpenAIChannelModel keeps directory imports usable without
+// pretending that pricing or activation has been configured. A8API exposes
+// model names only, so media families need a small, conservative name map.
+func discoveredOpenAIChannelModel(channel *model.ModelChannel, id, name string) model.ChannelModel {
+	item := model.ChannelModel{
+		ID: id, ChannelID: channel.ID, ModelKey: name, ProviderModelKey: name,
+		DisplayName: name, BillingMode: "fixed_request", Enabled: false,
+		PriceConfigured: false, PriceVersion: 1,
+	}
+	if !strings.EqualFold(strings.TrimSpace(channel.APIFormat), "openai") {
+		return item
+	}
+	capability, protocolID := inferOpenAIChannelModelContract(name)
+	item.Capability = capability
+	item.Protocol = protocolID
+	if capability == "text" || capability == "image" || capability == "video" {
+		if encoded, err := json.Marshal(DefaultModelCapabilityConfigForModel(string(protocolID), name)); err == nil {
+			item.CapabilityConfigJSON = string(encoded)
+			item.CapabilityVersion = 1
+		}
+	}
+	return item
+}
+
+func (s *Service) repairOpenAIChannelModels(channel *model.ModelChannel, items []model.ChannelModel) error {
+	if channel == nil || !strings.EqualFold(strings.TrimSpace(channel.APIFormat), "openai") {
+		return nil
+	}
+	changed := false
+	anyChanged := false
+	for index := range items {
+		item := &items[index]
+		name := firstNonEmpty(item.ProviderModelKey, item.ModelKey)
+		inferredCapability, inferredProtocol := inferOpenAIChannelModelContract(name)
+		if strings.TrimSpace(item.Capability) == "" && strings.TrimSpace(string(item.Protocol)) != "" {
+			inferredCapability = s.capabilityForProtocol(item.Protocol)
+		}
+		if strings.TrimSpace(item.ProviderModelKey) == "" {
+			item.ProviderModelKey = strings.TrimPrefix(strings.TrimSpace(item.ModelKey), "models/")
+			changed = true
+		}
+		if strings.TrimSpace(item.Capability) == "" && inferredCapability != "" {
+			item.Capability = inferredCapability
+			changed = true
+		}
+		if strings.TrimSpace(string(item.Protocol)) == "" && inferredProtocol != "" {
+			item.Protocol = inferredProtocol
+			changed = true
+		}
+		if (item.Capability == "text" || item.Capability == "image" || item.Capability == "video") && strings.TrimSpace(item.CapabilityConfigJSON) == "" {
+			encoded, err := json.Marshal(DefaultModelCapabilityConfigForModel(string(item.Protocol), name))
+			if err != nil {
+				return err
+			}
+			item.CapabilityConfigJSON = string(encoded)
+			item.CapabilityVersion++
+			changed = true
+		}
+		if !changed {
+			continue
+		}
+		if err := s.repo.SaveChannelModel(item); err != nil {
+			return err
+		}
+		anyChanged = true
+		changed = false
+	}
+	if anyChanged {
+		s.invalidateRouteCatalog()
+	}
+	return nil
+}
+
+func inferOpenAIChannelModelContract(name string) (string, model.ChannelInterfaceType) {
+	value := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(name, "models/")))
+	if value == "" {
+		return "", ""
+	}
+	if containsAny(value, "stt", "tts", "voice", "audio") {
+		return "audio", model.ChannelInterfaceOpenAIAudio
+	}
+	if containsAny(value, "video", "dola", "metaso", "seedance", "sora", "veo", "wan", "kling", "vidu", "hailuo", "runway", "minimax-h3") {
+		return "video", model.ChannelInterfaceNewAPIVideo
+	}
+	if containsAny(value, "image", "banana", "flux", "qwen-image", "stable-diffusion") {
+		if strings.Contains(value, "grok") {
+			return "image", model.ChannelInterfaceGrokImage
+		}
+		return "image", model.ChannelInterfaceOpenAIImage
+	}
+	return "text", model.ChannelInterfaceOpenAIResponse
+}
+
+func containsAny(value string, needles ...string) bool {
+	for _, needle := range needles {
+		if strings.Contains(value, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func protocolCapabilityFromMetadata(metadata protocol.Metadata) string {

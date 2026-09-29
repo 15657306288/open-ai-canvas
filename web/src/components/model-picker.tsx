@@ -276,6 +276,16 @@ export function ModelPicker({
                     aria-expanded={open}
                     aria-label={placeholder}
                     title={current ? pickerModelOptionLabel(config, current, showConfiguredModelName) : placeholder}
+                    // Keep a direct click path. Ant Design's cloned trigger can
+                    // lose the click when the canvas composer stops pointer
+                    // bubbling for drag prevention.
+                    onClick={() => {
+                        if (!open) setPickerOpen(true);
+                    }}
+                    onPointerDown={(event) => {
+                        event.stopPropagation();
+                        if (!open) setPickerOpen(true);
+                    }}
                     onKeyDown={handleTriggerKeyDown}
                 >
                     <span className="canvas-model-picker-label flex min-w-0 items-center gap-1.5">
