@@ -193,6 +193,7 @@ async function run() {
           content: [{ type: "text", text: result.content || "操作正在等待用户审批。" }],
           details: { approvalId: result.approvalId, paused: true },
           isError: true,
+          terminate: true,
         };
       }
       // 工具结果必须是非空文本：交回 "null" 会让模型返回空回复。
@@ -202,6 +203,7 @@ async function run() {
         content: [{ type: "text", text }],
         details: result.details,
         isError: Boolean(result.isError),
+        terminate: Boolean(result.terminate),
       };
     },
   }));

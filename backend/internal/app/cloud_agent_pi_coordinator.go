@@ -692,7 +692,11 @@ func (s *Service) cloudAgentPiModel(ctx context.Context, userID, runID string, p
 
 	// 上游临时故障（5xx、429、超时、连接错误、空回复）自动重试，首次失败后最多再试 3 次，
 	// 指数退避。参数/鉴权类 4xx 重试也不会变好，直接失败。
+	// 模型吐出损坏的工具参数 JSON（截断或多一个括号）时，那次调用并没有被执行：
+	// 与 Go 执行循环的 correctCloudAgentTruncatedCalls 一致，附上 truncated_tool_arguments
+	// 纠偏上下文重做这一步，而不是把整轮判死。次数与临时故障共用同一个上限。
 	var lastErr error
+	var correction []map[string]any
 	for attempt := 0; attempt <= cloudAgentModelStepRetries; attempt++ {
 		if attempt > 0 {
 			delay := time.Duration(1<<(attempt-1)) * time.Second
@@ -703,13 +707,16 @@ func (s *Service) cloudAgentPiModel(ctx context.Context, userID, runID string, p
 			case <-time.After(delay):
 			}
 		}
-		result, retryable, err := s.runCloudAgentModelStep(ctx, userID, runID, request.Messages, request.ThinkingLevel)
+		result, retryable, err := s.runCloudAgentModelStep(ctx, userID, runID, request.Messages, request.ThinkingLevel, correction...)
 		if err == nil {
 			return result, nil
 		}
 		lastErr = err
 		if !retryable {
 			return nil, err
+		}
+		if errors.Is(err, errCloudAgentTruncatedToolArguments) && correction == nil {
+			correction = []map[string]any{cloudAgentRuntimeMessage(cloudAgentRuntimeContext{Kind: cloudAgentContextTruncatedArguments})}
 		}
 	}
 	return nil, lastErr
@@ -718,8 +725,12 @@ func (s *Service) cloudAgentPiModel(ctx context.Context, userID, runID string, p
 // cloudAgentModelStepRetries 是单步模型调用首次失败后的最大重试次数。
 const cloudAgentModelStepRetries = 3
 
+// errCloudAgentTruncatedToolArguments 标记"模型返回的工具参数不是完整 JSON"：
+// 调用未执行，可以带纠偏上下文重做同一步。
+var errCloudAgentTruncatedToolArguments = errors.New("truncated tool arguments")
+
 // runCloudAgentModelStep 调度并等待一次模型步骤；第二个返回值表示失败是否值得重试。
-func (s *Service) runCloudAgentModelStep(ctx context.Context, userID, runID string, messages []map[string]any, thinkingLevel string) (any, bool, error) {
+func (s *Service) runCloudAgentModelStep(ctx context.Context, userID, runID string, messages []map[string]any, thinkingLevel string, correction ...map[string]any) (any, bool, error) {
 	// 运行时发起 /model 的同时会并发推送事件（message_start、session_snapshot 等），
 	// 这些事件也会推进运行 revision。调度模型步骤是 CAS 写入：冲突时重新读取
 	// 最新状态再调度，而不是把整轮判失败。冲突时事务整体回滚，不会产生任务或扣费。
@@ -755,11 +766,22 @@ func (s *Service) runCloudAgentModelStep(ctx context.Context, userID, runID stri
 		}
 
 		canonical := canonicalFromRuntimeMessages(messages, state.Canonical.Tools, state.Canonical.SystemPrompt)
+		// A continuation starts a fresh Pi process. If its session snapshot was
+		// unavailable, the runtime transcript is shorter than the server-authored
+		// canonical history. Reuse canonical directly so provider tool_calls are
+		// not accidentally converted as if they were Pi content blocks.
+		if len(state.Canonical.Messages) > len(messages) {
+			canonical = state.Canonical
+		}
 		canonical.PromptCacheKey = state.Canonical.PromptCacheKey
 		if len(canonical.Messages) == 0 {
 			return nil, false, fmt.Errorf("no canonical messages")
 		}
 		state.Canonical = canonical
+		if len(correction) > 0 {
+			// 纠偏上下文只用于这一次请求，不写回运行状态，避免下一步重复出现。
+			canonical.Messages = append(append([]map[string]any(nil), canonical.Messages...), correction...)
+		}
 		input := map[string]any{
 			"mode":          "text",
 			"prompt":        state.Request.Prompt,
@@ -804,12 +826,19 @@ func (s *Service) runCloudAgentModelStep(ctx context.Context, userID, runID stri
 	taskID := state.ActiveTaskID
 	task, err := s.waitCloudAgentTask(ctx, taskID)
 	if err != nil {
-		retryable := ctx.Err() == nil && s.cloudAgentModelTaskRetryable(taskID)
+		truncated := false
+		if failed, lookupErr := s.repo.Task(taskID); lookupErr == nil && failed != nil && failed.Status != model.TaskStatusSucceeded {
+			truncated = cloudAgentTruncatedToolArguments(failed)
+		}
+		retryable := ctx.Err() == nil && (truncated || s.cloudAgentModelTaskRetryable(taskID))
 		if retryable {
 			// 释放失败的步骤，下一次重试才能重新入队。
 			if releaseErr := s.finishCloudAgentPiModelStep(userID, runID, taskID, "", ""); releaseErr != nil {
 				return nil, false, releaseErr
 			}
+		}
+		if truncated {
+			err = fmt.Errorf("%w: %v", errCloudAgentTruncatedToolArguments, err)
 		}
 		return nil, retryable, err
 	}
@@ -1158,7 +1187,15 @@ func (s *Service) executeCloudAgentRuntimeTool(ctx context.Context, userID, runI
 			if trimmed := strings.TrimSpace(content); trimmed == "" || trimmed == "null" {
 				content = `{"error":"工具没有返回结果"}`
 			}
-			return map[string]any{"content": content, "isError": cloudAgentToolContentIsError(content)}, nil
+			result := map[string]any{"content": content, "isError": cloudAgentToolContentIsError(content)}
+			if call.Function.Name == "ask_user" {
+				var payload map[string]any
+				if json.Unmarshal([]byte(content), &payload) == nil && stringValue(payload["phase"]) == "question" {
+					// ask_user 已经把本轮交给用户，Pi 不能再发起下一次模型调用。
+					result["terminate"] = true
+				}
+			}
+			return result, nil
 		}
 		if state.MediaTaskID == "" {
 			return nil, fmt.Errorf("tool %s produced no result", call.Function.Name)
