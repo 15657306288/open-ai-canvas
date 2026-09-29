@@ -92,7 +92,9 @@ jobs:
         run: bash .github/scripts/resolve-image.sh "$IMAGE_REF"
       - name: Build and push immutable commit image
         id: build
-        if: steps.existing.outputs.found != 'true'
+        # A version tag is a release boundary: rebuild its image even if a SHA tag
+        # already exists, so a stale/corrupt SHA tag cannot be promoted as a release.
+        if: startsWith(github.ref, 'refs/tags/v') || steps.existing.outputs.found != 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
