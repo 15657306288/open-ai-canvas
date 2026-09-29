@@ -916,8 +916,11 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .app-product-workspace *,
-    .app-product-overlays * { animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
+    .app-product-workspace * { animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
+    /* Ant Design 浮层经 Portal 挂到 body（.app-product-overlays）。rc-motion 依赖 transitionend/animationend
+       收尾，1ms 的 transition 会让结束事件在监听注册前就丢失，浮层永远停在 enter-active，
+       并被 useAlign 的哨兵坐标推到视口外，表现为"模型选择框点不开"。这里按 reduce 语义直接禁用过渡。 */
+    .app-product-overlays * { animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition: none !important; }
     .app-product-workspace .product-collection-card:hover,
     .app-product-workspace .library-card:hover,
     .app-product-workspace .task-grid-card:hover,

@@ -29,6 +29,14 @@ test("Agent 对话和设置复用创作页模型选择器，并且只展示文�
 test("模型选择器保留直接点击兜底，避免画布拖拽事件吞掉打开动作", async () => {
     const picker = await Bun.file(new URL("../src/components/model-picker.tsx", import.meta.url)).text();
     expect(picker).toContain("if (!open) setPickerOpen(true);");
-    expect(picker).toContain("event.stopPropagation();");
     expect(picker).toContain("onPointerDown={(event) => event.stopPropagation()}");
+    expect(picker).toContain("onMouseDown={(event) => event.stopPropagation()}");
+});
+
+test("reduce motion 下浮层禁用过渡，避免 rc-motion 停在 enter-active 把弹层推出视口", async () => {
+    const pickerCss = await Bun.file(new URL("../src/styles/workspace-product.css", import.meta.url)).text();
+    const block = pickerCss.slice(pickerCss.lastIndexOf("@media (prefers-reduced-motion: reduce) {"));
+    const overlays = block.match(/\.app-product-overlays \* \{[^}]+\}/)?.[0] || "";
+    expect(overlays).toContain("transition: none !important;");
+    expect(overlays).not.toContain("transition-duration: 1ms");
 });
