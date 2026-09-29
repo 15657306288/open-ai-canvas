@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import { dirname } from "node:path";
 
 const token = process.env.YINGCE_AGENT_TOKEN || "";
-const maxSessions = positiveInt(process.env.MAX_CONCURRENT_SESSIONS, 8, 1000);
+let maxSessions = positiveInt(process.env.MAX_CONCURRENT_SESSIONS, 30, 64);
 const memoryMB = positiveInt(process.env.NODE_MAX_OLD_SPACE_SIZE, 512, 8192);
 const runtimePath = process.env.YINGCE_AGENT_RUNTIME || "/app/agent-runtime/agent-runtime.mjs";
 const port = Number(process.env.PORT || 8081);
@@ -48,13 +48,21 @@ function acquire(request) {
   });
 }
 
+function admitWaiters() {
+  while (waiters.length > 0 && active < maxSessions) {
+    active += 1;
+    waiters.shift().resolve();
+  }
+}
+
 function release() {
-  const waiter = waiters.shift();
-  if (waiter) {
-    waiter.resolve();
+  if (waiters.length > 0 && active <= maxSessions) {
+    waiters.shift().resolve();
+    admitWaiters();
     return;
   }
   active = Math.max(0, active - 1);
+  admitWaiters();
 }
 
 function readBody(request) {
@@ -85,7 +93,27 @@ function writeRuntimeError(response, message) {
 const server = createServer(async (request, response) => {
   if (request.method === "GET" && request.url === "/healthz") {
     response.writeHead(200, { "content-type": "application/json" });
-    response.end(JSON.stringify({ ok: true, active, limit: maxSessions }));
+    response.end(JSON.stringify({ ok: true, active, limit: maxSessions, queued: waiters.length }));
+    return;
+  }
+  if (request.method === "PUT" && request.url === "/v1/limit") {
+    if (!authorized(request)) {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "unauthorized" }));
+      return;
+    }
+    try {
+      const body = JSON.parse((await readBody(request)).toString("utf8"));
+      const next = positiveInt(body.maxSessions, 0, 64);
+      if (!next) throw new Error("maxSessions must be an integer from 1 to 64");
+      maxSessions = next;
+      admitWaiters();
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ ok: true, active, limit: maxSessions, queued: waiters.length }));
+    } catch (error) {
+      response.writeHead(400, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: error instanceof Error ? error.message : "invalid limit" }));
+    }
     return;
   }
   if (request.method !== "POST" || request.url !== "/v1/runs") {
