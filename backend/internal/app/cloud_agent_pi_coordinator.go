@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -380,7 +381,7 @@ type EnhancedPiRequestParams struct {
 
 // buildEnhancedPiRequest 构建增强的 Pi 请求（核心方法）
 func (s *Service) buildEnhancedPiRequest(ctx context.Context, params EnhancedPiRequestParams) (cloudAgentPiProcessRequest, error) {
-	log.Printf("[Agent] building enhanced request for canvas=%s", params.CanvasID)
+	slog.Debug("agent building request", "canvas", params.CanvasID)
 
 	// 1. 构建工具列表（包括画布工具）
 	tools := s.buildCompletePiTools(params.Canonical.Tools)
@@ -389,7 +390,7 @@ func (s *Service) buildEnhancedPiRequest(ctx context.Context, params EnhancedPiR
 	skillPaths := s.buildSkillPaths(params.RuntimeState.Skills)
 	enabledSkills := s.buildSkillManifests(params.RuntimeState.Skills)
 
-	log.Printf("[Agent] enabled skills: %d", len(enabledSkills))
+	slog.Debug("agent enabled skills", "count", len(enabledSkills))
 
 	// 3. 构建 Profile 配置
 	profile := s.buildProfileConfig(params.RuntimeState.Profile)
@@ -409,11 +410,11 @@ func (s *Service) buildEnhancedPiRequest(ctx context.Context, params EnhancedPiR
 		return cloudAgentPiProcessRequest{}, fmt.Errorf("marshal canvas: %w", err)
 	}
 
-	log.Printf("[Agent] canvas intelligence: nodes=%d, focus=%d, relationships=%d, clusters=%d",
+	slog.Debug("agent canvas intelligence", "nodes",
 		enhancedCanvas.Snapshot.TotalNodes,
-		len(enhancedCanvas.Snapshot.FocusNodes),
-		len(enhancedCanvas.Snapshot.Relationships),
-		len(enhancedCanvas.Snapshot.Layout.Clusters))
+		"focus", len(enhancedCanvas.Snapshot.FocusNodes),
+		"relationships", len(enhancedCanvas.Snapshot.Relationships),
+		"clusters", len(enhancedCanvas.Snapshot.Layout.Clusters))
 
 	// 6. 构建 Features 配置
 	features := s.buildFeaturesConfig(params.RuntimeState)
@@ -461,7 +462,7 @@ func (s *Service) buildEnhancedPiRequest(ctx context.Context, params EnhancedPiR
 		Model:       modelConfig,
 	}
 
-	log.Printf("[Agent] request built successfully")
+	slog.Debug("agent request built", "canvas", params.CanvasID)
 	return request, nil
 }
 

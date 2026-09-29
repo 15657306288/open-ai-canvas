@@ -5,6 +5,13 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
+## 后端统一日志与降噪
+
+- 已实现：新增 `backend/internal/logging`，统一接管 slog、标准库 `log`、GORM 与 Gin 访问日志，级别与格式由 `CANVAS_LOG_LEVEL` / `CANVAS_LOG_FORMAT` 控制。`info` 下不再输出成功的查询类请求、成功 SQL、`[Agent] message_end` 等流式事件及常规画布自动保存；4xx/5xx、慢请求、慢 SQL、SQL 失败和 panic 仍会记录，SQL 不带参数值。
+- [x] `go build ./...`、`go test ./...` 与 `internal/logging` 单元测试通过。
+- [ ] 部署到服务器后观察一段时间的日志量，确认没有遗漏的高频输出；临时切换 `CANVAS_LOG_LEVEL=debug` 验证 Agent 事件与查询请求可以重新看到，再切回 `info`。
+- [ ] 若接入日志采集，验证 `CANVAS_LOG_FORMAT=json` 的字段（`request_id`、`status`、`latency_ms`）可被正确解析。
+
 ## 模型选择弹窗长描述与视口边界
 
 - 已调整：共用 `ModelPicker` 的宽度由共享样式统一控制，移除按内容撑宽及触发器最小宽度约束；渠道描述支持换行，字号统一使用说明文字 token（12px），行高为 1.5，移除旧 9px / 10px 覆盖；模型名称与价格在空间不足时分行显示，长价格文本可换行。
