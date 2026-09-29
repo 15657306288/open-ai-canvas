@@ -16,7 +16,7 @@ import (
 // The production server used a legacy cloud lineage that occupied versions
 // 39-45 with renamed migrations. Keep the current code compatible with that
 // database while continuing the local lineage after v40.
-const CurrentSchemaVersion int64 = 48
+const CurrentSchemaVersion int64 = 49
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -163,6 +163,9 @@ var schemaMigrations = []migration{
 	{version: 47, name: "model_catalog_presentation", checksum: "sha256:model-catalog-presentation-v47-20260927", apply: migrateModelCatalogPresentation},
 	{version: 48, name: "resource_thumbnail", checksum: resourceThumbnailChecksum, apply: func(tx *gorm.DB) error {
 		return tx.AutoMigrate(&model.Resource{})
+	}},
+	{version: 49, name: "cloud_agent_pi_sessions", checksum: "sha256:cloud-agent-pi-sessions-v49-20260928", apply: func(tx *gorm.DB) error {
+		return tx.AutoMigrate(&model.CloudAgentPiSession{})
 	}},
 }
 
