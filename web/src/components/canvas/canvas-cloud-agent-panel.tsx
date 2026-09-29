@@ -1032,6 +1032,7 @@ export function CanvasCloudAgentPanel({ canvasId, domainProjectId, nodeCount, se
                                             theme={theme}
                                             minimized={planMinimized}
                                             terminal={planTerminal || Boolean(run && ["completed", "failed", "cancelled", "rejected"].includes(run.status))}
+                                            waitingUser={Boolean(pendingQuestion)}
                                             onToggle={() => setPlanMinimized((value) => !value)}
                                         />
                                     ) : null}
