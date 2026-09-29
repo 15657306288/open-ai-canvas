@@ -222,27 +222,83 @@ func RuntimeDir() (string, error) {
 	return "", errors.New("Agent runtime files are missing; set CANVAS_PI_RUNTIME_DIR")
 }
 
-var (
-	agentSlotsOnce sync.Once
-	agentSlots     chan struct{}
+const (
+	defaultAgentProcessLimit = 30
+	maxAgentProcessLimit     = 64
 )
 
-func acquireAgentProcess(ctx context.Context) (func(), error) {
-	agentSlotsOnce.Do(func() {
-		limit := 8
-		if raw := strings.TrimSpace(os.Getenv("CANVAS_AGENT_MAX_PROCESSES")); raw != "" {
-			if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 && parsed <= 1000 {
-				limit = parsed
-			}
+type agentProcessGate struct {
+	mu     sync.Mutex
+	limit  int
+	active int
+	wake   chan struct{}
+}
+
+var processGate = newAgentProcessGate()
+
+func newAgentProcessGate() *agentProcessGate {
+	limit := defaultAgentProcessLimit
+	if raw := strings.TrimSpace(os.Getenv("CANVAS_AGENT_MAX_PROCESSES")); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil {
+			limit = clampAgentProcessLimit(parsed)
 		}
-		agentSlots = make(chan struct{}, limit)
-	})
-	select {
-	case agentSlots <- struct{}{}:
-		return func() { <-agentSlots }, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
 	}
+	return &agentProcessGate{limit: limit, wake: make(chan struct{})}
+}
+
+func clampAgentProcessLimit(value int) int {
+	if value < 1 {
+		return defaultAgentProcessLimit
+	}
+	if value > maxAgentProcessLimit {
+		return maxAgentProcessLimit
+	}
+	return value
+}
+
+// SetProcessLimit changes how many embedded Agent processes may run at once.
+// Lowering the limit does not stop a process that has already started.
+func SetProcessLimit(value int) (active int, limit int) {
+	processGate.mu.Lock()
+	defer processGate.mu.Unlock()
+	processGate.limit = clampAgentProcessLimit(value)
+	close(processGate.wake)
+	processGate.wake = make(chan struct{})
+	return processGate.active, processGate.limit
+}
+
+func ProcessUsage() (active int, limit int) {
+	processGate.mu.Lock()
+	defer processGate.mu.Unlock()
+	return processGate.active, processGate.limit
+}
+
+func acquireAgentProcess(ctx context.Context) (func(), error) {
+	for {
+		processGate.mu.Lock()
+		if processGate.active < processGate.limit {
+			processGate.active++
+			processGate.mu.Unlock()
+			return releaseAgentProcess, nil
+		}
+		wake := processGate.wake
+		processGate.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-wake:
+		}
+	}
+}
+
+func releaseAgentProcess() {
+	processGate.mu.Lock()
+	if processGate.active > 0 {
+		processGate.active--
+	}
+	close(processGate.wake)
+	processGate.wake = make(chan struct{})
+	processGate.mu.Unlock()
 }
 
 func nodeMemoryMB() string {

@@ -116,4 +116,14 @@ if (!response.ok) {
 	if !called {
 		t.Fatal("remote runtime did not call the Go tool bridge")
 	}
+	if err := SetLimit(ctx, endpoint, token, 16); err != nil {
+		t.Fatal(err)
+	}
+	status, err := Inspect(ctx, endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Limit != 16 {
+		t.Fatalf("limit = %d, want 16", status.Limit)
+	}
 }

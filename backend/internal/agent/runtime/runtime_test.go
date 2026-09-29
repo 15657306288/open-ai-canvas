@@ -24,6 +24,25 @@ func fakeRuntime(t *testing.T, script string) {
 	t.Setenv("CANVAS_PI_RUNTIME_DIR", dir)
 }
 
+func TestSetProcessLimitDoesNotStopActiveWork(t *testing.T) {
+	t.Cleanup(func() { SetProcessLimit(defaultAgentProcessLimit) })
+	release, err := acquireAgentProcess(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	active, limit := SetProcessLimit(1)
+	if active != 1 || limit != 1 {
+		t.Fatalf("active=%d limit=%d, want active 1 and limit 1", active, limit)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	if _, err := acquireAgentProcess(ctx); err == nil {
+		t.Fatal("lowered limit still admitted another process")
+	}
+	release()
+	SetProcessLimit(defaultAgentProcessLimit)
+}
+
 func noopBridge() Bridge {
 	handler := func(context.Context, map[string]json.RawMessage) (any, error) { return map[string]any{"ok": true}, nil }
 	return Bridge{Model: handler, Tool: handler, Event: handler}
