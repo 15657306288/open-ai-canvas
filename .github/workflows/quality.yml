@@ -51,7 +51,9 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          go test -json ./... | tee "$RUNNER_TEMP/go-tests.jsonl"
+          # The app package takes roughly nine minutes on a local full run;
+          # leave margin for slower runners and dependency-backed integration tests.
+          go test -json -timeout=20m ./... | tee "$RUNNER_TEMP/go-tests.jsonl"
       - name: Ensure dependency-backed tests were not skipped
         shell: bash
         run: |
