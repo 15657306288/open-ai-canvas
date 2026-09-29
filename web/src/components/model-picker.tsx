@@ -282,10 +282,7 @@ export function ModelPicker({
                     onClick={() => {
                         if (!open) setPickerOpen(true);
                     }}
-                    onPointerDown={(event) => {
-                        event.stopPropagation();
-                        if (!open) setPickerOpen(true);
-                    }}
+                    onPointerDown={(event) => event.stopPropagation()}
                     onKeyDown={handleTriggerKeyDown}
                 >
                     <span className="canvas-model-picker-label flex min-w-0 items-center gap-1.5">

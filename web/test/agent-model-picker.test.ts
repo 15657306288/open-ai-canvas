@@ -30,4 +30,5 @@ test("模型选择器保留直接点击兜底，避免画布拖拽事件吞掉�
     const picker = await Bun.file(new URL("../src/components/model-picker.tsx", import.meta.url)).text();
     expect(picker).toContain("if (!open) setPickerOpen(true);");
     expect(picker).toContain("event.stopPropagation();");
+    expect(picker).toContain("onPointerDown={(event) => event.stopPropagation()}");
 });
