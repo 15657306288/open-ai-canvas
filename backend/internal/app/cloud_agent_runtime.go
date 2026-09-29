@@ -2449,7 +2449,7 @@ func (s *Service) DecideCloudAgentApproval(userID, id, approvalID, decision, rea
 		if previous == decision && (settings == nil || state.DecisionSettings[approvalID] == creationHash(settings)) {
 			return nil
 		}
-		return creationConflict("该审批已有不同决定")
+		return cloudAgentDecisionConflict(previous)
 	}
 	if run.Status != "waiting_approval" || state.Approval == nil || state.Approval.ID != approvalID {
 		return creationConflict("审批不存在或已过期")
@@ -2472,7 +2472,7 @@ func (s *Service) DecideCloudAgentApproval(userID, id, approvalID, decision, rea
 				if previous == decision && (settings == nil || state.DecisionSettings[approvalID] == creationHash(settings)) {
 					return nil
 				}
-				return creationConflict("该审批已有不同决定")
+				return cloudAgentDecisionConflict(previous)
 			}
 			if run.Status != "waiting_approval" || state.Approval == nil || state.Approval.ID != approvalID {
 				return creationConflict("审批不存在或已过期")
