@@ -1712,6 +1712,7 @@ func (s *Service) advanceCloudAgentTool(run *model.CloudAgentExecution, state *c
 	}
 	allowed := cloudAgentToolAllowed(state.Request, call.Function.Name)
 	mediaTool := call.Function.Name == "generate_media" || call.Function.Name == "image_layer_split"
+	// 媒体工具在所有模式下都进入审批；其他写入只在 request_approval 下审批。
 	if allowed && cloudAgentWrite(call.Function.Name) && (state.Request.PermissionMode == "request_approval" || mediaTool) && state.Approval == nil {
 		var plan *cloudAgentMediaPlan
 		var modelName string
@@ -1753,7 +1754,7 @@ func (s *Service) advanceCloudAgentTool(run *model.CloudAgentExecution, state *c
 				return s.cloudAgentMediaError(run, state, "admission", false, false, err)
 			}
 		}
-		if plan != nil && state.Request.PermissionMode == "auto" {
+		if plan != nil && state.Request.PermissionMode == "auto" && !mediaTool {
 			if plan.Prepared != nil {
 				// The draft and quote were already checkpointed. Reuse them after a
 				// worker restart instead of dry-admitting and mutating the canvas again.
