@@ -46,6 +46,24 @@ services:
       postgres:
         condition: service_healthy
 
+  yingce-agent:
+    container_name: open-ai-canvas-yingce-agent
+    image: open-ai-canvas-yingce-agent:server
+    build:
+      context: .
+      dockerfile: yingce-agent/Dockerfile
+    environment:
+      YINGCE_AGENT_TOKEN: ${YINGCE_AGENT_TOKEN:?必须配置 YINGCE_AGENT_TOKEN}
+      MAX_CONCURRENT_SESSIONS: ${YINGCE_AGENT_MAX_SESSIONS:-8}
+      NODE_MAX_OLD_SPACE_SIZE: ${YINGCE_AGENT_NODE_MEMORY_MB:-512}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
   backend:
     container_name: open-ai-canvas-backend
     image: open-ai-canvas-backend:server
@@ -69,6 +87,9 @@ services:
       CANVAS_ALLOWED_PRIVATE_UPSTREAM_HOSTS: ${CANVAS_ALLOWED_PRIVATE_UPSTREAM_HOSTS:-}
       CANVAS_CORS_ORIGINS: ${CANVAS_CORS_ORIGINS:-*}
       CANVAS_PUBLIC_BASE_URL: ${CANVAS_PUBLIC_BASE_URL:-}
+      YINGCE_AGENT_URL: http://yingce-agent:8081
+      YINGCE_AGENT_TOKEN: ${YINGCE_AGENT_TOKEN:?必须配置 YINGCE_AGENT_TOKEN}
+      YINGCE_AGENT_BRIDGE_HOST: backend
       GIN_MODE: release
     volumes:
       - ${CANVAS_DATA_PATH:-./data}:/data
@@ -79,6 +100,8 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      yingce-agent:
+        condition: service_healthy
     restart: unless-stopped
     stop_grace_period: ${CANVAS_SHUTDOWN_TIMEOUT:-10m}
 
