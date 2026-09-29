@@ -231,9 +231,11 @@ func (s *Service) recoverCloudAgentPiRunners() {
 			if run.Status == "waiting_approval" || run.Status == "waiting_user" {
 				continue
 			}
-			// 批准后的媒体任务仍在生成：由 finishApprovedCloudAgentMedia 等结果回写后再恢复运行。
-			// 这时提前启动运行时，会在媒体任务未结束时再入队模型步骤，形成两个活动任务。
-			if s.cloudAgentAwaitingMedia(run.UserID, run.ID) {
+			// 批准后的媒体任务仍在生成。进程重启后内存 waiter 已经消失，这里按
+			// 持久化的任务 ID 重建；不能同时再启动一轮模型步骤。
+			state, decodeErr := cloudAgentDecode(&run)
+			if decodeErr == nil && state.MediaTaskID != "" {
+				s.startApprovedCloudAgentMediaWaiter(run.UserID, run.ID, state.MediaTaskID)
 				continue
 			}
 			s.startCloudAgentPi(run.UserID, run.ID)
@@ -243,18 +245,6 @@ func (s *Service) recoverCloudAgentPiRunners() {
 			return
 		}
 	}
-}
-
-// cloudAgentAwaitingMedia reports whether the run is waiting on an approved
-// media task. The runtime must not start (and schedule a model step) until that
-// task has been written back; one run owns at most one active task.
-func (s *Service) cloudAgentAwaitingMedia(userID, runID string) bool {
-	run, err := s.repo.CloudAgent(userID, runID)
-	if err != nil {
-		return false
-	}
-	state, err := cloudAgentDecode(run)
-	return err == nil && state.MediaTaskID != ""
 }
 
 // runCloudAgentPiSession 核心会话管理
@@ -1085,6 +1075,32 @@ func (s *Service) cloudAgentPiTool(ctx context.Context, userID, runID string, pa
 	if call.Function.Name == "" {
 		return nil, fmt.Errorf("tool call is missing a name")
 	}
+
+	// 工具白名单校验：拒绝未声明的工具调用
+	run, err := s.repo.CloudAgent(userID, runID)
+	if err != nil {
+		return nil, err
+	}
+	state, err := cloudAgentDecode(run)
+	if err != nil {
+		return nil, err
+	}
+
+	allowedTools := make(map[string]bool)
+	for _, tool := range state.Canonical.Tools {
+		if fn, ok := tool["function"].(map[string]interface{}); ok {
+			name := stringValue(fn["name"])
+			if name != "" {
+				allowedTools[name] = true
+			}
+		}
+	}
+
+	if !allowedTools[call.Function.Name] {
+		log.Printf("[Agent] rejected undeclared tool call: %s in run %s", call.Function.Name, runID)
+		return nil, fmt.Errorf("未声明的工具: %s", call.Function.Name)
+	}
+
 	return s.executeCloudAgentRuntimeTool(ctx, userID, runID, call)
 }
 
