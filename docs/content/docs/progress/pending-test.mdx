@@ -5,6 +5,17 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
+## 素材彻底删除恢复不拦截、CI 提速与大文件拆分
+
+- 已恢复：`DELETE /assets/:id`、批量删除、清空回收站、回收站素材删除与过期自动清理不再被画布、任务、项目或画布历史快照引用拦截（9 月 21 日 dc1ad680 的契约，9 月 24 日 5b382726 曾误收紧）。事务移除对应历史资源索引，物理对象经 Outbox 异步删除；其他素材复用的资源继续保留。与 `http-api.mdx`、`openapi.yaml` 及删除确认弹窗文案一致。
+- 已修复：审批后的媒体等待在服务停机被取消时，不再继续回写与恢复运行时；`MediaTaskID` 保留，重启后重新挂上等待。
+- CI 提速：每次构造 Service 都会完整解压 85MB 官方插件包（每次约 4 秒，1000 余个用例累计 7 分钟以上）。现启动只读清单、进程内缓存官方包读取结果、支付运行目录只解压本机平台的可执行文件；`internal/app` 本地由约 488 秒降到约 144 秒。发布流程的镜像构建与质量检查并行（可变标签推广仍等待检查通过），PR 连续推送取消旧检查。
+- 拆分：`cloud_agent_runtime.go`、`cloud_agent_tools.go`、`cloud_agent_pi_coordinator.go`、`workflow_provider.go`、`repository.go`、Agent 面板与输入区按职责拆成多个文件，逐声明校验为纯移动；新文件带职责说明。
+- [x] 后端 `go vet ./...`、`go test ./...` 全部通过（依赖 Postgres/Redis 的 7 个用例本地跳过，CI 会执行）；新增取消等待、插件包按需解压与本机平台产物回归用例。
+- [x] 前端 `tsc`、lint、改动文件格式检查与 2103 项测试通过。
+- [ ] 真实页面：删除被画布引用的素材应直接成功；画布再次打开时断链由修复流程处理；共享给其他素材的文件仍可访问。
+- [ ] 推送后确认 GitHub Actions 后端检查耗时下降，镜像构建与检查并行、检查失败时不会推广 latest / 版本标签。
+
 ## 后端统一日志与降噪
 
 - 已实现：新增 `backend/internal/logging`，统一接管 slog、标准库 `log`、GORM 与 Gin 访问日志，级别与格式由 `CANVAS_LOG_LEVEL` / `CANVAS_LOG_FORMAT` 控制。`info` 下不再输出成功的查询类请求、成功 SQL、`[Agent] message_end` 等流式事件及常规画布自动保存；4xx/5xx、慢请求、慢 SQL、SQL 失败和 panic 仍会记录，SQL 不带参数值。
