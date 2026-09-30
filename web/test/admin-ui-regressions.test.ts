@@ -248,7 +248,9 @@ test("admin tables keep requested filters and actions in the intended positions"
     const storageToolbar = sourceSection(storageSource, "toolbar={", "toolbarActiveFilters=");
     expect(storageToolbar).toContain('className="admin-storage-resource-filters"');
     expect(storageToolbar).toContain('placeholder="资源 ID 或对象路径"');
-    expect(storageToolbar).toContain('placeholder="用户"');
+    expect(storageToolbar).toContain('placeholder="用户名 / 昵称 / 邮箱 / 用户 ID"');
+    expect(storageSource).toContain("user: debouncedUserQuery || undefined");
+    expect(storageSource).toContain("userId: debouncedUserQuery || undefined");
     expect(storageToolbar).toContain('aria-label="筛选资源类型"');
     expect(storageToolbar).toContain('aria-label="筛选资源状态"');
     expect(storageToolbar).toContain('aria-label="筛选存储类型"');
