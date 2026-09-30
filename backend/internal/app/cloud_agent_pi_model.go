@@ -135,7 +135,7 @@ func (s *Service) runCloudAgentModelStep(ctx context.Context, userID, runID stri
 			},
 			"textOptions": map[string]any{
 				"stream":          true,
-				"thinking":        thinkingLevel != "off",
+				"thinking":        cloudAgentPiThinkingEnabled(thinkingLevel),
 				"maxOutputTokens": cloudAgentStepOutputBudget(state.StepLimits, state.BoostStepOutputBudget),
 			},
 		}
@@ -196,6 +196,13 @@ func (s *Service) runCloudAgentModelStep(ctx context.Context, userID, runID stri
 		return nil, false, err
 	}
 	return map[string]any{"text": result.Text, "reasoning": result.Reasoning, "toolCalls": runtimeToolCalls(result.ToolCalls)}, false, nil
+}
+
+// cloudAgentPiThinkingEnabled treats an omitted thinking level the same as Pi's
+// explicit "off" value. Pi omits the field when thinking is disabled, and the
+// Go JSON decoder represents that omitted field as an empty string.
+func cloudAgentPiThinkingEnabled(thinkingLevel string) bool {
+	return thinkingLevel != "" && thinkingLevel != "off"
 }
 
 // cloudAgentModelTaskRetryable 按上游真实 HTTP 状态判断失败是否是临时性的：
