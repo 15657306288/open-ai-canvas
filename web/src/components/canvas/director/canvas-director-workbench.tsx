@@ -12,7 +12,7 @@ import { type AnimationClip } from "three";
 import { compileDirectorPrompt } from "@/lib/canvas/director/director-prompt-compiler";
 import { Select } from "@/components/ui/base/select";
 import { DirectorViewport } from "./director-viewport";
-import { CanvasDirectorOnboarding } from "./canvas-director-onboarding";
+import { CanvasDirectorOnboarding } from "@/components/canvas/director/canvas-director-onboarding";
 import { DirectorViewportDock } from "./director-viewport-dock";
 import { DirectorSequencer } from "./director-sequencer";
 import { App, type MenuProps, Input, Button } from "antd";

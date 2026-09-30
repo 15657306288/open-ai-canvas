@@ -48,7 +48,6 @@ export type StoragePayload = Pick<
     | "allowUserS3"
 >;
 
-
 export function formValues(setting: AdminOSSSetting): OSSFormValues {
     return {
         mode: setting.enabled ? setting.provider : "local",

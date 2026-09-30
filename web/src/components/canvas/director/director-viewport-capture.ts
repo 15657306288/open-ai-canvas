@@ -46,12 +46,19 @@ export async function recordCanvas(context: CaptureContext | null, duration: num
     };
     window.addEventListener("error", onRenderError);
     const result = new Promise<Blob>((resolve, reject) => {
-        recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
+        recorder.ondataavailable = (event) => {
+            if (event.data.size) chunks.push(event.data);
+        };
         recorder.onerror = () => reject(new Error("白膜视频录制失败"));
         recorder.onstop = () => resolve(new Blob(chunks, { type: recorder.mimeType || "video/webm" }));
     });
     recorder.start(250);
-    const stopTimer = window.setTimeout(() => { if (recorder.state !== "inactive") recorder.stop(); }, Math.max(250, duration * 1000 + 120));
+    const stopTimer = window.setTimeout(
+        () => {
+            if (recorder.state !== "inactive") recorder.stop();
+        },
+        Math.max(250, duration * 1000 + 120),
+    );
     try {
         const blob = await result;
         if (renderError) throw renderError;
@@ -84,7 +91,10 @@ export async function probeRecordedDuration(blob: Blob) {
         });
         if (video.duration !== Infinity) return video.duration;
         await new Promise<void>((resolve) => {
-            const finish = () => { video.removeEventListener("seeked", finish); resolve(); };
+            const finish = () => {
+                video.removeEventListener("seeked", finish);
+                resolve();
+            };
             video.addEventListener("seeked", finish);
             video.currentTime = 1e6;
             window.setTimeout(finish, 1000);

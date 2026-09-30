@@ -450,7 +450,18 @@ export function ImageContent({
 }
 
 /** A stable visible img is updated only after a queued candidate has loaded and decoded. */
-export function RetainedCanvasImage({ identity, src, storageKey, fallbackSrc, originalSize, alt, fitToImage, className, loading, theme }: {
+export function RetainedCanvasImage({
+    identity,
+    src,
+    storageKey,
+    fallbackSrc,
+    originalSize,
+    alt,
+    fitToImage,
+    className,
+    loading,
+    theme,
+}: {
     identity: string;
     src: string;
     storageKey?: string;

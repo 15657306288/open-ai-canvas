@@ -19,7 +19,6 @@ export const assetKindIcons: Record<LibraryAsset["kind"], LucideIcon> = {
     model: Box,
 };
 
-
 export function assetSummary(asset: LibraryAsset) {
     if (asset.kind === "text") return asset.data.content;
     if (asset.kind === "audio") return `${formatAssetDuration(asset.data.durationMs)} · ${formatBytes(asset.data.bytes)} · ${asset.data.mimeType}`;
