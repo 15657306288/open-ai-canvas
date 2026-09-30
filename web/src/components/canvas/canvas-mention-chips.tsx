@@ -9,7 +9,23 @@ import { createPortal } from "react-dom";
 import { CanvasNodeType } from "@/types/canvas";
 
 export const TOOL_ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
-    Brush, Camera, Clapperboard, Clock, Contrast, FastForward, Globe2, Grid2x2, Grid3x3, Package, Palette, PersonStanding, Rewind, ScanFace, SlidersHorizontal, Sparkles, Sun,
+    Brush,
+    Camera,
+    Clapperboard,
+    Clock,
+    Contrast,
+    FastForward,
+    Globe2,
+    Grid2x2,
+    Grid3x3,
+    Package,
+    Palette,
+    PersonStanding,
+    Rewind,
+    ScanFace,
+    SlidersHorizontal,
+    Sparkles,
+    Sun,
 };
 
 export function toolIconSvg(iconName: string): string {
@@ -71,7 +87,9 @@ export function InlineReferencePreview({ reference, onClose }: { reference: Canv
         <div className="fixed inset-0 z-[var(--z-dialog-popover)] grid place-items-center bg-black/80 p-6" role="dialog" aria-label={`预览${reference.label}`} onClick={onClose}>
             <div className="relative max-h-[92vh] max-w-[92vw]" onClick={(event) => event.stopPropagation()}>
                 <img src={url} alt={reference.label} className="max-h-[88vh] max-w-[88vw] rounded-xl object-contain shadow-2xl" />
-                <button type="button" className="absolute -right-3 -top-3 rounded-full bg-black/75 p-2 text-white shadow-lg" onClick={onClose} aria-label="关闭图片预览">×</button>
+                <button type="button" className="absolute -right-3 -top-3 rounded-full bg-black/75 p-2 text-white shadow-lg" onClick={onClose} aria-label="关闭图片预览">
+                    ×
+                </button>
             </div>
         </div>,
         document.body,

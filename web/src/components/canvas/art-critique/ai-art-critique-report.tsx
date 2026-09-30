@@ -19,7 +19,6 @@ export const ART_CRITIQUE_STAGE_PROGRESS: Record<ArtCritiquePipelineStage, numbe
     failed: 100,
 };
 
-
 export function ArtCritiqueProgress({ stage, theme }: { stage: ArtCritiquePipelineStage; theme: CanvasTheme }) {
     const percent = ART_CRITIQUE_STAGE_PROGRESS[stage];
     const detail = stage === "reviewing" ? "场景路由与多个 Reviewer 正在并行检查画面" : stage === "verifying" ? "正在并行复核问题并生成 AI 修改提示词" : "正在按阶段生成批改报告";

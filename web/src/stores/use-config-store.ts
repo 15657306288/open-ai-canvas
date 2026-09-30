@@ -10,7 +10,20 @@ import { type ModelCapabilityConfig } from "@/lib/model-capabilities";
 import { useUserStore } from "@/stores/use-user-store";
 import type { CapabilitySpec, PublicLogicalModelPriceTier } from "@/services/api/logical-models";
 import { type WorkflowFieldMapping, normalizeRunningHubCapability, normalizeRunningHubWorkflowKind, normalizeSavedWorkflowFields, mergeWorkflowFieldMappings, normalizeWorkflowFieldMappings } from "./config-workflow-fields";
-import { decodeChannelModel, modelOptionName, modelOptionsFromChannels, normalizeModelOptionValue, CHANNEL_MODEL_SEPARATOR, uniqueModelOptions, encodeChannelModel, hasSystemModelPrice, isChannelModelValue, modelDisplayName, modelIcon, modelOptionLabel } from "./config-model-options";
+import {
+    decodeChannelModel,
+    modelOptionName,
+    modelOptionsFromChannels,
+    normalizeModelOptionValue,
+    CHANNEL_MODEL_SEPARATOR,
+    uniqueModelOptions,
+    encodeChannelModel,
+    hasSystemModelPrice,
+    isChannelModelValue,
+    modelDisplayName,
+    modelIcon,
+    modelOptionLabel,
+} from "./config-model-options";
 import { normalizeRawModelName } from "./config-model-options";
 
 export { CHANNEL_MODEL_SEPARATOR, normalizeRawModelName, uniqueModelOptions } from "./config-model-options";

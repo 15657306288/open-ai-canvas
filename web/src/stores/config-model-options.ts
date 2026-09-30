@@ -21,7 +21,6 @@ export function normalizeRawModelName(value: unknown) {
     return model && model !== "undefined" && model !== "null" ? model : "";
 }
 
-
 export function encodeChannelModel(channelId: string, model: string) {
     return `${channelId}${CHANNEL_MODEL_SEPARATOR}${model.trim()}`;
 }

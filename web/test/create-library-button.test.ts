@@ -131,7 +131,7 @@ describe("creation library button", () => {
         const createSource = readCreateWorkspaceSource();
 
         expect(assets).toContain("resolveResourceUrl(asset.data.storageKey");
-        expect(createSource).toContain("<CachedResourceImage storageKey={item.storageKey}");
+        expect(createSource.replace(/\s+/g, " ")).toContain("<CachedResourceImage storageKey={item.storageKey}");
         expect(createSource).toContain("resolveResourceUrl(item.storageKey, item.previewUrl)");
     });
 

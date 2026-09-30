@@ -47,7 +47,6 @@ export function formatDateTime(value?: string | null) {
     return new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(date).replaceAll("/", "-");
 }
 
-
 export function isMutationResultUncertain(error: unknown) {
     if (!(error instanceof ApiError)) return true;
     return error.status === undefined || error.retryable || error.status >= 500;

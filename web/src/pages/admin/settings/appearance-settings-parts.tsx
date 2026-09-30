@@ -19,7 +19,6 @@ export const FILE_RULES: Record<AppearanceAssetSlot, { accept: string; maxBytes:
     video: { accept: "video/mp4,video/webm", maxBytes: 256 << 20, label: "品牌视频" },
 };
 
-
 export function AssetPicker({
     slot,
     title,

@@ -96,25 +96,27 @@ describe("模式接线", () => {
     });
 
     test("骨骼/姿势入口只对演员开放，且由 bones 把关", () => {
-        expect(workbench).toContain('{capabilities.bones && (object.kind === "actor" || object.primitive === "character") ? <>');
+        const normalizedWorkbench = workbench.replace(/\s+/g, " ");
+        expect(normalizedWorkbench).toContain('{capabilities.bones && (object.kind === "actor" || object.primitive === "character") ? ( <>');
         // motionClips 不得再作为放行条件：带动画的普通模型不是演员。
         expect(workbench).not.toContain('object.primitive === "character" || motionClips.length) ? <>');
     });
 
     test("姿态模式提供全身与当前骨骼重置，不删除动画轨道", () => {
         const inspector = slice(workbench, "function ObjectInspector(", "function LightInspector(");
-        expect(inspector).toContain('onClick={() => applyPose("stand")}>重置姿态</Button>');
+        const normalizedInspector = inspector.replace(/\s+/g, " ");
+        expect(normalizedInspector).toContain('onClick={() => applyPose("stand")}> 重置姿态 </Button>');
         expect(inspector).toContain("delete boneOverrides[selectedBoneId]");
-        expect(inspector).toContain(">重置当前骨骼</Button>");
+        expect(normalizedInspector).toContain("> 重置当前骨骼 </Button>");
         expect(inspector).not.toContain("boneTracks: []");
     });
 
     test("动作片段与骨骼入口解耦：任何带 Clip 的对象都能调播放速度/循环", () => {
-        expect(workbench).toContain('{motionClips.length ? <><Field label="动作片段">');
+        expect(workbench.replace(/\s+/g, " ")).toContain('{motionClips.length ? ( <> <Field label="动作片段">');
     });
 
     test("关键帧入口由 keyframes 把关", () => {
-        expect(workbench).toContain("{capabilities.keyframes ? <>");
+        expect(workbench.replace(/\s+/g, " ")).toContain("{capabilities.keyframes ? ( <>");
     });
 
     test("渲染视图下拉按当前模式过滤，而不是写死五项", () => {
