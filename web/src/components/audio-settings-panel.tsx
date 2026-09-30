@@ -7,7 +7,21 @@ import type { AiConfig } from "@/stores/use-config-store";
 
 const speedOptions = ["0.75", "1", "1.25", "1.5"];
 
-type AudioSettingKey = "audioVoice" | "audioFormat" | "audioSpeed" | "audioInstructions" | "audioEmotionControlMethod" | "audioEmotionRandom" | "audioEmotionHappy" | "audioEmotionAngry" | "audioEmotionSad" | "audioEmotionAfraid" | "audioEmotionDisgusted" | "audioEmotionMelancholic" | "audioEmotionSurprised" | "audioEmotionCalm";
+type AudioSettingKey =
+    | "audioVoice"
+    | "audioFormat"
+    | "audioSpeed"
+    | "audioInstructions"
+    | "audioEmotionControlMethod"
+    | "audioEmotionRandom"
+    | "audioEmotionHappy"
+    | "audioEmotionAngry"
+    | "audioEmotionSad"
+    | "audioEmotionAfraid"
+    | "audioEmotionDisgusted"
+    | "audioEmotionMelancholic"
+    | "audioEmotionSurprised"
+    | "audioEmotionCalm";
 
 type AudioSettingsPanelProps = {
     config: AiConfig;
@@ -94,7 +108,18 @@ export function AudioSettingsPanel({ config, onConfigChange, theme, showTitle = 
                         {emotionFields.map(([key, label]) => (
                             <label key={key} className="flex items-center gap-2 text-xs">
                                 <span className="min-w-0 flex-1">{label}</span>
-                                <input type="number" min={0} max={1} step={0.01} className="h-8 w-20 rounded-lg border bg-transparent px-2 text-right outline-none" style={{ borderColor: theme.node.stroke, color: theme.node.text }} value={config[key] || "0"} onChange={(event) => onConfigChange(key, event.target.value)} onBlur={(event) => onConfigChange(key, normalizeEmotionWeight(event.target.value))} onMouseDown={(event) => event.stopPropagation()} />
+                                <input
+                                    type="number"
+                                    min={0}
+                                    max={1}
+                                    step={0.01}
+                                    className="h-8 w-20 rounded-lg border bg-transparent px-2 text-right outline-none"
+                                    style={{ borderColor: theme.node.stroke, color: theme.node.text }}
+                                    value={config[key] || "0"}
+                                    onChange={(event) => onConfigChange(key, event.target.value)}
+                                    onBlur={(event) => onConfigChange(key, normalizeEmotionWeight(event.target.value))}
+                                    onMouseDown={(event) => event.stopPropagation()}
+                                />
                             </label>
                         ))}
                     </div>
@@ -105,8 +130,14 @@ export function AudioSettingsPanel({ config, onConfigChange, theme, showTitle = 
 }
 
 const emotionFields: Array<[Extract<AudioSettingKey, `audioEmotion${string}`>, string]> = [
-    ["audioEmotionHappy", "快乐"], ["audioEmotionAngry", "愤怒"], ["audioEmotionSad", "悲伤"], ["audioEmotionAfraid", "害怕"],
-    ["audioEmotionDisgusted", "厌恶"], ["audioEmotionMelancholic", "忧郁"], ["audioEmotionSurprised", "惊讶"], ["audioEmotionCalm", "平静"],
+    ["audioEmotionHappy", "快乐"],
+    ["audioEmotionAngry", "愤怒"],
+    ["audioEmotionSad", "悲伤"],
+    ["audioEmotionAfraid", "害怕"],
+    ["audioEmotionDisgusted", "厌恶"],
+    ["audioEmotionMelancholic", "忧郁"],
+    ["audioEmotionSurprised", "惊讶"],
+    ["audioEmotionCalm", "平静"],
 ];
 
 function normalizeEmotionWeight(value: string) {
