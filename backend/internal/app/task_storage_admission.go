@@ -20,6 +20,15 @@ func taskTypeProducesStoredFile(taskType string) bool {
 // 账号文件容量此前只在产物回存时校验，上游调用已经发出并扣费，失败只能表现为
 // 媒体无法入库。生成任务必须在扣费前确认账号还有可用容量，容量已满时直接拒绝。
 func (s *Service) requireStoredFileCapacityForTask(userID string, taskType string, policy RuntimePolicySetting) error {
+	s.storageMu.Lock()
+	defer s.storageMu.Unlock()
+	return s.requireStoredFileCapacityWhileLocked(userID, taskType, policy)
+}
+
+// requireStoredFileCapacityWhileLocked 与上面相同，但调用方必须已经持有 storageMu。
+// sync.Mutex 不可重入；审批改参数的干跑 admission 发生在 DecideCloudAgentApproval
+// 的临界区内，再次加锁会把测试和线上审批一起卡死。
+func (s *Service) requireStoredFileCapacityWhileLocked(userID string, taskType string, policy RuntimePolicySetting) error {
 	if !taskTypeProducesStoredFile(taskType) {
 		return nil
 	}
@@ -27,8 +36,6 @@ func (s *Service) requireStoredFileCapacityForTask(userID string, taskType strin
 	if storedLimit <= 0 {
 		return nil
 	}
-	s.storageMu.Lock()
-	defer s.storageMu.Unlock()
 	storedBytes, err := s.repo.UserStoredFileBytes(userID)
 	if err != nil {
 		return err
