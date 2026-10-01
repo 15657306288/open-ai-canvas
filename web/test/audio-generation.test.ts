@@ -1,14 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { doubaoAudioVoiceOptions, isDoubaoAudioConfig, normalizeAudioVoiceForConfig, normalizeAudioVoiceValue } from "../src/lib/audio-generation";
 
-const config = (protocol: string) => ({
-    provider: "custom",
-    model: "models/index-tts",
-    audioModel: "models/index-tts",
-    apiKey: "",
-    baseUrl: "",
-    channels: [{ models: ["index-tts"], modelCosts: [], interfaceType: protocol, baseUrl: "", apiKey: "" }],
-} as any);
+const config = (protocol: string) =>
+    ({
+        provider: "custom",
+        model: "models/index-tts",
+        audioModel: "models/index-tts",
+        apiKey: "",
+        baseUrl: "",
+        channels: [{ models: ["index-tts"], modelCosts: [], interfaceType: protocol, baseUrl: "", apiKey: "" }],
+    }) as any;
 
 describe("audio voice protocol handling", () => {
     test("keeps custom voice identifiers for non-OpenAI channels", () => {
@@ -37,5 +38,4 @@ describe("audio voice protocol handling", () => {
         const doubao = { ...config("doubao-streaming-tts"), model: "seed-audio-1.0", audioModel: "seed-audio-1.0" } as any;
         expect(normalizeAudioVoiceForConfig(doubao, "zh_male_custom_official_speaker")).toBe("zh_male_custom_official_speaker");
     });
-
 });
