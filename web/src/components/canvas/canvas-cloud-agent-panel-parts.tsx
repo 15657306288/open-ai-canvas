@@ -610,9 +610,11 @@ export function ApprovalPreviewItemView({ item, theme, onFocusNode }: { item: Re
                     ? "创建分镜"
                     : item.operation === "edit_storyboard"
                       ? "修改分镜"
-                      : item.operation === "plan_step"
-                        ? "计划"
-                        : "生成";
+                      : item.operation === "create_character"
+                        ? "创建角色卡"
+                        : item.operation === "plan_step"
+                          ? "计划"
+                          : "生成";
     const renderNode = (title: string | undefined, id: string | undefined, typeLabel: string | undefined, role: "source" | "target" | "node") => {
         if (!title) return null;
         const content = (
