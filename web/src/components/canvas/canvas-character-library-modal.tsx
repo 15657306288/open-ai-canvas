@@ -107,18 +107,36 @@ export function CanvasCharacterLibraryModal({
                     <div className="grid grid-cols-2 gap-2">
                         {characters.map((item) => (
                             <button key={item.asset.id} type="button" className="flex min-h-16 items-center gap-3 rounded-md border border-border px-3 py-2 text-left hover:bg-foreground/[.04]" onClick={() => void insertCharacter(item.asset)}>
-                                <span className="grid size-10 shrink-0 place-items-center rounded bg-foreground/[.06]"><UserRound className="size-4" /></span>
+                                <span className="grid size-10 shrink-0 place-items-center rounded bg-foreground/[.06]">
+                                    <UserRound className="size-4" />
+                                </span>
                                 <span className="min-w-0">
                                     <span className="block truncate text-sm font-medium">{item.asset.title}</span>
                                     <span className="mt-1 flex gap-2 text-[11px] text-foreground/50">
-                                        <span className="inline-flex items-center gap-1"><ImageIcon className="size-3" />{item.character.visualStatus === "ready" ? "形象就绪" : "形象待完善"}</span>
-                                        <span className="inline-flex items-center gap-1"><Volume2 className="size-3" />{item.character.voiceStatus === "ready" ? "声音已绑定" : "声音未绑定"}</span>
+                                        <span className="inline-flex items-center gap-1">
+                                            <ImageIcon className="size-3" />
+                                            {item.character.visualStatus === "ready" ? "形象就绪" : "形象待完善"}
+                                        </span>
+                                        <span className="inline-flex items-center gap-1">
+                                            <Volume2 className="size-3" />
+                                            {item.character.voiceStatus === "ready" ? "声音已绑定" : "声音未绑定"}
+                                        </span>
                                     </span>
                                 </span>
                             </button>
                         ))}
                     </div>
-                    <PaginationBar current={page} pageSize={pageSize} total={total} pageSizeOptions={[12, 24, 48]} itemLabel="张" onChange={(nextPage, nextPageSize) => { setPage(nextPage); setPageSize(nextPageSize); }} />
+                    <PaginationBar
+                        current={page}
+                        pageSize={pageSize}
+                        total={total}
+                        pageSizeOptions={[12, 24, 48]}
+                        itemLabel="张"
+                        onChange={(nextPage, nextPageSize) => {
+                            setPage(nextPage);
+                            setPageSize(nextPageSize);
+                        }}
+                    />
                 </div>
             </div>
         </AppModal>

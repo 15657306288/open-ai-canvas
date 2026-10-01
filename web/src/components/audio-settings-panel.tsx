@@ -47,46 +47,50 @@ export function AudioSettingsPanel({ config, onConfigChange, theme, showTitle = 
             <div className={className} style={{ color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()}>
                 {showTitle ? <div className="text-lg font-semibold">音频设置</div> : null}
                 <SettingGroup title="音色" color={theme.node.muted}>
-                        {isDoubao ? (
-                            <div className="space-y-3">
-                                <div className="rounded-xl border px-3 py-2 text-sm leading-6" style={{ borderColor: theme.node.stroke, color: theme.node.muted }}>
-                                    不连接素材时，按提示词直接生成。连接音频时按参考音频生成，最多 3 段。连接图片时按参考图片生成，最多 1 张。图片和音频不能同时连接。
-                                </div>
-                                <select
-                                    value={voice}
-                                    className="h-9 w-full rounded-xl border bg-transparent px-3 text-sm outline-none"
-                                    style={{ borderColor: theme.node.stroke, color: theme.node.text, background: theme.spatial.elevated }}
-                                    onChange={(event) => onConfigChange("audioVoice", event.target.value)}
-                                    onMouseDown={(event) => event.stopPropagation()}
-                                >
-                                    <option value="">不指定音色</option>
-                                    {voice ? <option value={voice}>当前音色</option> : null}
-                                </select>
+                    {isDoubao ? (
+                        <div className="space-y-3">
+                            <div className="rounded-xl border px-3 py-2 text-sm leading-6" style={{ borderColor: theme.node.stroke, color: theme.node.muted }}>
+                                不连接素材时，按提示词直接生成。连接音频时按参考音频生成，最多 3 段。连接图片时按参考图片生成，最多 1 张。图片和音频不能同时连接。
                             </div>
-                        ) : (
-                            <>
-                                <input
-                                    value={config.audioVoice || ""}
-                                    placeholder="输入渠道音色 ID，例如 voice_001"
-                                    list="audio-voice-options"
-                                    className="h-9 w-full rounded-xl border bg-transparent px-3 text-sm outline-none"
-                                    style={{ borderColor: theme.node.stroke, color: theme.node.text }}
-                                    onChange={(event) => onConfigChange("audioVoice", event.target.value)}
-                                    onMouseDown={(event) => event.stopPropagation()}
-                                />
-                                <datalist id="audio-voice-options">
-                                    {visibleVoiceOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-                                </datalist>
-                                <div className="grid grid-cols-3 gap-2.5">
-                                    {visibleVoiceOptions.map((item) => (
-                                        <OptionPill key={item.value} selected={voice === item.value} theme={theme} onClick={() => onConfigChange("audioVoice", item.value)}>
-                                            {item.label}
-                                        </OptionPill>
-                                    ))}
-                                </div>
-                            </>
-                        )}
-                    </SettingGroup>
+                            <select
+                                value={voice}
+                                className="h-9 w-full rounded-xl border bg-transparent px-3 text-sm outline-none"
+                                style={{ borderColor: theme.node.stroke, color: theme.node.text, background: theme.spatial.elevated }}
+                                onChange={(event) => onConfigChange("audioVoice", event.target.value)}
+                                onMouseDown={(event) => event.stopPropagation()}
+                            >
+                                <option value="">不指定音色</option>
+                                {voice ? <option value={voice}>当前音色</option> : null}
+                            </select>
+                        </div>
+                    ) : (
+                        <>
+                            <input
+                                value={config.audioVoice || ""}
+                                placeholder="输入渠道音色 ID，例如 voice_001"
+                                list="audio-voice-options"
+                                className="h-9 w-full rounded-xl border bg-transparent px-3 text-sm outline-none"
+                                style={{ borderColor: theme.node.stroke, color: theme.node.text }}
+                                onChange={(event) => onConfigChange("audioVoice", event.target.value)}
+                                onMouseDown={(event) => event.stopPropagation()}
+                            />
+                            <datalist id="audio-voice-options">
+                                {visibleVoiceOptions.map((item) => (
+                                    <option key={item.value} value={item.value}>
+                                        {item.label}
+                                    </option>
+                                ))}
+                            </datalist>
+                            <div className="grid grid-cols-3 gap-2.5">
+                                {visibleVoiceOptions.map((item) => (
+                                    <OptionPill key={item.value} selected={voice === item.value} theme={theme} onClick={() => onConfigChange("audioVoice", item.value)}>
+                                        {item.label}
+                                    </OptionPill>
+                                ))}
+                            </div>
+                        </>
+                    )}
+                </SettingGroup>
                 <SettingGroup title="格式" color={theme.node.muted}>
                     <div className="grid grid-cols-3 gap-2.5">
                         {formatOptions.map((item) => (
@@ -117,16 +121,18 @@ export function AudioSettingsPanel({ config, onConfigChange, theme, showTitle = 
                         onMouseDown={(event) => event.stopPropagation()}
                     />
                 </SettingGroup>
-                {!isDoubao ? <SettingGroup title="声音指令" color={theme.node.muted}>
-                    <textarea
-                        value={config.audioInstructions || ""}
-                        placeholder="例如：自然、温暖、适合旁白。"
-                        className="thin-scrollbar h-20 w-full resize-none rounded-xl border bg-transparent px-3 py-2 text-sm leading-5 outline-none"
-                        style={{ borderColor: theme.node.stroke, color: theme.node.text }}
-                        onChange={(event) => onConfigChange("audioInstructions", event.target.value)}
-                        onMouseDown={(event) => event.stopPropagation()}
-                    />
-                </SettingGroup> : null}
+                {!isDoubao ? (
+                    <SettingGroup title="声音指令" color={theme.node.muted}>
+                        <textarea
+                            value={config.audioInstructions || ""}
+                            placeholder="例如：自然、温暖、适合旁白。"
+                            className="thin-scrollbar h-20 w-full resize-none rounded-xl border bg-transparent px-3 py-2 text-sm leading-5 outline-none"
+                            style={{ borderColor: theme.node.stroke, color: theme.node.text }}
+                            onChange={(event) => onConfigChange("audioInstructions", event.target.value)}
+                            onMouseDown={(event) => event.stopPropagation()}
+                        />
+                    </SettingGroup>
+                ) : null}
             </div>
         </ImageSettingsTheme>
     );
