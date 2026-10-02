@@ -625,7 +625,6 @@ func (s *Service) saveCloudAgentPiResumePrompt(userID, id, prompt string) error 
 }
 
 func (s *Service) CancelCloudAgent(ctx context.Context, userID, id string) error {
-	s.stopCloudAgentPi(id)
 	// Cancellation is a control-plane operation. It must remain available even
 	// when the user-facing runtime blob is damaged, so authenticate/authorize
 	// from the task row first instead of calling CloudAgentRun up front.
@@ -639,6 +638,7 @@ func (s *Service) CancelCloudAgent(ctx context.Context, userID, id string) error
 	if task.Operation != cloudAgentOperation {
 		return kernel.NotFound("Agent 运行不存在")
 	}
+	s.stopCloudAgentPi(id)
 	run, err := s.repo.CloudAgent(userID, id)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		// Legacy root tasks may not have an execution row yet. The normal read
