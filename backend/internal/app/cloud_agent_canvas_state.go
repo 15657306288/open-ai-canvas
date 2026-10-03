@@ -208,7 +208,7 @@ func cloudAgentCanvasStateSelected(repo *repository.Repository, userID, canvasID
 			candidateNodes = append(candidateNodes, node)
 		}
 	}
-	limit := 2000
+	limit := 320
 	if len(ids) > 0 || len(focus) > 0 {
 		limit = 16000
 	}
