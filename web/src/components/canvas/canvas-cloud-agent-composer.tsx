@@ -187,6 +187,7 @@ export function AgentChatComposer({
     onRemoveAttachment,
     left,
     submitAccessory,
+    footer,
     onStop,
     stopping,
     references = [],
@@ -209,6 +210,8 @@ export function AgentChatComposer({
     left?: ReactNode;
     /** 发送按钮左侧的附属控件，例如上下文用量环。 */
     submitAccessory?: ReactNode;
+    /** 输入区底部的附加内容（例如连接器条）。 */
+    footer?: ReactNode;
     /** 供「@」插入的画布节点/素材/技能引用候选（可选，默认空，缺省时退化为普通输入框） */
     references?: CanvasResourceReference[];
     /** 供「/」弹出的技能候选（可选） */
@@ -339,13 +342,17 @@ export function AgentChatComposer({
 
     return (
         <div className="agent-composer-wrap min-w-0 shrink-0" onWheelCapture={(event) => event.stopPropagation()}>
+            {/* 有底部附加内容时，外壳托住输入卡片与底部条，形成一张整卡。 */}
+            <div className="agent-composer-shell relative" data-has-footer={footer ? "" : undefined}>
+            {/* 整卡模式下发送光环包住整张卡，避免画在输入区与连接器之间形成一条线。 */}
+            {footer && sending && !reducedMotion ? <WorkingGlow active color={theme.accent.primary} radius={22} /> : null}
             <div
                 className="agent-composer-surface group/composer relative transition-[background-color,box-shadow] duration-200"
                 style={{
                     color: theme.accent.primary,
                 }}
             >
-                {sending && !reducedMotion ? <WorkingGlow active color={theme.accent.primary} radius={22} /> : null}
+                {!footer && sending && !reducedMotion ? <WorkingGlow active color={theme.accent.primary} radius={22} /> : null}
                 {attachments.length ? (
                     <div className="thin-scrollbar mb-2 flex gap-2 overflow-x-auto pb-1">
                         {attachments.map((item, index) => (
@@ -521,6 +528,8 @@ export function AgentChatComposer({
                         </motion.button>
                     </div>
                 </div>
+            </div>
+            {footer}
             </div>
             {previewAttachment ? <AgentImagePreview attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} /> : null}
         </div>
