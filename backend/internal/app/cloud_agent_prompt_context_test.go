@@ -25,9 +25,13 @@ func TestCloudAgentPromptContextKeepsUserTextAndFactBoundaries(t *testing.T) {
 	if len(canonical.Messages) != before {
 		t.Fatal("更新清单吞掉了输出恢复事件")
 	}
+	responses, err := canonicalAgentResponsesBody(&canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, body := range []map[string]any{
 		canonicalAgentChatBody(&canonical, false),
-		canonicalAgentResponsesBody(&canonical),
+		responses,
 		canonicalAgentGeminiBody(&canonical),
 		claudeAgentBody(canonicalAgentChatBody(&canonical, true)),
 	} {
