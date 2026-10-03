@@ -42,6 +42,46 @@ func TestCloudAgentCanvasApprovalPreviewDescribesUpdateTargetAndFields(t *testin
 	}
 }
 
+func TestCloudAgentStoryboardConnectionsUseRowHandlesAndPersistBindings(t *testing.T) {
+	doc, err := creationDocument(`{"nodes":[{"id":"script-1","type":"script","title":"分镜","metadata":{"storyboard":{"rows":[{"id":"row-1","shotNumber":1,"durationSeconds":5,"assetBindings":[],"imageNodeId":""}],"referenceNodeIds":[]}}},{"id":"image-1","type":"image","title":"环境图","metadata":{"content":"ready","assetCategory":"environment"}},{"id":"video-1","type":"video","title":"镜头视频","metadata":{}}],"connections":[]}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := applyCloudAgentCanvasPlan(doc, []agentCanvasOp{
+		{Type: "update_node", ID: "script-1", Patch: map[string]any{"title": "夜雨分镜", "x": 120.0, "y": 240.0}},
+		{Type: "connect_nodes", ID: "edge-asset", FromNodeID: "image-1", ToNodeID: "script-1", ToHandleID: "row:row-1"},
+		{Type: "connect_nodes", ID: "edge-output", FromNodeID: "script-1", ToNodeID: "video-1", FromHandleID: "row:row-1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 3 || len(items[1].Details) != 1 || !strings.Contains(items[1].Details[0], "row-1") {
+		t.Fatalf("row handle was not reflected in approval preview: %+v", items)
+	}
+	connections := creationMaps(doc["connections"])
+	if len(connections) != 2 || stringValue(connections[0]["toHandleId"]) != "row:row-1" || stringValue(connections[1]["fromHandleId"]) != "row:row-1" {
+		t.Fatalf("row handles were not persisted: %+v", connections)
+	}
+	script := cloudAgentNodeByID(creationMaps(doc["nodes"]), "script-1")
+	if script["title"] != "夜雨分镜" {
+		t.Fatalf("script title update was not applied: %#v", script)
+	}
+	position := script["position"].(map[string]any)
+	if position["x"] != 120.0 || position["y"] != 240.0 {
+		t.Fatalf("script position update was not applied: %#v", position)
+	}
+	metadata := script["metadata"].(map[string]any)
+	storyboard := metadata["storyboard"].(map[string]any)
+	row := creationMaps(storyboard["rows"])[0]
+	if stringValue(row["imageNodeId"]) != "" {
+		t.Fatalf("asset connection should not be treated as storyboard output: %#v", row)
+	}
+	bindings := creationMaps(row["assetBindings"])
+	if len(bindings) != 1 || stringValue(bindings[0]["nodeId"]) != "image-1" || stringValue(bindings[0]["role"]) != "environment" {
+		t.Fatalf("row asset binding was not persisted: %#v", row)
+	}
+}
+
 func TestCloudAgentCanvasApprovalPreviewDescribesConnectionsAndMixedOperations(t *testing.T) {
 	doc, err := creationDocument(`{"nodes":[{"id":"image-1","type":"image","title":"参考图"},{"id":"video-1","type":"video","title":"视频镜头"}],"connections":[]}`)
 	if err != nil {
@@ -85,6 +125,28 @@ func TestCloudAgentCanvasApprovalPreviewRejectsUnknownTargetInsteadOfFallingBack
 
 // 漏 patch 必须是**可恢复的参数错误**：运行期会把它当工具结果回给模型重试，
 // 而不是把整轮判死；未知操作类型（例如删除）仍按准入失败终止。
+func TestCloudAgentCanvasApprovalPreviewTreatsInvalidConnectionEndpointsAsArgumentErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name, from, to, field string
+	}{
+		{"missing source", "missing", "image-1", "ops[0].fromNodeId"},
+		{"missing target", "image-1", "missing", "ops[0].toNodeId"},
+		{"self connection", "image-1", "image-1", "ops[0].toNodeId"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			doc, err := creationDocument(`{"nodes":[{"id":"image-1","type":"image","title":"参考图"}],"connections":[]}`)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = applyCloudAgentCanvasPlan(doc, []agentCanvasOp{{Type: "connect_nodes", ID: "edge-1", FromNodeID: tc.from, ToNodeID: tc.to}})
+			var fieldErr *cloudAgentFieldArgumentError
+			if !errors.As(err, &fieldErr) || fieldErr.Field != tc.field {
+				t.Fatalf("expected repairable field error %q, got %v", tc.field, err)
+			}
+		})
+	}
+}
+
 func TestCloudAgentCanvasApprovalPreviewTreatsMissingPatchAsArgumentError(t *testing.T) {
 	doc, err := creationDocument(`{"nodes":[{"id":"image-1","type":"image","title":"参考图"}],"connections":[]}`)
 	if err != nil {

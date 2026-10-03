@@ -193,6 +193,33 @@ func TestCloudAgentCanvasOperationTraceSharesToolCallID(t *testing.T) {
 	if trace["callId"] != call.ID || last.Type != "tool_completed" || last.Payload["callId"] != call.ID {
 		t.Fatalf("canvas delta and tool result cannot be deduplicated: %+v / %+v", trace, last)
 	}
+	result := last.Payload["result"].(map[string]any)
+	if result["committed"] != true {
+		t.Fatalf("canvas_apply_ops result did not acknowledge persistence: %+v", result)
+	}
+	preview := result["preview"].(map[string]any)
+	if preview["status"] != "applied" || strings.Contains(stringValue(preview["description"]), "批准后才会写入") {
+		t.Fatalf("canvas_apply_ops result still looks like an approval preview: %+v", preview)
+	}
+	canvas, err := s.repo.CanvasProjectForUser("user", "agent-canvas")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := creationDocument(canvas.PayloadJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cat map[string]any
+	for _, node := range creationMaps(doc["nodes"]) {
+		if stringValue(node["id"]) == "cat" {
+			cat = node
+			break
+		}
+	}
+	if cat == nil || stringValue(cat["title"]) != "叮当猫飞行参考" || stringValue(cat["metadata"].(map[string]any)["composerContent"]) != "下一版参考图提示词" {
+		t.Fatalf("canvas_apply_ops did not persist the requested draft: %+v", cat)
+	}
+
 	actions := creationMaps(trace["actions"])
 	byActionAndNode := map[string]map[string]any{}
 	for _, action := range actions {
