@@ -18786,12 +18786,13 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
     box-shadow: none !important;
 }
 
-.ant-select.app-unified-select .ant-select-arrow {
+.ant-select.app-unified-select .ant-select-suffix {
+    margin-inline-end: 10px !important;
     color: color-mix(in srgb, var(--foreground) 48%, transparent) !important;
     transition: color var(--motion-state, 180ms) ease, transform var(--motion-state, 180ms) ease !important;
 }
 
-.ant-select.app-unified-select.ant-select-open .ant-select-arrow {
+.ant-select.app-unified-select.ant-select-open .ant-select-suffix {
     color: color-mix(in srgb, var(--foreground) 72%, transparent) !important;
 }
 
