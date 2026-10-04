@@ -216,8 +216,13 @@ func TestCloudAgentCanvasOperationTraceSharesToolCallID(t *testing.T) {
 			break
 		}
 	}
-	if cat == nil || stringValue(cat["title"]) != "叮当猫飞行参考" || stringValue(cat["metadata"].(map[string]any)["composerContent"]) != "下一版参考图提示词" {
-		t.Fatalf("canvas_apply_ops did not persist the requested draft: %+v", cat)
+	if cat == nil || stringValue(cat["title"]) != "叮当猫飞行参考" {
+		t.Fatalf("canvas_apply_ops did not persist the requested prompt contract: %+v", cat)
+	}
+	metadata := cat["metadata"].(map[string]any)
+	generationSpec := metadata["generationSpec"].(map[string]any)
+	if stringValue(generationSpec["prompt"]) != "下一版参考图提示词" {
+		t.Fatalf("canvas_apply_ops did not persist the requested prompt contract: %+v", cat)
 	}
 
 	actions := creationMaps(trace["actions"])
@@ -238,7 +243,7 @@ func TestCloudAgentCanvasOperationTraceSharesToolCallID(t *testing.T) {
 			fieldValues = append(fieldValues, stringValue(field))
 		}
 	}
-	if len(fieldValues) != 2 || fieldValues[0] != "节点名称" || fieldValues[1] != "下一版提示词" {
+	if len(fieldValues) != 2 || fieldValues[0] != "节点名称" || fieldValues[1] != "提示词" {
 		t.Fatalf("canvas operation trace lost updated fields: %+v", updated)
 	}
 	created := byActionAndNode["created:trace-video"]

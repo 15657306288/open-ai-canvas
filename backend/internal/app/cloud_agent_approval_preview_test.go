@@ -29,7 +29,7 @@ func TestCloudAgentCanvasApprovalPreviewDescribesUpdateTargetAndFields(t *testin
 	if item.NodeTitle != "满月庆祝视频草稿" || item.NodeType != "video" || item.NodeTypeLabel != "视频" {
 		t.Fatalf("preview lost target identity: %+v", item)
 	}
-	if item.ResultTitle != newTitle || strings.Join(item.Fields, "、") != "节点名称、下一版提示词" {
+	if item.ResultTitle != newTitle || strings.Join(item.Fields, "、") != "节点名称、提示词" {
 		t.Fatalf("preview lost changed fields: %+v", item)
 	}
 	raw, _ := json.Marshal(item)
@@ -37,7 +37,8 @@ func TestCloudAgentCanvasApprovalPreviewDescribesUpdateTargetAndFields(t *testin
 		t.Fatalf("preview exposed private content or internal id: %s", raw)
 	}
 	metadata := doc["nodes"].([]map[string]any)[0]["metadata"].(map[string]any)
-	if metadata["content"] != "已提交结果" || metadata["prompt"] != "private prompt" || metadata["composerContent"] != newPrompt {
+	generationSpec := metadata["generationSpec"].(map[string]any)
+	if metadata["content"] != "已提交结果" || metadata["prompt"] != "private prompt" || generationSpec["prompt"] != newPrompt {
 		t.Fatalf("preview mutated media result incorrectly: %+v", metadata)
 	}
 }

@@ -963,7 +963,8 @@ func TestCloudAgentCanvasUpdatesExistingVideoDraftThroughCapabilityContract(t *t
 	}
 	updated := updatedNodes["video-1789310237935-mmh3-baby-fullmoon"]
 	metadata := updated["metadata"].(map[string]any)
-	if updated["title"] != "满月庆祝视频草稿（舒缓呼吸感）" || metadata["composerContent"] != "下一版舒缓视频提示词" {
+	generationSpec := metadata["generationSpec"].(map[string]any)
+	if updated["title"] != "满月庆祝视频草稿（舒缓呼吸感）" || generationSpec["prompt"] != "下一版舒缓视频提示词" {
 		t.Fatalf("video draft was not updated: %#v", updated)
 	}
 	if metadata["prompt"] != "原始已提交提示词" || metadata["status"] != "error" || metadata["referenceIssue"] != "参考资产尚未准备完成" {
