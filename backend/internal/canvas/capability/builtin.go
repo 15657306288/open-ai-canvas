@@ -1,5 +1,7 @@
 package capability
 
+import "infinite-canvas/backend/internal/canvas/contract"
+
 const (
 	maxAgentNodeTitleRunes   = 240
 	maxAgentNodeContentRunes = 16000
@@ -136,10 +138,10 @@ func generatedMediaDescriptor(nodeType, version, label string, width, height flo
 		Purpose: semantics.Purpose, GoodFor: semantics.GoodFor, NotIdealFor: semantics.NotIdealFor,
 		Tradeoffs: semantics.Tradeoffs, Actions: semantics.Actions,
 		InputKind: nodeType, GenerationMode: generationMode, Connection: connection, CanUpdate: true,
-		SummaryFields:  []string{"prompt", "composerContent", "assetTags", "referenceNodeIds"},
-		DetailFields:   []string{"prompt", "composerContent", "assetTags", "referenceNodeIds"},
-		PatchFields:    editableNodeFields("metadata.composerContent", "下一版提示词", "下次生成使用的提示词草稿；不覆盖已提交提示词或媒体结果"),
-		CreateMetadata: generatedMetadata,
+		SummaryFields:  []string{"prompt", "assetTags", "referenceNodeIds"},
+		DetailFields:   []string{"prompt", "assetTags", "referenceNodeIds"},
+		PatchFields:    editableNodeFields("metadata.generationSpec.prompt", "提示词", "生成合同中的当前提示词；这是 Agent 唯一读写的媒体提示词"),
+		CreateMetadata: func(prompt string) map[string]any { return generatedMetadata(generationMode, prompt) },
 	}
 }
 
@@ -211,6 +213,20 @@ func positionPatchFields() map[string]PatchField {
 	}
 }
 
-func generatedMetadata(prompt string) map[string]any {
-	return map[string]any{"content": "", "prompt": prompt, "composerContent": prompt, "status": "idle"}
+func generatedMetadata(mode, prompt string) map[string]any {
+	spec := contract.GenerationSpec{
+		Version:           contract.GenerationVersion,
+		Mode:              mode,
+		Prompt:            prompt,
+		Options:           contract.Options{},
+		ReferenceBindings: []contract.ReferenceBinding{},
+		TextInputMode:     "append-sources",
+	}
+	metadata, err := spec.NodeMetadata()
+	if err != nil {
+		panic(err)
+	}
+	metadata["content"] = ""
+	metadata["status"] = "idle"
+	return metadata
 }
