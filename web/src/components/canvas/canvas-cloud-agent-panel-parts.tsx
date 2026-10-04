@@ -239,7 +239,13 @@ export function AgentContextRing({ view }: { view: AgentContextUsageView }) {
                         </span>
                         {view.compactAtTokens ? <span>压缩线 {formatContextCount(view.compactAtTokens)}</span> : null}
                     </div>
-                    {view.compactionError ? <p className="agent-context-note" role="status">{view.compactionError}</p> : view.lastCompaction ? <p className="agent-context-note">本轮已完成一次上下文压缩，下一次读数会刷新。</p> : null}
+                    {view.compactionError ? (
+                        <p className="agent-context-note" role="status">
+                            {view.compactionError}
+                        </p>
+                    ) : view.lastCompaction ? (
+                        <p className="agent-context-note">本轮已完成一次上下文压缩，下一次读数会刷新。</p>
+                    ) : null}
                 </div>
             }
         >
