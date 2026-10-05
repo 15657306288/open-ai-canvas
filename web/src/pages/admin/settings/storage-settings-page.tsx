@@ -84,6 +84,10 @@ export default function StorageSettingsPage() {
         if (loading || !setting) return;
         const values = formValues(setting);
         form.setFieldsValue(values);
+        // normalizeStoragePayload: allowUserStorage: values.allowUserStorage ?? setting.allowUserStorage !== false
+        // response fields: ["allowUserS3", "allowUserStorage"];
+        const storageDefaults = { allowUserStorage: setting.allowUserStorage !== false };
+        form.setFieldValue("allowUserStorage", storageDefaults.allowUserStorage);
         setDraftMode(values.mode);
     }, [form, loading, setting]);
 
@@ -584,6 +588,9 @@ export default function StorageSettingsPage() {
                             )}
                             <div className="admin-storage-form-section">
                                 <FormSectionTitle icon={<ShieldCheck className="size-4" />} title="用户自有存储" description="允许用户配置个人 S3 兼容存储；个人配置停用时仍回退到平台存储。" />
+                                <Form.Item name="allowUserStorage" label="允许个人存储" valuePropName="checked" extra="关闭后所有服务商的个人存储都不再接收新文件，新文件改存平台存储；已有个人文件仍可读取和删除。">
+                                    <Switch checkedChildren="允许" unCheckedChildren="不允许" />
+                                </Form.Item>
                                 <Form.Item name="allowUserS3" label="允许个人 S3 兼容存储" valuePropName="checked">
                                     <Switch checkedChildren="允许" unCheckedChildren="不允许" />
                                 </Form.Item>
