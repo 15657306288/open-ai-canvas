@@ -41,6 +41,7 @@ const (
 	FeatureFrontendModels              = app.FeatureFrontendModels
 	FeaturePlaybackTranscoding         = app.FeaturePlaybackTranscoding
 	FeaturePluginCenter                = app.FeaturePluginCenter
+	FeaturePluginUpload                = app.FeaturePluginUpload
 	FeatureShortDrama                  = app.FeatureShortDrama
 	FeatureSystemPlugins               = app.FeatureSystemPlugins
 	FeatureTaskCenter                  = app.FeatureTaskCenter
