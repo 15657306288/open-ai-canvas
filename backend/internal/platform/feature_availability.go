@@ -24,6 +24,7 @@ const (
 	FeatureSystemPlugins         = "systemPluginsVisibleToUsers"
 	FeatureTimelineTranscription = "timelineTranscription"
 	FeaturePlaybackTranscoding   = "playbackTranscoding"
+	FeaturePluginUpload          = "pluginUpload"
 )
 
 type FeatureAvailability struct {
@@ -128,6 +129,8 @@ func (s *Service) FeatureEnabled(feature string) (bool, error) {
 		return value.TimelineTranscriptionEnabled, nil
 	case FeaturePlaybackTranscoding:
 		return value.PlaybackTranscodingEnabled, nil
+	case FeaturePluginUpload:
+		return value.PluginUploadEnabled, nil
 	default:
 		return false, errors.New("未知功能开放配置")
 	}
@@ -160,6 +163,8 @@ func (s *Service) RequireFeature(feature string) error {
 		return kernel.Forbidden("字幕转写暂未开放")
 	case FeaturePlaybackTranscoding:
 		return kernel.Forbidden("播放转码已关闭")
+	case FeaturePluginUpload:
+		return kernel.Forbidden("在线安装插件已关闭")
 	default:
 		return kernel.Forbidden("该功能暂未开放")
 	}
