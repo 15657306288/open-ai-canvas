@@ -6,6 +6,48 @@ import (
 	"testing"
 )
 
+func TestKnownMultimodalTextModelFamiliesDefaultToReferenceMedia(t *testing.T) {
+	tests := []struct {
+		protocol  string
+		model     string
+		maxImages int
+		maxVideos int
+	}{
+		{protocol: "chat-completion", model: "gemini-3.8-flash-high", maxImages: 16, maxVideos: 3},
+		{protocol: "chat-completion", model: "gpt-5.6-sol", maxImages: 16},
+		{protocol: "claude-api", model: "claude-fable-5.1", maxImages: 16},
+		{protocol: "chat-completion", model: "deepseek-vl2", maxImages: 16},
+		{protocol: "chat-completion", model: "plain-text-model"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.model, func(t *testing.T) {
+			profile := DefaultModelCapabilityConfigForModel(tt.protocol, tt.model)
+			if profile == nil || profile.Text == nil {
+				t.Fatal("text capability is nil")
+			}
+			if profile.Text.References.MaxImages != tt.maxImages || profile.Text.References.MaxVideos != tt.maxVideos {
+				t.Fatalf("reference limits = %#v, want images=%d videos=%d", profile.Text.References, tt.maxImages, tt.maxVideos)
+			}
+		})
+	}
+}
+
+func TestNormalizeLegacyMultimodalTextCapabilityRepairsReferenceLimits(t *testing.T) {
+	legacy := DefaultModelCapabilityConfigForModel("chat-completion", "gemini-3.8-flash")
+	legacy.Text.References.MaxImages = 0
+	legacy.Text.References.MaxImageBytes = 0
+	legacy.Text.References.MaxVideos = 0
+	legacy.Text.References.MaxVideoBytes = 0
+
+	normalized, err := NormalizeModelCapabilityConfigForModel("text", "chat-completion", "gemini-3.8-flash", legacy)
+	if err != nil {
+		t.Fatalf("NormalizeModelCapabilityConfigForModel() error = %v", err)
+	}
+	if normalized == nil || normalized.Text == nil || normalized.Text.References.MaxImages != 16 || normalized.Text.References.MaxVideos != 3 {
+		t.Fatalf("normalized reference limits = %#v", normalized)
+	}
+}
+
 func TestValidateImageTaskRejectsOversizedGrokPromptByUTF8Bytes(t *testing.T) {
 	prompt := strings.Repeat("中", 4001)
 	input := canvasGenerationInput{

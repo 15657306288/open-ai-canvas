@@ -8,7 +8,7 @@ import { getAdminFeatureAvailability, updateAdminFeatureAvailability } from "@/s
 import { useUserStore, type FeatureAvailability } from "@/stores/use-user-store";
 import { AdminStatusBadge } from "./admin-ui";
 
-type FeatureKey = "shortDramaEnabled" | "taskCenterEnabled" | "creditsEnabled" | "customChannelsEnabled" | "frontendModelsEnabled" | "pluginCenterEnabled" | "systemPluginsVisibleToUsers" | "playbackTranscodingEnabled";
+type FeatureKey = "shortDramaEnabled" | "taskCenterEnabled" | "creditsEnabled" | "customChannelsEnabled" | "frontendModelsEnabled" | "pluginCenterEnabled" | "pluginUploadEnabled" | "systemPluginsVisibleToUsers" | "playbackTranscodingEnabled";
 type FeatureRow = {
     key: FeatureKey;
     title: string;
@@ -17,7 +17,7 @@ type FeatureRow = {
     dependsOn?: FeatureKey;
 };
 
-const editableFeatureKeys: FeatureKey[] = ["shortDramaEnabled", "taskCenterEnabled", "creditsEnabled", "customChannelsEnabled", "frontendModelsEnabled", "pluginCenterEnabled", "systemPluginsVisibleToUsers", "playbackTranscodingEnabled"];
+const editableFeatureKeys: FeatureKey[] = ["shortDramaEnabled", "taskCenterEnabled", "creditsEnabled", "customChannelsEnabled", "frontendModelsEnabled", "pluginCenterEnabled", "pluginUploadEnabled", "systemPluginsVisibleToUsers", "playbackTranscodingEnabled"];
 
 const workspaceFeatureRows: FeatureRow[] = [
     {
@@ -359,6 +359,7 @@ function toEditablePayload(features: FeatureAvailability) {
         customChannelsEnabled: features.customChannelsEnabled,
         frontendModelsEnabled: features.frontendModelsEnabled,
         pluginCenterEnabled: features.pluginCenterEnabled,
+        pluginUploadEnabled: features.pluginUploadEnabled,
         systemPluginsVisibleToUsers: features.systemPluginsVisibleToUsers,
         playbackTranscodingEnabled: features.playbackTranscodingEnabled,
     };
@@ -382,6 +383,7 @@ function parseFeatureAvailability(value: unknown): FeatureAvailability {
         customChannelsEnabled: record.customChannelsEnabled as boolean,
         frontendModelsEnabled: record.frontendModelsEnabled as boolean,
         pluginCenterEnabled: record.pluginCenterEnabled as boolean,
+        pluginUploadEnabled: record.pluginUploadEnabled !== false,
         systemPluginsVisibleToUsers: record.systemPluginsVisibleToUsers as boolean,
         playbackTranscodingEnabled: record.playbackTranscodingEnabled as boolean,
         configured: typeof record.configured === "boolean" ? record.configured : undefined,

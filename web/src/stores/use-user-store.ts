@@ -32,6 +32,7 @@ export type FeatureAvailability = {
     customChannelsEnabled: boolean;
     frontendModelsEnabled: boolean;
     pluginCenterEnabled: boolean;
+    pluginUploadEnabled: boolean;
     systemPluginsVisibleToUsers: boolean;
     playbackTranscodingEnabled: boolean;
     configured?: boolean;
@@ -47,6 +48,7 @@ export const defaultFeatureAvailability: FeatureAvailability = {
     customChannelsEnabled: true,
     frontendModelsEnabled: false,
     pluginCenterEnabled: true,
+    pluginUploadEnabled: true,
     systemPluginsVisibleToUsers: true,
     playbackTranscodingEnabled: true,
 };

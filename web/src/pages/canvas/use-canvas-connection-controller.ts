@@ -63,10 +63,11 @@ const NODE_STATUS_IDLE = "idle" as const;
 
 function selectRunningHubWorkflow(config: AiConfig) {
     const capability = normalizeRunningHubCapability(config.runningHub.capability);
-    return config.runningHub.workflows.find((item) => item.workflowId.trim() === config.runningHub.workflowId.trim()
-        && (item.kind === "app" ? "app" : "workflow") === config.runningHub.selectedKind)
-        || config.runningHub.workflows.find((item) => normalizeRunningHubCapability(item.capability, capability) === capability)
-        || config.runningHub.workflows[0];
+    return (
+        config.runningHub.workflows.find((item) => item.workflowId.trim() === config.runningHub.workflowId.trim() && (item.kind === "app" ? "app" : "workflow") === config.runningHub.selectedKind) ||
+        config.runningHub.workflows.find((item) => normalizeRunningHubCapability(item.capability, capability) === capability) ||
+        config.runningHub.workflows[0]
+    );
 }
 
 export function useCanvasConnectionController({
@@ -112,7 +113,7 @@ export function useCanvasConnectionController({
     const updateConnectionReplaceHover = useCallback((element: HTMLElement | null, clientX = 0, clientY = 0) => {
         if (hoveredReplaceElRef.current === element) {
             if (element) {
-                setConnectionReplaceHover((prev) => prev ? { ...prev, clientX, clientY } : null);
+                setConnectionReplaceHover((prev) => (prev ? { ...prev, clientX, clientY } : null));
             }
             return;
         }
@@ -147,7 +148,8 @@ export function useCanvasConnectionController({
         updateBatchConnectionPreview(null);
     }, [updateBatchConnectionPreview]);
 
-    const setConnecting = useCallback((next: ConnectionHandle | null) => {
+    const setConnecting = useCallback(
+        (next: ConnectionHandle | null) => {
         connectingParamsRef.current = next;
         setConnectingParams(next);
         if (!next) {
@@ -158,7 +160,9 @@ export function useCanvasConnectionController({
             setConnectionTargetNodeId(null);
             setConnectionTargetAnchorRatio(undefined);
         }
-    }, [updateConnectionReplaceHover]);
+        },
+        [updateConnectionReplaceHover],
+    );
 
     const closeConnectionCreateMenu = useCallback(() => {
         pendingConnectionCreateRef.current = null;
@@ -171,10 +175,9 @@ export function useCanvasConnectionController({
         clearBatchConnection();
     }, [clearBatchConnection, closeConnectionCreateMenu, setConnecting]);
 
-    const previewBatchConnection = useCallback((sourceNodeIds: string[], targetNodeId: string | null, targetHandleId: string | undefined, targetAnchorRatio: number | undefined, mouseWorld: Position) => {
-        const plan = targetNodeId
-            ? planBatchConnections({ sourceNodeIds, targetNodeId, targetHandleId, targetAnchorRatio, nodes: nodesRef.current, connections: connectionsRef.current, config })
-            : null;
+    const previewBatchConnection = useCallback(
+        (sourceNodeIds: string[], targetNodeId: string | null, targetHandleId: string | undefined, targetAnchorRatio: number | undefined, mouseWorld: Position) => {
+            const plan = targetNodeId ? planBatchConnections({ sourceNodeIds, targetNodeId, targetHandleId, targetAnchorRatio, nodes: nodesRef.current, connections: connectionsRef.current, config }) : null;
         const eligibleSourceCount = sourceNodeIds.filter((id) => {
             const node = nodesRef.current.find((item) => item.id === id);
             return Boolean(node && !batchSourceRestriction(node));
@@ -182,9 +185,12 @@ export function useCanvasConnectionController({
         const status = !targetNodeId || !plan ? "idle" : plan.connections.length === eligibleSourceCount ? "valid" : plan.connections.length ? "partial" : "invalid";
         updateBatchConnectionPreview({ sourceNodeIds, targetNodeId, targetHandleId, targetAnchorRatio, mouseWorld, status });
         return plan;
-    }, [config, connectionsRef, nodesRef, updateBatchConnectionPreview]);
+        },
+        [config, connectionsRef, nodesRef, updateBatchConnectionPreview],
+    );
 
-    const commitBatchConnection = useCallback((sourceNodeIds: string[], targetNodeId: string, targetHandleId?: string, targetAnchorRatio?: number) => {
+    const commitBatchConnection = useCallback(
+        (sourceNodeIds: string[], targetNodeId: string, targetHandleId?: string, targetAnchorRatio?: number) => {
         const plan = planBatchConnections({ sourceNodeIds, targetNodeId, targetHandleId, targetAnchorRatio, nodes: nodesRef.current, connections: connectionsRef.current, config });
         if (!plan.connections.length) {
             const reason = plan.skipped[0]?.reason || "没有可建立的连接";
@@ -200,9 +206,12 @@ export function useCanvasConnectionController({
         if (skippedCount) message.warning(`已连接 ${plan.connected.length} 个节点${suffix}：${plan.skipped[0].reason}`);
         else message.success(`已连接 ${plan.connected.length} 个节点${suffix}`);
         return plan;
-    }, [config, connectionsRef, message, nodesRef, setConnections, setContextMenu, setNodes]);
+        },
+        [config, connectionsRef, message, nodesRef, setConnections, setContextMenu, setNodes],
+    );
 
-    const connectNodes = useCallback((current: ConnectionHandle, targetNodeId: string, targetHandleId?: string, targetAnchorRatio?: number) => {
+    const connectNodes = useCallback(
+        (current: ConnectionHandle, targetNodeId: string, targetHandleId?: string, targetAnchorRatio?: number) => {
         if (current.nodeId === targetNodeId) return;
         const connection = normalizeConnection(current.nodeId, targetNodeId, nodesRef.current, current.handleType);
         if (!connection) {
@@ -221,15 +230,30 @@ export function useCanvasConnectionController({
         }
         const exists = connectionsRef.current.find((item) => item.fromNodeId === fromNodeId && item.toNodeId === toNodeId && item.fromHandleId === fromHandleId && item.toHandleId === toHandleId);
         if (exists) {
-            setConnections((currentConnections) => currentConnections.map((item) => item.id === exists.id ? { ...item, fromAnchorRatio, toAnchorRatio } : item));
+                setConnections((currentConnections) => currentConnections.map((item) => (item.id === exists.id ? { ...item, fromAnchorRatio, toAnchorRatio } : item)));
         } else {
             setConnections((currentConnections) => [...currentConnections, { id: `conn-${Date.now()}`, fromNodeId, toNodeId, fromHandleId, toHandleId, fromAnchorRatio, toAnchorRatio }]);
             setNodes((currentNodes) => attachNodeToStoryboardRow(currentNodes, { fromNodeId, toNodeId, fromHandleId, toHandleId }));
         }
         setContextMenu(null);
-    }, [config, connectionsRef, message, nodesRef, setConnections, setContextMenu, setNodes]);
+        },
+        [config, connectionsRef, message, nodesRef, setConnections, setContextMenu, setNodes],
+    );
 
-    const createConnectedNode = useCallback(async (type: CanvasNodeType.Image | CanvasNodeType.Text | CanvasNodeType.Script | CanvasNodeType.BatchTable | CanvasNodeType.Video | CanvasNodeType.Audio | CanvasNodeType.Drawing | CanvasNodeType.Config | CanvasNodeType.MediaConversion, pending: PendingConnectionCreate, workflowProvider?: "runninghub") => {
+    /** 从已有素材直接连到目标端口，供批量表格的单元格落点使用。 */
+    const connectNodesFromSource = useCallback(
+        (sourceNodeId: string, targetNodeId: string, targetHandleId?: string) => {
+            connectNodes({ nodeId: sourceNodeId, handleType: "source" }, targetNodeId, targetHandleId);
+        },
+        [connectNodes],
+    );
+
+    const createConnectedNode = useCallback(
+        async (
+            type: CanvasNodeType.Image | CanvasNodeType.Text | CanvasNodeType.Script | CanvasNodeType.BatchTable | CanvasNodeType.Video | CanvasNodeType.Audio | CanvasNodeType.Drawing | CanvasNodeType.Config | CanvasNodeType.MediaConversion,
+            pending: PendingConnectionCreate,
+            workflowProvider?: "runninghub",
+        ) => {
         const nodeType = type;
         if (nodeType === CanvasNodeType.Drawing && !isDrawingEngineAvailable(defaultDrawingEngine, tldrawLicenseKey)) {
             message.error("当前生产构建未配置 tldraw License Key，不能创建 tldraw 绘图");
@@ -238,9 +262,7 @@ export function useCanvasConnectionController({
             return;
         }
         const batchSourceNodeIds = pending.batchSourceNodeIds?.length ? Array.from(new Set(pending.batchSourceNodeIds)) : [];
-        const batchSourceNodes = batchSourceNodeIds
-            .map((nodeId) => nodesRef.current.find((node) => node.id === nodeId))
-            .filter((node): node is CanvasNodeData => Boolean(node));
+            const batchSourceNodes = batchSourceNodeIds.map((nodeId) => nodesRef.current.find((node) => node.id === nodeId)).filter((node): node is CanvasNodeData => Boolean(node));
         const storyboardRow = batchSourceNodeIds.length ? undefined : nodeType === CanvasNodeType.Video ? storyboardRowFromHandle(nodesRef.current, pending.connection.nodeId, pending.connection.handleId) : undefined;
         const videoPrompt = storyboardRow ? (storyboardRow.videoMotionPrompt || storyboardRow.plotDescription).trim() : "";
         const sourceNode = pending.connection.handleType === "source" ? nodesRef.current.find((node) => node.id === pending.connection.nodeId) : undefined;
@@ -249,12 +271,8 @@ export function useCanvasConnectionController({
             .map((node) => (node.metadata?.content || node.metadata?.prompt || "").trim())
             .filter(Boolean)
             .join("\n\n");
-        const scriptPrompt = nodeType === CanvasNodeType.Script
-            ? batchSourceNodeIds.length ? batchScriptPrompt : sourceNode?.type === CanvasNodeType.Text ? (sourceNode.metadata?.content || sourceNode.metadata?.prompt || "").trim() : ""
-            : "";
-        const selectedWorkflowProvider = nodeType === CanvasNodeType.Config
-            ? workflowProvider || (workflowProviderPluginEnabled(runtimeStatuses, "runninghub") ? "runninghub" : undefined)
-            : undefined;
+            const scriptPrompt = nodeType === CanvasNodeType.Script ? (batchSourceNodeIds.length ? batchScriptPrompt : sourceNode?.type === CanvasNodeType.Text ? (sourceNode.metadata?.content || sourceNode.metadata?.prompt || "").trim() : "") : "";
+            const selectedWorkflowProvider = nodeType === CanvasNodeType.Config ? workflowProvider || (workflowProviderPluginEnabled(runtimeStatuses, "runninghub") ? "runninghub" : undefined) : undefined;
         if (selectedWorkflowProvider && !workflowProviderPluginEnabled(runtimeStatuses, selectedWorkflowProvider)) {
             message.error("RunningHub 工作流插件未启用");
             closeConnectionCreateMenu();
@@ -263,31 +281,43 @@ export function useCanvasConnectionController({
         }
         const runningHubWorkflow = selectedWorkflowProvider === "runninghub" ? selectRunningHubWorkflow(config) : undefined;
         const workflowCapability = normalizeRunningHubCapability(runningHubWorkflow?.capability, normalizeRunningHubCapability(config.runningHub.capability));
-        const metadata: CanvasNodeMetadata | undefined = nodeType === CanvasNodeType.Config
+            const metadata: CanvasNodeMetadata | undefined =
+                nodeType === CanvasNodeType.Config
             ? {
-                generationMode: selectedWorkflowProvider ? workflowCapability === "video" ? "video" as const : workflowCapability === "audio" ? "audio" as const : "image" as const : "image" as const,
+                          generationMode: selectedWorkflowProvider ? (workflowCapability === "video" ? ("video" as const) : workflowCapability === "audio" ? ("audio" as const) : ("image" as const)) : ("image" as const),
                 workflowProvider: selectedWorkflowProvider || "model",
                 status: NODE_STATUS_IDLE,
-                ...(selectedWorkflowProvider === "runninghub" ? {
+                          ...(selectedWorkflowProvider === "runninghub"
+                              ? {
                     workflowTitle: "RunningHub 工作流",
-                    ...(runningHubWorkflow ? { runningHubWorkflowId: runningHubWorkflow.workflowId, runningHubWorkflowKind: runningHubWorkflow.kind === "app" ? "app" as const : "workflow" as const } : {}),
-                } : {})
+                                    ...(runningHubWorkflow ? { runningHubWorkflowId: runningHubWorkflow.workflowId, runningHubWorkflowKind: runningHubWorkflow.kind === "app" ? ("app" as const) : ("workflow" as const) } : {}),
+                                }
+                              : {}),
               }
             : nodeType === CanvasNodeType.Drawing
             ? { drawingEngine: defaultDrawingEngine }
             : nodeType === CanvasNodeType.Script && scriptPrompt
               ? { prompt: scriptPrompt, composerContent: scriptPrompt }
             : nodeType === CanvasNodeType.Video && storyboardRow
-              ? { prompt: videoPrompt, composerContent: videoPrompt, ...storyboardPromptTemplateMetadata(storyboardRow, "video"), generationMode: "video" as const, videoEditOperation: "text_to_video" as const, workflowKind: "shot" as const, workflowTitle: `镜头 ${storyboardRow.shotNumber} 视频`, shotIndex: storyboardRow.shotNumber, seconds: String(storyboardRow.durationSeconds), status: NODE_STATUS_IDLE }
+                          ? {
+                                prompt: videoPrompt,
+                                composerContent: videoPrompt,
+                                ...storyboardPromptTemplateMetadata(storyboardRow, "video"),
+                                generationMode: "video" as const,
+                                videoEditOperation: "text_to_video" as const,
+                                workflowKind: "shot" as const,
+                                workflowTitle: `镜头 ${storyboardRow.shotNumber} 视频`,
+                                shotIndex: storyboardRow.shotNumber,
+                                seconds: String(storyboardRow.durationSeconds),
+                                status: NODE_STATUS_IDLE,
+                            }
               : undefined;
         const sourceNodeForQuickCreate = pending.quick ? nodesRef.current.find((node) => node.id === pending.connection.nodeId) : undefined;
         const spec = getNodeSpec(nodeType);
         const anchorY = sourceNodeForQuickCreate ? sourceNodeForQuickCreate.position.y + sourceNodeForQuickCreate.height * (pending.connection.anchorRatio ?? 0.5) : pending.position.y;
         const position = sourceNodeForQuickCreate
             ? {
-                  x: pending.connection.handleType === "source"
-                      ? sourceNodeForQuickCreate.position.x + sourceNodeForQuickCreate.width + 96 + spec.width / 2
-                      : sourceNodeForQuickCreate.position.x - 96 - spec.width / 2,
+                      x: pending.connection.handleType === "source" ? sourceNodeForQuickCreate.position.x + sourceNodeForQuickCreate.width + 96 + spec.width / 2 : sourceNodeForQuickCreate.position.x - 96 - spec.width / 2,
                   y: anchorY,
               }
             : batchSourceNodeIds.length
@@ -313,7 +343,10 @@ export function useCanvasConnectionController({
             : null;
         if (batchPlan) {
             if (!batchPlan.connections.length) {
-                const detail = batchPlan.skipped.slice(0, 3).map((item) => item.reason).join("；");
+                    const detail = batchPlan.skipped
+                        .slice(0, 3)
+                        .map((item) => item.reason)
+                        .join("；");
                 message.warning(detail ? `没有可建立的连接：${detail}` : "没有可建立的连接");
                 closeConnectionCreateMenu();
                 setConnecting(null);
@@ -398,9 +431,33 @@ export function useCanvasConnectionController({
         else if (nodeType !== CanvasNodeType.Text && nodeType !== CanvasNodeType.BatchTable && nodeType !== CanvasNodeType.Audio && nodeType !== CanvasNodeType.MediaConversion) setDialogNodeId(newNode.id);
         closeConnectionCreateMenu();
         setConnecting(null);
-    }, [closeConnectionCreateMenu, config, connectionsRef, defaultDrawingEngine, message, nodesRef, projectId, runtimeStatuses, setConnecting, setConnections, setDialogNodeId, setDrawingNodeId, setNodes, setSelectedConnectionId, setSelectedNodeIds, tldrawLicenseKey]);
+        },
+        [
+            closeConnectionCreateMenu,
+            config,
+            connectionsRef,
+            defaultDrawingEngine,
+            message,
+            nodesRef,
+            projectId,
+            runtimeStatuses,
+            setConnecting,
+            setConnections,
+            setDialogNodeId,
+            setDrawingNodeId,
+            setNodes,
+            setSelectedConnectionId,
+            setSelectedNodeIds,
+            tldrawLicenseKey,
+        ],
+    );
 
-    const getConnectionCreateDisabledReason = useCallback((type: CanvasNodeType.Image | CanvasNodeType.Text | CanvasNodeType.Script | CanvasNodeType.BatchTable | CanvasNodeType.Video | CanvasNodeType.Audio | CanvasNodeType.Drawing | CanvasNodeType.Config | CanvasNodeType.MediaConversion, pending: PendingConnectionCreate, workflowProvider?: "runninghub") => {
+    const getConnectionCreateDisabledReason = useCallback(
+        (
+            type: CanvasNodeType.Image | CanvasNodeType.Text | CanvasNodeType.Script | CanvasNodeType.BatchTable | CanvasNodeType.Video | CanvasNodeType.Audio | CanvasNodeType.Drawing | CanvasNodeType.Config | CanvasNodeType.MediaConversion,
+            pending: PendingConnectionCreate,
+            workflowProvider?: "runninghub",
+        ) => {
         const nodeType = type;
         if (nodeType === CanvasNodeType.Config) {
             if (workflowProvider && !workflowProviderPluginEnabled(runtimeStatuses, workflowProvider)) return "RunningHub 工作流插件未启用";
@@ -422,9 +479,12 @@ export function useCanvasConnectionController({
         const pendingNode: CanvasNodeData = pendingAudioModel ? { ...basePendingNode, metadata: { model: pendingAudioModel, generationMode: "audio" } } : basePendingNode;
         const pendingNodes = [...nodesRef.current, pendingNode];
         return canvasConnectionError(config, pendingNodes, connectionsRef.current, connection);
-    }, [config, connectionsRef, nodesRef, runtimeStatuses]);
+        },
+        [config, connectionsRef, nodesRef, runtimeStatuses],
+    );
 
-    const getConnectionDropTarget = useCallback((clientX: number, clientY: number, current: ConnectionHandle): ConnectionDropTarget => {
+    const getConnectionDropTarget = useCallback(
+        (clientX: number, clientY: number, current: ConnectionHandle): ConnectionDropTarget => {
         const world = screenToCanvas(clientX, clientY);
         const scale = Math.max(viewportRef.current.k, 0.05);
         const handleRadius = CONNECTION_SNAP_RADIUS / scale;
@@ -463,12 +523,13 @@ export function useCanvasConnectionController({
                 }
             });
         return { nodeId: bestNodeId, handleId: bestHandleId, anchorRatio: bestAnchorRatio, isNearNode };
-    }, [config, connectionsRef, nodesRef, screenToCanvas, scriptScrollTopById, viewportRef]);
+        },
+        [config, connectionsRef, nodesRef, screenToCanvas, scriptScrollTopById, viewportRef],
+    );
 
-    const getBatchConnectionDropTarget = useCallback((clientX: number, clientY: number, sourceNodeIds: string[]): BatchConnectionDropTarget => {
-        const source = sourceNodeIds
-            .map((id) => nodesRef.current.find((node) => node.id === id))
-            .find((node): node is CanvasNodeData => Boolean(node && !batchSourceRestriction(node)));
+    const getBatchConnectionDropTarget = useCallback(
+        (clientX: number, clientY: number, sourceNodeIds: string[]): BatchConnectionDropTarget => {
+            const source = sourceNodeIds.map((id) => nodesRef.current.find((node) => node.id === id)).find((node): node is CanvasNodeData => Boolean(node && !batchSourceRestriction(node)));
         if (!source) return { nodeId: null, isNearNode: false };
 
         const world = screenToCanvas(clientX, clientY);
@@ -504,9 +565,12 @@ export function useCanvasConnectionController({
                 }
             });
         return { nodeId: bestNodeId, handleId: bestHandleId, anchorRatio: bestAnchorRatio, isNearNode };
-    }, [nodesRef, screenToCanvas, scriptScrollTopById, viewportRef]);
+        },
+        [nodesRef, screenToCanvas, scriptScrollTopById, viewportRef],
+    );
 
-    const startBatchConnection = useCallback((event: ReactPointerEvent, sourceNodeIds: string[]) => {
+    const startBatchConnection = useCallback(
+        (event: ReactPointerEvent, sourceNodeIds: string[]) => {
         const eligible = sourceNodeIds.filter((id) => {
             const node = nodesRef.current.find((item) => item.id === id);
             return Boolean(node && !batchSourceRestriction(node));
@@ -522,9 +586,12 @@ export function useCanvasConnectionController({
         setSelectedConnectionId(null);
         const mouseWorld = screenToCanvas(event.clientX, event.clientY);
         previewBatchConnection(eligible, null, undefined, undefined, mouseWorld);
-    }, [message, nodesRef, previewBatchConnection, screenToCanvas, setSelectedConnectionId]);
+        },
+        [message, nodesRef, previewBatchConnection, screenToCanvas, setSelectedConnectionId],
+    );
 
-    const beginBatchConnectionMode = useCallback((sourceNodeIds: string[]) => {
+    const beginBatchConnectionMode = useCallback(
+        (sourceNodeIds: string[]) => {
         const eligible = sourceNodeIds.filter((id) => {
             const node = nodesRef.current.find((item) => item.id === id);
             return Boolean(node && !batchSourceRestriction(node));
@@ -536,9 +603,12 @@ export function useCanvasConnectionController({
         }
         previewBatchConnection(eligible, null, undefined, undefined, { x: source.position.x + source.width, y: source.position.y + source.height / 2 });
         setSelectedConnectionId(null);
-    }, [message, nodesRef, previewBatchConnection, setSelectedConnectionId]);
+        },
+        [message, nodesRef, previewBatchConnection, setSelectedConnectionId],
+    );
 
-    const finishBatchConnection = useCallback((clientX: number, clientY: number) => {
+    const finishBatchConnection = useCallback(
+        (clientX: number, clientY: number) => {
         const batch = batchConnectionPreviewRef.current;
         if (!batch) return false;
         const target = getBatchConnectionDropTarget(clientX, clientY, batch.sourceNodeIds);
@@ -546,9 +616,12 @@ export function useCanvasConnectionController({
         commitBatchConnection(batch.sourceNodeIds, target.nodeId, target.handleId, target.anchorRatio);
         clearBatchConnection();
         return true;
-    }, [clearBatchConnection, commitBatchConnection, getBatchConnectionDropTarget]);
+        },
+        [clearBatchConnection, commitBatchConnection, getBatchConnectionDropTarget],
+    );
 
-    const openBatchConnectionCreateMenu = useCallback((clientX: number, clientY: number) => {
+    const openBatchConnectionCreateMenu = useCallback(
+        (clientX: number, clientY: number) => {
         const batch = batchConnectionPreviewRef.current;
         if (!batch) return false;
         const position = screenToCanvas(clientX, clientY);
@@ -564,16 +637,22 @@ export function useCanvasConnectionController({
         setMouseWorld(position);
         clearBatchConnection();
         return true;
-    }, [clearBatchConnection, message, nodesRef, screenToCanvas]);
+        },
+        [clearBatchConnection, message, nodesRef, screenToCanvas],
+    );
 
-    const handleBatchConnectionTargetClick = useCallback((event: ReactPointerEvent | ReactMouseEvent) => {
+    const handleBatchConnectionTargetClick = useCallback(
+        (event: ReactPointerEvent | ReactMouseEvent) => {
         if (!batchConnectionPreviewRef.current) return false;
         const completed = finishBatchConnection(event.clientX, event.clientY);
         if (!completed) message.warning("请点击目标节点的输入端");
         return true;
-    }, [finishBatchConnection, message]);
+        },
+        [finishBatchConnection, message],
+    );
 
-    const finishConnection = useCallback((clientX: number, clientY: number) => {
+    const finishConnection = useCallback(
+        (clientX: number, clientY: number) => {
         updateConnectionReplaceHover(null);
         if (pendingConnectionCreateRef.current) return;
         const currentConnection = connectingParamsRef.current;
@@ -650,9 +729,12 @@ export function useCanvasConnectionController({
             pendingConnectionCreateRef.current = pending;
             setPendingConnectionCreate(pending);
         }
-    }, [connectNodes, getConnectionDropTarget, onReplaceReference, screenToCanvas, setConnecting, updateConnectionReplaceHover]);
+        },
+        [connectNodes, getConnectionDropTarget, onReplaceReference, screenToCanvas, setConnecting, updateConnectionReplaceHover],
+    );
 
-    const handleConnectStart = useCallback((event: ReactPointerEvent, nodeId: string, handleType: "source" | "target", handleId?: string, anchorRatio?: number) => {
+    const handleConnectStart = useCallback(
+        (event: ReactPointerEvent, nodeId: string, handleType: "source" | "target", handleId?: string, anchorRatio?: number) => {
         event.preventDefault();
         event.stopPropagation();
         // A new pin interaction always starts a fresh session. Without this
@@ -682,9 +764,12 @@ export function useCanvasConnectionController({
         setConnectionTargetNodeId(null);
         setConnectionTargetAnchorRatio(undefined);
         setSelectedConnectionId(null);
-    }, [clearBatchConnection, closeConnectionCreateMenu, commitBatchConnection, connectNodes, screenToCanvas, setConnecting, setSelectedConnectionId]);
+        },
+        [clearBatchConnection, closeConnectionCreateMenu, commitBatchConnection, connectNodes, screenToCanvas, setConnecting, setSelectedConnectionId],
+    );
 
-    const handleConnectDrop = useCallback((event: ReactPointerEvent, nodeId: string, handleId?: string) => {
+    const handleConnectDrop = useCallback(
+        (event: ReactPointerEvent, nodeId: string, handleId?: string) => {
         event.preventDefault();
         event.stopPropagation();
         if (batchConnectionPreviewRef.current) {
@@ -696,7 +781,9 @@ export function useCanvasConnectionController({
         if (!current || current.nodeId === nodeId) return;
         connectNodes(current, nodeId, handleId);
         setConnecting(null);
-    }, [clearBatchConnection, commitBatchConnection, connectNodes, setConnecting]);
+        },
+        [clearBatchConnection, commitBatchConnection, connectNodes, setConnecting],
+    );
 
     useEffect(() => {
         const cancelPendingPointerMove = () => {
@@ -832,6 +919,7 @@ export function useCanvasConnectionController({
         connectionTargetAnchorRatio,
         connectionReplaceHover,
         connectingParams,
+        connectNodesFromSource,
         createConnectedNode,
         getConnectionCreateDisabledReason,
         handleConnectStart,

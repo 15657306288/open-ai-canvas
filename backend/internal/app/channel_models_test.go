@@ -29,6 +29,50 @@ func TestNormalizeChannelModelContract(t *testing.T) {
 	}
 }
 
+func TestInferOpenAIChannelModelContract(t *testing.T) {
+	tests := []struct {
+		name       string
+		capability string
+		protocol   model.ChannelInterfaceType
+	}{
+		{name: "grok-imagine-video", capability: "video", protocol: model.ChannelInterfaceNewAPIVideo},
+		{name: "grok-imagine-image", capability: "image", protocol: model.ChannelInterfaceGrokImage},
+		{name: "gpt-image-banana-pro", capability: "image", protocol: model.ChannelInterfaceOpenAIImage},
+		{name: "claude-sonnet-4-6", capability: "text", protocol: model.ChannelInterfaceOpenAIResponse},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			capability, protocol := inferOpenAIChannelModelContract(test.name)
+			if capability != test.capability || protocol != test.protocol {
+				t.Fatalf("inferOpenAIChannelModelContract(%q) = %q, %q", test.name, capability, protocol)
+			}
+		})
+	}
+}
+
+func TestAdminChannelModelsRepairsMissingOpenAIContract(t *testing.T) {
+	svc, db := newChannelModelTestService(t)
+	admin := &model.User{ID: "admin", Role: model.UserRoleAdmin}
+	channel := model.ModelChannel{ID: "channel-1", UserID: admin.ID, Scope: model.ChannelScopeSystem, Enabled: true, Name: "A8API", APIFormat: "openai", ModelsJSON: `[]`}
+	item := model.ChannelModel{ID: "model-1", ChannelID: channel.ID, ModelKey: "grok-imagine-image", DisplayName: "grok-imagine-image", BillingMode: "fixed_request", PriceVersion: 1}
+	if err := db.Create(&channel).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&item).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AdminChannelModels(admin, channel.ID); err != nil {
+		t.Fatal(err)
+	}
+	var repaired model.ChannelModel
+	if err := db.First(&repaired, "id = ?", item.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if repaired.Capability != "image" || repaired.Protocol != model.ChannelInterfaceGrokImage || repaired.ProviderModelKey != item.ModelKey || repaired.CapabilityConfigJSON == "" || repaired.Enabled || repaired.PriceConfigured {
+		t.Fatalf("repaired model = %#v", repaired)
+	}
+}
+
 func TestNormalizeChannelModelContractPreservesProviderModelKey(t *testing.T) {
 	channel := &model.ModelChannel{APIKey: "test-key"}
 	modelKey, providerModelKey, _, _, err := normalizeChannelModelContract(channel, ChannelModelRequest{
