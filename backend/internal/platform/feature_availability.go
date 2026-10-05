@@ -34,6 +34,7 @@ type FeatureAvailability struct {
 	CustomChannelsEnabled        bool `json:"customChannelsEnabled"`
 	FrontendModelsEnabled        bool `json:"frontendModelsEnabled"`
 	PluginCenterEnabled          bool `json:"pluginCenterEnabled"`
+	PluginUploadEnabled          bool `json:"pluginUploadEnabled"`
 	SystemPluginsVisibleToUsers  bool `json:"systemPluginsVisibleToUsers"`
 	TimelineTranscriptionEnabled bool `json:"timelineTranscriptionEnabled"`
 	PlaybackTranscodingEnabled   bool `json:"playbackTranscodingEnabled"`
@@ -56,6 +57,7 @@ func DefaultFeatureAvailability() FeatureAvailability {
 		CustomChannelsEnabled:        true,
 		FrontendModelsEnabled:        false,
 		PluginCenterEnabled:          true,
+		PluginUploadEnabled:          true,
 		SystemPluginsVisibleToUsers:  true,
 		TimelineTranscriptionEnabled: true,
 		PlaybackTranscodingEnabled:   true,
