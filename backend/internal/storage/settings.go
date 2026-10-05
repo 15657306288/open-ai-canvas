@@ -34,8 +34,17 @@ type Settings struct {
 	// UserStorageDisabled 只在平台配置上生效：为 true 时任何 provider 的个人存储都不再接收新写入。
 	// 零值保持开放，缺少该字段的旧配置与直接构造的配置都维持原有行为。
 	UserStorageDisabled bool `json:"userStorageDisabled,omitempty"`
+	Runtime           RuntimePolicy    `json:"-"`
 	// 平台切换云厂商后仍需读取历史资源，因此仅归档非当前厂商的访问密钥。
 	ArchivedCredentials map[string]Credentials `json:"archivedCredentials,omitempty"`
+}
+
+type RuntimePolicy struct {
+	TransferTimeout       time.Duration
+	AccessURLTTL          time.Duration
+	ProviderAccessURLTTL  time.Duration
+	MaxBufferedUploadSize int64
+	ErrorBodyLimit        int64
 }
 
 type Credentials struct {
