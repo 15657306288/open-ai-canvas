@@ -291,6 +291,7 @@ export type AdminOSSSetting = {
     hasSessionToken: boolean;
     pathStyle: boolean;
     allowUserS3: boolean;
+    allowUserStorage: boolean;
     publicBaseUrl: string;
     pathPrefix: string;
     testedAt?: string;

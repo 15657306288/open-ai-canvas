@@ -301,7 +301,12 @@ func probeMediaDurationMs(path string) int64 {
 
 // Unlike ordinary uploads, generated output preserves an OSS failure for
 // explicit recovery instead of silently changing the storage destination.
-func (s *Service) storeTaskMediaObject(resource *model.Resource, _ string, body io.Reader) (string, error) {
+// Closing personal storage is a policy change rather than a failure; see
+// rebindClosedPersonalStorage.
+func (s *Service) storeTaskMediaObject(resource *model.Resource, fileName string, body io.Reader) (string, error) {
+	if err := s.rebindClosedPersonalStorage(resource, fileName); err != nil {
+		return "", err
+	}
 	if resource.Provider == "local" {
 		return "", writeLocalResourceObject(filepath.Join(s.dataDir, "resources", filepath.FromSlash(resource.ObjectKey)), body)
 	}
