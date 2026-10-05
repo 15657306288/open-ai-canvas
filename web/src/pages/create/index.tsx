@@ -1,9 +1,9 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { App, Spin } from "antd";
 import { Tooltip } from "@/components/ui/base/tooltip";
-import { History, Sparkles, Maximize2 } from "lucide-react";
+import { History, Sparkles, Maximize2, Images, Image as ImageIcon, Megaphone, Clapperboard, ShoppingBag, Store } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 
 import type { AssetLibraryPickerItem } from "@/components/assets/asset-library-picker-modal";
 import { generationErrorCode, generationErrorMessage } from "@/lib/generation-error";
@@ -31,10 +31,13 @@ import { buildCreationMentionReferences, expandCreationPrompt, reconcileCreation
 import { creationAttachmentFromAsset, creationAttachmentFromAudio, creationAttachmentFromAudioAsset, creationAttachmentFromDocument, creationAttachmentFromExternalAsset, creationAttachmentFromImage, creationAttachmentFromVideo, creationAttachmentFromVideoAsset, creationAttachmentKind, creationAudioAsset, creationFileAccepted, creationImageAsset, creationMediaAspectRatio, creationUploadAccept, creationVideoAsset, removeCreationAttachment, splitCreationAttachments, type CreationAttachment } from "./creation-assets";
 import { defaultCreationMode, modeLabels, type CreationConversation, type CreationMessage, type CreationMode, type CreationRetryContext, type CreationSettings, type CreationShotRailEntry, type CreationStatus } from "./creation-types";
 import { attachCreationTaskContexts, completedCreationGenerationTask, conversationTimestamp, creationShotRail, creationVideoShotOrdinal, isImageAttachment, isVideoAttachment, materializeCreationTaskResults, newConversation, newMessage, reconcileCreationTaskMessages } from "./creation-conversations";
-import { CreationComposer, CreationEmptySuggest, CreationFeaturedWorks, CreationHistoryDrawer, CreationMessageView, CreationModeTabs, CreationWorkspaceToolbar, creationAssetCategoryLabels } from "./creation-workspace";
+import { CreationComposer, CreationFeaturedWorks, CreationHistoryDrawer, CreationMessageView, CreationModeTabs, CreationWorkspaceToolbar, creationAssetCategoryLabels } from "./creation-workspace";
 import { CreationAgentEntry } from "./creation-agent-entry";
 import { createCreationSubmitGate } from "./creation-submit-gate";
 import { creationVideoConfig } from "./creation-generation-config";
+import { CREATIVE_SCENARIOS, type CreativeScenarioId } from "@/lib/creation/creative-scenarios";
+import { CreationTaskPanel } from "./creation-task-panel";
+import { buildCreationTaskPrompt, CREATION_TASKS, creationTask, defaultModuleSelection, selectedModuleSummary, type CreationTaskModuleSelection } from "./creation-task-catalog";
 
 const AssetLibraryPickerModal = lazy(() => import("@/components/assets/asset-library-picker-modal").then((module) => ({ default: module.AssetLibraryPickerModal })));
 const loadCreationRuntime = () => import("./creation-runtime");
@@ -70,10 +73,26 @@ function writeComposerPref(key: string, value: boolean) {
     }
 }
 
+// 任务卡图标按能力归类，避免为每张卡单独引一个图标。
+const TASK_ICONS: Record<string, typeof ImageIcon> = {
+    "ecommerce-image-set": Images,
+    "ecommerce-hero": ImageIcon,
+    "ecommerce-scene": Store,
+    "ecommerce-spoken-video": ShoppingBag,
+    "ecommerce-brand-video": Megaphone,
+    "ecommerce-drama-video": Clapperboard,
+};
+
+function taskIcon(key: string) {
+    const Icon = TASK_ICONS[key] || Sparkles;
+    return <Icon />;
+}
+
 export default function CreatePage() {
     const [agentMode, setAgentMode] = useState(false);
     const { message: toast, modal } = App.useApp();
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
     const [openingCanvas, setOpeningCanvas] = useState(false);
     const openingCanvasRef = useRef(false);
     const brandName = useAppearanceStore((state) => state.appearance.brandName);
@@ -110,12 +129,20 @@ export default function CreatePage() {
     const [quality, setQuality] = useState("auto");
     const [videoQuality, setVideoQuality] = useState(config.vquality || "720");
     const [count, setCount] = useState(String(Math.max(1, Math.min(4, Number(config.count) || 1))));
+    const countRef = useRef(count);
     const [textStreaming, setTextStreaming] = useState(() => readComposerPref(TEXT_STREAMING_PREF_KEY, true));
     const [textThinking, setTextThinking] = useState(() => readComposerPref(TEXT_THINKING_PREF_KEY, false));
     const [busy, setBusy] = useState(false);
     const [referenceReplacementBusy, setReferenceReplacementBusy] = useState(false);
     const [historyOpen, setHistoryOpen] = useState(false);
     const [libraryOpen, setLibraryOpen] = useState(false);
+    // 任务面板：零提示词入口的状态。slotAttachmentIds 记录每份素材归到哪个槽位。
+    const [activeTaskKey, setActiveTaskKey] = useState<string | null>(null);
+    const [taskSlotAttachmentIds, setTaskSlotAttachmentIds] = useState<Record<string, string[]>>({});
+    const [taskModuleSelection, setTaskModuleSelection] = useState<CreationTaskModuleSelection>({});
+    const [taskChoiceValues, setTaskChoiceValues] = useState<Record<string, string>>({});
+    const [taskNotes, setTaskNotes] = useState("");
+    const [pendingTaskSlot, setPendingTaskSlot] = useState<string | null>(null);
     const externalAssetSources = useExternalAssetSources(libraryOpen);
     const abortRef = useRef<AbortController | null>(null);
     const composerFocusRef = useRef<HTMLTextAreaElement>(null);
@@ -133,6 +160,7 @@ export default function CreatePage() {
     const [composerPreferencesInitialized, setComposerPreferencesInitialized] = useState(false);
     promptRef.current = prompt;
     attachmentsRef.current = attachments;
+    countRef.current = count;
 
     const activeConversation = useMemo(() => conversations.find((item) => item.id === activeId) || conversations[0], [activeId, conversations]);
     const historyConversations = useMemo(
@@ -381,6 +409,29 @@ export default function CreatePage() {
         }
     };
 
+    // 电商首页的「你想做什么？」任务卡带 mode/skill 过来：直接切到对应创作模式
+    // 并把场景说明预填进输入框，让入口卡真的能用，而不是丢回一个空白页。
+    const entrySkillAppliedRef = useRef(false);
+    useEffect(() => {
+        if (entrySkillAppliedRef.current) return;
+        const raw = searchParams.get("skill");
+        if (!raw) return;
+        const scenario = CREATIVE_SCENARIOS[raw as CreativeScenarioId];
+        if (!scenario) return;
+        entrySkillAppliedRef.current = true;
+
+        const requested = searchParams.get("mode") as CreationMode | null;
+        const nextMode: CreationMode = requested && modeLabels[requested] ? requested : "image";
+        selectMode(nextMode);
+        setPrompt(`${scenario.label}：${scenario.instruction}`);
+        window.requestAnimationFrame(() => composerFocusRef.current?.focus());
+
+        const next = new URLSearchParams(searchParams);
+        next.delete("skill");
+        next.delete("mode");
+        navigate({ search: next.toString() }, { replace: true });
+    }, [searchParams]);
+
     const setComposerRatio = (value: string) => {
         setRatio(value);
         if (mode === "image") rememberImageSettings({ ratio: value });
@@ -424,6 +475,77 @@ export default function CreatePage() {
             })),
         ...externalLibraryItems,
     ], [assets, externalLibraryItems, mode, videoReferenceLimits]);
+    const activeTask = activeTaskKey ? creationTask(activeTaskKey) : undefined;
+
+    const openTask = (key: string) => {
+        const task = creationTask(key);
+        if (!task) return;
+        setActiveTaskKey(key);
+        setTaskModuleSelection(defaultModuleSelection(task));
+        setTaskChoiceValues({});
+        setTaskNotes("");
+        setTaskSlotAttachmentIds({});
+        setAgentMode(false);
+        selectMode(task.mode);
+    };
+
+    const closeTask = () => {
+        setActiveTaskKey(null);
+        setTaskSlotAttachmentIds({});
+        setTaskNotes("");
+        setPrompt("");
+    };
+
+    // 槽位 -> 真实附件：面板上的槽位只是分类视图，最终仍然复用页面统一的 attachments。
+    const openSlotPicker = (slotKey: string) => {
+        if (!activeTask) return;
+        setPendingTaskSlot(slotKey);
+        setLibraryOpen(true);
+    };
+
+    const taskSlotCounts = useMemo(() => {
+        const counts: Record<string, number> = {};
+        if (!activeTask) return counts;
+        activeTask.slots.forEach((slot) => { counts[slot.key] = (taskSlotAttachmentIds[slot.key] || []).length; });
+        return counts;
+    }, [activeTask, taskSlotAttachmentIds]);
+
+    // 组装内部提示词：用户不写提示词，这里把场景基座 + 任务指令 + 素材角色拼好。
+    const buildTaskPrompt = useCallback(() => {
+        if (!activeTask) return null;
+        const labelByAttachment = new Map<string, string>();
+        attachments.forEach((attachment, index) => {
+            const kind = creationAttachmentKind(attachment);
+            labelByAttachment.set(attachment.id, (kind === "video" ? "视频" : kind === "audio" ? "音频" : "图片") + String(index + 1));
+        });
+        const slotLabels: Record<string, string[]> = {};
+        activeTask.slots.forEach((slot) => {
+            slotLabels[slot.key] = (taskSlotAttachmentIds[slot.key] || []).map((id) => labelByAttachment.get(id)).filter((label): label is string => Boolean(label));
+        });
+        const moduleSelection = activeTask.modules ? taskModuleSelection : {};
+        const images = activeTask.modules
+            ? selectedModuleSummary(activeTask, moduleSelection).images
+            : 1;
+        return {
+            prompt: buildCreationTaskPrompt({
+                task: activeTask,
+                slotLabels,
+                moduleSelection,
+                choiceValues: taskChoiceValues,
+                notes: taskNotes,
+                settings: { ratio, seconds },
+            }),
+            count: String(Math.max(1, Math.min(4, images))),
+        };
+    }, [activeTask, attachments, ratio, seconds, taskChoiceValues, taskModuleSelection, taskNotes, taskSlotAttachmentIds]);
+
+    const submitActiveTask = () => {
+        if (!activeTask || busy) return;
+        const assembled = buildTaskPrompt();
+        if (!assembled) return;
+        void submit(undefined, undefined, assembled);
+    };
+
     const uploadCreationAsset = async (file: File) => {
         const { uploadImage, uploadMediaFile } = await loadCreationRuntime();
         if (file.type.startsWith("video/")) {
@@ -474,6 +596,12 @@ export default function CreatePage() {
             return external ? [creationAttachmentFromExternalAsset(external)] : [];
         });
         if (!next.length) return;
+        // 任务面板打开时，这次选择归入当前槽位，槽位才能显示数量和必填校验。
+        if (pendingTaskSlot) {
+            const slotKey = pendingTaskSlot;
+            setPendingTaskSlot(null);
+            setTaskSlotAttachmentIds((current) => ({ ...current, [slotKey]: [...new Set([...(current[slotKey] || []), ...next.map((item) => item.id)])] }));
+        }
         setAttachments((current) => {
             const candidates = [...current.filter((item) => !next.some((candidate) => candidate.id === item.id)), ...next];
             const reconciled = mode === "video" && videoReferenceLimits
@@ -555,7 +683,9 @@ export default function CreatePage() {
         }
     }, [addAsset, busy, referenceReplacementBusy, replaceAttachmentReference, toast]);
 
-    const submit = async (retryContext?: CreationRetryContext, retryLockKey?: string) => {
+    // 任务面板在同一次点击里组装好提示词与出图张数；React state 还没提交，
+    // 所以这里显式接收本次要用的值，而不是等下一次渲染再读闭包。
+    const submit = async (retryContext?: CreationRetryContext, retryLockKey?: string, override?: { prompt?: string; count?: string }) => {
         const releaseRetryLock = () => {
             if (retryLockKey) retryPreparingRef.current.delete(retryLockKey);
         };
@@ -564,7 +694,8 @@ export default function CreatePage() {
             return;
         }
         const releaseSubmitGate = () => submitGateRef.current.release();
-        const text = prompt.trim();
+        const text = (override?.prompt ?? prompt).trim();
+        const count = override?.count ?? countRef.current;
         if (!text || busy || !activeConversation) {
             releaseRetryLock();
             releaseSubmitGate();
@@ -706,26 +837,27 @@ export default function CreatePage() {
                 }));
                 if (requestLifecycle.signal.aborted) throw new DOMException("Aborted", "AbortError");
                 const boundTaskIdList = Array.from(boundTaskIds);
-                const generatedTasks = settled.flatMap((entry, batchIndex) => {
+                const generatedImages = settled.flatMap((entry, batchIndex) => {
                     if (entry.status !== "fulfilled") return [];
-                    return [{
-                        result: entry.value,
+                    return (entry.value.images || []).map((image, resultIndex) => ({
+                        image,
                         taskId: boundTaskIdsByBatchIndex.get(batchIndex) || boundTaskIdList[batchIndex],
                         batchIndex,
-                    }];
+                        resultIndex,
+                    }));
                 });
                 const taskFailures = settled.filter((entry): entry is PromiseRejectedResult => entry.status === "rejected");
-                const storedImages = await Promise.allSettled(generatedTasks.map(async ({ result, taskId, batchIndex }) => {
+                const storedImages = await Promise.allSettled(generatedImages.map(async ({ image, taskId, batchIndex }) => {
                     if (!taskId) throw new Error("生成任务缺少稳定任务标识");
-                    const task = completedCreationGenerationTask(runtime, { taskId, task: boundTasks.get(taskId), mode: "image", prompt: expandedPrompt, result, conversationId: activeConversation.id, messageId: assistantMessage.id, batchIndex, batchCount: taskCount });
+                    const task = completedCreationGenerationTask(runtime, { taskId, task: boundTasks.get(taskId), mode: "image", prompt: expandedPrompt, result: { mode: "image", images: [image] }, conversationId: activeConversation.id, messageId: assistantMessage.id, batchIndex, batchCount: taskCount });
                     const materialized = await runtime.consumeGenerationTaskMessage(task, assistantMessage.id, async ({ resultUrls, resultStorageKeys, effectKey }) => {
                         await updateOriginAssistant((item) => runtime.applyGenerationConsumerEffect(item, effectKey, (current) => ({ ...current, status: "done" as const, content: "图片已生成", ...(resultUrls.length ? { resultUrls: Array.from(new Set([...(current.resultUrls || []), ...resultUrls])) } : {}), ...(resultStorageKeys.length ? { resultStorageKeys: Array.from(new Set([...(current.resultStorageKeys || []), ...resultStorageKeys])) } : {}) })).value);
                     }, { signal: requestLifecycle.signal });
-                    const urls = runtime.generationTaskMaterializedUrls(materialized);
-                    if (!urls.length) throw new Error("图片结果资源不可用");
-                    return urls;
+                    const url = runtime.generationTaskMaterializedUrls(materialized)[0];
+                    if (!url) throw new Error("图片结果资源不可用");
+                    return url;
                 }));
-                const resultUrls = storedImages.flatMap((entry) => entry.status === "fulfilled" ? entry.value : []);
+                const resultUrls = storedImages.flatMap((entry) => entry.status === "fulfilled" ? [entry.value] : []);
                 const resourceFailures = storedImages.filter((entry) => entry.status === "rejected");
                 const failedCount = taskFailures.length + resourceFailures.length;
                 if (!resultUrls.length) {
@@ -1032,21 +1164,56 @@ export default function CreatePage() {
                 </AnimatePresence>
                 <main ref={threadScrollRef} onScroll={handleThreadScroll} className="creation-empty-workspace creation-scrollbar">
                 <div className="creation-home-heading">
-                    <h1>和{brandName}聊聊创作想法</h1>
-                    <p>从一个画面、一个角色或一句话开始，继续你的创作。</p>
+                    <h1>你想做什么？</h1>
+                    <p>选一个任务，按提示填素材和选项，直接出图或出片。</p>
                 </div>
                 <section ref={launchpadRef} className="creation-launchpad" aria-label="开始创作">
                     <div className={cn("creation-composer-stage is-home-mode", agentMode && "is-agent-mode")}>
                         <CreationModeTabs mode={mode} agentActive={agentMode} onAgentSelect={() => setAgentMode(true)} onModeChange={(next) => { setAgentMode(false); selectMode(next); }} />
                         {agentMode ? <CreationAgentEntry /> : <div className="creation-empty-composer"><CreationComposer {...composerProps} variant="empty" /></div>}
                     </div>
-                    <CreationEmptySuggest
-                        onStartPrompt={(nextMode, prompt) => { setAgentMode(false); selectMode(nextMode); setPrompt(prompt); window.requestAnimationFrame(() => composerFocusRef.current?.focus()); }}
-                        onOpenLibrary={() => { setAgentMode(false); selectMode("image"); setLibraryOpen(true); }}
-                    />
+                    {activeTask ? <CreationTaskPanel
+                        task={activeTask}
+                        busy={busy}
+                        slotCounts={taskSlotCounts}
+                        maxImages={maxReferences}
+                        maxVideos={videoReferenceLimits?.maxVideos || 0}
+                        maxAudios={videoReferenceLimits?.maxAudios || 0}
+                        moduleSelection={taskModuleSelection}
+                        onModuleChange={(moduleKey, next) => setTaskModuleSelection((current) => ({ ...current, [moduleKey]: next }))}
+                        choiceValues={taskChoiceValues}
+                        onChoiceChange={(key, value) => setTaskChoiceValues((current) => ({ ...current, [key]: value }))}
+                        notes={taskNotes}
+                        onNotesChange={setTaskNotes}
+                        onPickSlot={openSlotPicker}
+                        ratio={ratio}
+                        ratioOptions={mergedImageCapabilityConfig(config, selectedModel).size.values.map((value) => ({ value, label: value }))}
+                        onRatioChange={setComposerRatio}
+                        seconds={seconds}
+                        secondsOptions={videoDurationOptions(videoProfile).map((value) => ({ value: String(value), label: String(value) + " 秒" }))}
+                        onSecondsChange={setComposerSeconds}
+                        model={selectedModel}
+                        onModelChange={(value) => updateConfig(activeTask.mode === "image" ? "imageModel" : "videoModel", value)}
+                        config={config}
+                        modelRequirements={modelRequirements}
+                        onSubmit={submitActiveTask}
+                        onClose={closeTask}
+                    /> : <div className="creation-task-cards">
+                        {CREATION_TASKS.map((task) => <button
+                            key={task.key}
+                            type="button"
+                            className="creation-task-card"
+                            disabled={busy}
+                            aria-pressed={false}
+                            onClick={() => openTask(task.key)}
+                        >
+                            <span className="creation-task-card-icon" aria-hidden>{taskIcon(task.key)}</span>
+                            <span className="creation-task-card-copy"><strong>{task.name}</strong><span>{task.detail}</span></span>
+                        </button>)}
+                    </div>}
                 </section>
                 <CreationFeaturedWorks
-                    onStartPrompt={(nextMode, prompt) => { setAgentMode(false); selectMode(nextMode); setPrompt(prompt); window.requestAnimationFrame(() => composerFocusRef.current?.focus()); }}
+                    onStartPrompt={(nextMode, nextPrompt) => { setAgentMode(false); selectMode(nextMode); setPrompt(nextPrompt); window.requestAnimationFrame(() => composerFocusRef.current?.focus()); }}
                 />
             </main>
             </> : <div className="creation-thread-workbench">

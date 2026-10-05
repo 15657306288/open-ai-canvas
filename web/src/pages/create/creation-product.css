@@ -287,3 +287,109 @@ html:not(.dark) .app-product-overlays .creation-control-popover .ant-popover-inn
 html:not(.dark) .app-product-overlays .creation-control-popover-surface {
     box-shadow: 0 16px 40px rgba(25, 25, 30, .12) !important;
 }
+
+/* ---- 任务卡目录 + 参数面板（首页零提示词入口） ---- */
+.creation-task-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; width: 100%; }
+.creation-task-card {
+    display: flex; align-items: flex-start; gap: 12px; width: 100%; min-height: 84px;
+    padding: 16px; border: 1px solid var(--user-border); border-radius: var(--user-radius-card);
+    background: var(--user-surface); color: var(--user-ink); text-align: left; cursor: pointer;
+    transition: border-color var(--user-motion), background var(--user-motion), transform var(--user-motion);
+}
+.creation-task-card:hover { border-color: var(--user-border-strong); transform: translateY(-2px); }
+.creation-task-card:focus-visible { outline: 2px solid var(--user-accent); outline-offset: 2px; }
+.creation-task-card[aria-pressed="true"] { border-color: var(--user-accent); background: var(--user-accent-soft); }
+.creation-task-card:disabled { opacity: .55; cursor: not-allowed; transform: none; }
+.creation-task-card-icon { display: grid; place-items: center; flex: 0 0 auto; width: 36px; height: 36px; border-radius: var(--user-radius-control); background: var(--user-surface-muted); color: var(--user-ink-muted); }
+.creation-task-card[aria-pressed="true"] .creation-task-card-icon { background: var(--user-surface); color: var(--user-accent); }
+.creation-task-card-icon svg { width: 18px; height: 18px; stroke-width: 1.8; }
+.creation-task-card-copy { display: grid; gap: 4px; min-width: 0; }
+.creation-task-card-copy strong { font-size: 14px; font-weight: 600; }
+.creation-task-card-copy span { font-size: 12px; line-height: 1.5; color: var(--user-ink-muted); }
+
+/* 面板打开时，滚动容器改为纵向弹性布局：标题和输入区按内容高度，
+   面板吃掉剩余高度，因此「立即生成」永远在首屏，不需要用户再往下滚。 */
+.creation-home:has(.creation-task-panel) .creation-empty-workspace {
+    display: flex !important;
+    flex-direction: column;
+    overflow-y: hidden !important;
+}
+.creation-home:has(.creation-task-panel) .creation-home-heading { flex: 0 0 auto; margin-bottom: 16px !important; }
+.creation-home:has(.creation-task-panel) .creation-launchpad { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; width: min(100%, 960px); }
+.creation-home:has(.creation-task-panel) .creation-composer-stage { flex: 0 0 auto; }
+/* 面板整体不高于视口减去标题与输入框的余量，保证「立即生成」永远在首屏可见；
+   只有中间区域滚动，头部和底部操作条固定。 */
+.creation-task-panel { display: flex; flex-direction: column; width: 100%; flex: 1 1 auto; min-height: 0; border: 1px solid var(--user-border); border-radius: var(--user-radius-card); background: var(--user-surface); overflow: hidden; }
+.creation-task-panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 16px 18px 12px; border-bottom: 1px solid var(--user-border); }
+.creation-task-panel-head h3 { margin: 0; font-size: 16px; font-weight: 600; color: var(--user-ink); }
+.creation-task-panel-head p { margin: 4px 0 0; font-size: 12px; color: var(--user-ink-muted); }
+.creation-task-panel-close { display: grid; place-items: center; width: 30px; height: 30px; border: 0; border-radius: var(--user-radius-control); background: transparent; color: var(--user-ink-muted); cursor: pointer; }
+.creation-task-panel-close:hover { background: var(--user-surface-hover); color: var(--user-ink); }
+.creation-task-panel-close svg { width: 16px; height: 16px; }
+
+.creation-task-panel-body { display: grid; gap: 20px; padding: 16px 18px; min-height: 0; overflow-y: auto; }
+/* 模块多时（商详套图 9 项）限制列表高度并自行滚动，避免把素材槽位和生成按钮挤出视口。 */
+.creation-task-modules { max-height: min(34vh, 300px); overflow-y: auto; }
+.creation-task-section h4 { margin: 0 0 10px; font-size: 12px; font-weight: 650; letter-spacing: .02em; color: var(--user-ink-soft); }
+.creation-task-section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.creation-task-section-head h4 { margin-bottom: 10px; }
+.creation-task-section-head p { margin: 0 0 10px; font-size: 12px; color: var(--user-ink-muted); font-variant-numeric: tabular-nums; }
+
+.creation-task-slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+.creation-task-slot { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px dashed var(--user-border-strong); border-radius: var(--user-radius-control); background: transparent; color: var(--user-ink); text-align: left; cursor: pointer; transition: border-color var(--user-motion), background var(--user-motion); }
+.creation-task-slot:hover:not(:disabled) { border-color: var(--user-accent); background: var(--user-surface-muted); }
+.creation-task-slot.has-items { border-style: solid; border-color: var(--user-border-strong); background: var(--user-surface-muted); }
+.creation-task-slot:disabled { opacity: .55; cursor: not-allowed; }
+.creation-task-slot-mark { display: grid; place-items: center; flex: 0 0 auto; width: 28px; height: 28px; border-radius: 8px; background: var(--user-surface); color: var(--user-ink-muted); border: 1px solid var(--user-border); font-size: 16px; line-height: 1; }
+.creation-task-slot-mark svg { width: 14px; height: 14px; }
+.creation-task-slot-copy { display: grid; gap: 2px; min-width: 0; }
+.creation-task-slot-copy strong { font-size: 13px; font-weight: 600; }
+.creation-task-slot-copy strong em { color: var(--status-error, #c45b5b); font-style: normal; }
+.creation-task-slot-copy > span { font-size: 11px; line-height: 1.45; color: var(--user-ink-muted); }
+.creation-task-slot-count { margin-left: auto; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--user-ink-muted); }
+
+.creation-task-modules { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.creation-task-module { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--user-border); border-radius: var(--user-radius-control); cursor: pointer; transition: border-color var(--user-motion), background var(--user-motion); }
+.creation-task-module:hover { border-color: var(--user-border-strong); }
+.creation-task-module input[type="checkbox"] { flex: 0 0 auto; width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--user-accent); }
+.creation-task-module-copy { display: grid; gap: 2px; min-width: 0; }
+.creation-task-module-copy strong { font-size: 13px; font-weight: 600; color: var(--user-ink); }
+.creation-task-module-spec { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; font-size: 11px; line-height: 1.45; color: var(--user-ink-muted); cursor: help; }
+.creation-task-module-count { display: flex; align-items: center; gap: 2px; margin-left: auto; flex: 0 0 auto; }
+.creation-task-module-count button { display: grid; place-items: center; width: 22px; height: 22px; border: 1px solid var(--user-border); border-radius: 6px; background: var(--user-surface); color: var(--user-ink-muted); cursor: pointer; }
+.creation-task-module-count button:hover:not(:disabled) { border-color: var(--user-border-strong); color: var(--user-ink); }
+.creation-task-module-count button:disabled { opacity: .4; cursor: not-allowed; }
+.creation-task-module-count button svg { width: 12px; height: 12px; }
+.creation-task-module-count input[type="number"] { width: 34px; height: 22px; border: 1px solid var(--user-border); border-radius: 6px; background: var(--user-surface); color: var(--user-ink); font-size: 12px; text-align: center; font-variant-numeric: tabular-nums; }
+
+.creation-task-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.creation-task-field { display: grid; gap: 5px; min-width: 0; }
+.creation-task-field > span { font-size: 12px; color: var(--user-ink-muted); }
+.creation-task-field select,
+.creation-task-field textarea { width: 100%; min-height: 34px; padding: 6px 10px; border: 1px solid var(--user-border); border-radius: var(--user-radius-control); background: var(--user-surface); color: var(--user-ink); font: inherit; font-size: 13px; }
+.creation-task-field textarea { resize: vertical; line-height: 1.6; }
+.creation-task-field select:focus-visible,
+.creation-task-field textarea:focus-visible { outline: 2px solid var(--user-accent); outline-offset: 1px; }
+.creation-task-field.is-notes { grid-column: 1 / -1; }
+.creation-task-model { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
+.creation-task-model > span { font-size: 12px; color: var(--user-ink-muted); }
+
+.creation-task-panel-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 18px; border-top: 1px solid var(--user-border); background: var(--user-surface-muted); }
+.creation-task-panel-status { font-size: 12px; color: var(--user-ink-muted); }
+.creation-task-submit.ant-btn { height: auto; padding: 0; border: 0; background: transparent !important; box-shadow: none; }
+.creation-task-submit.ant-btn .creation-task-submit-action { display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 18px; border-radius: 999px; background: var(--button-primary-bg); color: var(--button-primary-fg); font-size: 13px; font-weight: 600; transition: background var(--user-motion), transform var(--user-motion); }
+.creation-task-submit.ant-btn:not(:disabled):hover .creation-task-submit-action { background: var(--button-primary-hover-bg); transform: translateY(-1px); }
+.creation-task-submit.ant-btn:disabled .creation-task-submit-action { background: var(--user-surface-hover); color: var(--user-ink-muted); }
+.creation-task-submit.ant-btn .creation-task-submit-action svg { width: 16px; height: 16px; }
+.creation-task-submit-cost { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; opacity: .85; }
+.creation-task-submit-cost svg { width: 13px; height: 13px; }
+
+@media (max-width: 720px) {
+    .creation-task-cards { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+    .creation-task-slots { grid-template-columns: 1fr; }
+    .creation-task-fields { grid-template-columns: 1fr; }
+    /* 窄屏打开任务面板时收起自由输入区：任务卡才是这一步的主角，
+       否则输入框 + 面板叠加把「立即生成」挤出首屏。 */
+    .creation-home:has(.creation-task-panel) .creation-composer-stage { display: none !important; }
+    .creation-task-modules { max-height: none; }
+}
