@@ -191,6 +191,7 @@ type (
 	OSSSettingRequest                      = app.OSSSettingRequest
 	OptionConstraint                       = app.OptionConstraint
 	OutboundHeader                         = app.OutboundHeader
+	OutboundPolicySetting                  = app.OutboundPolicySetting
 	ParameterSupport                       = app.ParameterSupport
 	PasswordResetRequest                   = app.PasswordResetRequest
 	PaymentCheckoutView                    = app.PaymentCheckoutView
