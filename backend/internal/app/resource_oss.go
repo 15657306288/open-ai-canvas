@@ -27,7 +27,7 @@ func (s *Service) activeResourceOSSSetting(userID string) (ossSettingValue, stri
 	if err != nil {
 		return ossSettingValue{}, "", false, err
 	}
-	userAllowed := value.Provider != s3Provider || systemValue.AllowUserS3
+	userAllowed := !systemValue.UserStorageDisabled && (value.Provider != s3Provider || systemValue.AllowUserS3)
 	if userSetting != nil && value.Enabled && userAllowed {
 		value, err = validateActiveOSSSetting(value, "用户 OSS 尚未启用", "你的 OSS 配置不完整")
 		return value, firstNonEmpty(value.StorageLocationID, userSetting.ID), true, err

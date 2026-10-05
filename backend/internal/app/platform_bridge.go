@@ -32,6 +32,7 @@ const (
 	FeatureSystemPlugins         = platform.FeatureSystemPlugins
 	FeatureTimelineTranscription = platform.FeatureTimelineTranscription
 	FeaturePlaybackTranscoding   = platform.FeaturePlaybackTranscoding
+	FeaturePluginUpload          = platform.FeaturePluginUpload
 )
 
 type platformHost struct {

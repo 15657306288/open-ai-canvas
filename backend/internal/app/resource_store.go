@@ -353,6 +353,9 @@ func (s *Service) storeResourceObject(resource *model.Resource, fileName string,
 	if resource == nil {
 		return "", errors.New("资源不存在")
 	}
+	if err := s.rebindClosedPersonalStorage(resource, fileName); err != nil {
+		return "", err
+	}
 	if resource.Provider == "local" {
 		return "", writeLocalResourceObject(filepath.Join(s.dataDir, "resources", filepath.FromSlash(resource.ObjectKey)), body)
 	}
@@ -365,6 +368,57 @@ func (s *Service) storeResourceObject(resource *model.Resource, fileName string,
 		return "", err
 	}
 	return etag, nil
+}
+
+// rebindClosedPersonalStorage moves a failed or pending resource away from a
+// user's personal storage when the platform administrator closes that policy.
+// Existing ready resources keep their historical storage binding for reads and
+// deletes; only a subsequent write is rebound.
+func (s *Service) rebindClosedPersonalStorage(resource *model.Resource, fileName string) error {
+	if resource == nil || resource.Provider == "local" {
+		return nil
+	}
+	_, platform, err := s.readOSSSetting()
+	if err != nil || !platform.UserStorageDisabled {
+		return err
+	}
+	personal := false
+	if resource.StorageSettingID != "" {
+		location, lookupErr := s.repo.StorageLocation(resource.StorageSettingID)
+		switch {
+		case lookupErr == nil:
+			personal = location.Scope == "user"
+		case errors.Is(lookupErr, gorm.ErrRecordNotFound):
+			_, lookupErr = s.repo.UserOSSSettingForUser(resource.UserID, resource.StorageSettingID)
+			if lookupErr != nil && !errors.Is(lookupErr, gorm.ErrRecordNotFound) {
+				return lookupErr
+			}
+			personal = lookupErr == nil
+		default:
+			return lookupErr
+		}
+	} else {
+		_, lookupErr := s.userOSSSettingForResource(resource.UserID, resource)
+		if lookupErr != nil && !errors.Is(lookupErr, gorm.ErrRecordNotFound) {
+			return lookupErr
+		}
+		personal = lookupErr == nil
+	}
+	if !personal {
+		return nil
+	}
+	setting, settingID, useOSS, err := s.activeResourceOSSSetting(resource.UserID)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	resource.Provider, resource.Endpoint, resource.Bucket, resource.StorageSettingID = "local", "", "", ""
+	resource.ObjectKey = localObjectKey(resource.UserID, resource.Kind, fileName, resource.MimeType, now)
+	if useOSS {
+		resource.Provider, resource.Endpoint, resource.Bucket, resource.StorageSettingID = setting.Provider, setting.Endpoint, setting.Bucket, settingID
+		resource.ObjectKey = ossObjectKey(setting, resource.UserID, resource.Kind, fileName, resource.MimeType, now)
+	}
+	return nil
 }
 
 func (s *Service) retryStoredResource(userID string, resource *model.Resource, kind string, mimeType string, size int64, body io.Reader) (*model.Resource, error) {
