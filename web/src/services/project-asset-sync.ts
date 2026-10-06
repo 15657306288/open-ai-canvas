@@ -13,7 +13,7 @@ import { getImageBlob, resolveImageUrl, setImageBlob } from "@/services/image-st
 import { generationArtifactStorageKey, loadOrStoreGenerationArtifact } from "@/services/generation-artifact-sink";
 import { createProviderNeutralGenerationTaskEffectStore } from "@/services/provider-neutral-generation-effects";
 import { getCachedResourceBlob } from "@/services/resource-blob-cache";
-import { saveRemoteUserDataNow } from "@/services/user-data-sync";
+import { loadAssetsForUse, saveRemoteUserDataNow } from "@/services/user-data-sync";
 import { getActiveUserScope } from "@/lib/user-scope";
 import { normalizeAssetCategory } from "@/lib/asset-category";
 import { runGenerationConsumer } from "@/services/generation-consumer-lifecycle";
@@ -99,9 +99,16 @@ async function persistCanvasNodeAsset(options: EnsureCanvasNodeAssetOptions): Pr
     throwIfAborted(options.signal);
     const store = useAssetStore.getState();
     let asset = findCanvasNodeAsset(store.assets, options.node, options.canvasId, options.taskId);
+    if (!asset && options.node.metadata?.assetId) {
+        await loadAssetsForUse([options.node.metadata.assetId]);
+        throwIfAborted(options.signal);
+        asset = findCanvasNodeAsset(useAssetStore.getState().assets, options.node, options.canvasId, options.taskId);
+    }
     const declaredCategory = options.category || declaredCanvasNodeAssetCategory(options.node);
     let created = false;
     if (!asset) {
+        // 受管生成结果必须采用已登记的身份，不能以随机 ID 再建一份。
+        if ((options.taskId || options.node.metadata?.taskId) && options.node.metadata?.storageKey?.startsWith("resource:")) throw new Error("生成素材尚未加载，请重新读取生成结果");
         const input = canvasNodeToAsset(options.node, { canvasId: options.canvasId, source: options.source, taskId: options.taskId });
         if (!input) throw new Error("当前节点没有可保存的素材内容");
         const assetId = store.addAsset(options.category ? { ...input, category: options.category } : input);
@@ -306,6 +313,7 @@ async function generationOutputAsset(input: Parameters<MaterializeGenerationTask
         return {
             kind: "image",
             title: "生成图片",
+            category: "material",
             coverUrl: stored.url,
             tags: ["生成"],
             status: "confirmed",
@@ -345,6 +353,7 @@ async function generationOutputAsset(input: Parameters<MaterializeGenerationTask
         return {
             kind: "video",
             title: "生成视频",
+            category: "material",
             coverUrl: canvasVideoAssetPreviewUrl(stored.url),
             tags: ["生成"],
             status: "confirmed",
@@ -388,6 +397,7 @@ async function generationOutputAsset(input: Parameters<MaterializeGenerationTask
     return {
         kind: "audio",
         title: "生成音频",
+        category: "material",
         coverUrl: "",
         tags: ["生成"],
         status: "confirmed",

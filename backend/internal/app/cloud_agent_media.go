@@ -981,6 +981,14 @@ func completeCloudAgentMediaNode(repo *repository.Repository, userID, canvasID, 
 				return stringValue(node["id"]), &cloudAgentMediaWritebackError{error: BadAuthRequest("生成结果没有可用的账号资源，未写入媒体地址"), reason: "result_resource_unavailable"}
 			}
 			meta["content"], meta["storageKey"], meta["status"] = resourceFileURL(id), "resource:"+id, "success"
+			// 完成交易已登记的首个产物，与 Agent 回写的首个资源共用身份。
+			assetID := generationMediaAssetID(task.ID, 0)
+			delete(meta, "assetId")
+			if _, err := repo.AssetForUser(userID, assetID); err == nil {
+				meta["assetId"] = assetID
+			} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return "", err
+			}
 			meta["naturalWidth"], meta["naturalHeight"] = resource.Width, resource.Height
 			if resource.Width > 0 && resource.Height > 0 {
 				if width, ok := node["width"].(float64); ok && width > 0 {
