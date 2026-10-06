@@ -27,6 +27,13 @@ require_root() {
     ((CANVAS_HTTP_PORT >= 1 && CANVAS_HTTP_PORT <= 65535)) || fail "CANVAS_HTTP_PORT 必须是 1 到 65535 的数字"
 }
 
+require_avx_for_source_build() {
+    # Bun's Linux x86_64 binary requires AVX; fail before Docker starts a long build.
+    if [[ "$(uname -m)" == "x86_64" ]] && ! grep -qw avx /proc/cpuinfo 2>/dev/null; then
+        fail "当前 x86_64 服务器不支持 AVX，不能在服务器上构建 Bun/Vite。请改用 scripts/install-server-image.sh 使用预构建镜像；构建应在支持 AVX 的本地或 CI 环境完成。"
+    fi
+}
+
 install_packages() {
     local packages=(ca-certificates curl git openssl)
 
@@ -113,6 +120,7 @@ EOF
 
 start_services() {
     step "从源码构建网页与后端镜像"
+    require_avx_for_source_build
     # 标准一键部署已下载完整仓库，直接本地构建可避免公开项目被 GHCR 包可见性阻断。
     docker compose --env-file .env -f "$COMPOSE_FILE" -f "$BUILD_COMPOSE_FILE" build backend web
 

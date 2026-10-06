@@ -1,5 +1,5 @@
 import { Popover } from "antd";
-import { Bell, ChevronDown, ChevronRight, CircleUserRound, History as HistoryIcon, Infinity as InfinityIcon, PanelLeftClose, PanelLeftOpen, Plus } from "lucide-react";
+import { Bell, ChevronDown, ChevronRight, CircleUserRound, History as HistoryIcon, Infinity as InfinityIcon, PanelLeftClose, PanelLeftOpen, Plus, ShieldCheck } from "lucide-react";
 import { LayoutGroup, motion, useReducedMotion } from "motion/react";
 import { useEffect, useMemo, useRef, useState, type ComponentType, type CSSProperties } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
@@ -95,6 +95,15 @@ function WorkspaceSidebarProfile({ collapsed, user }: { collapsed: boolean; user
 
 function WorkspaceSwitcher({ collapsed, onNavigate, onExpand, onCollapse }: { collapsed: boolean; onNavigate: () => void; onExpand: () => void; onCollapse: () => void }) {
     const appearance = useAppearanceStore((state) => state.appearance);
+    const user = useUserStore((state) => state.user);
+    const [isOpen, setIsOpen] = useState(false);
+    const navigate = useNavigate();
+
+    const go = (to: string) => {
+        setIsOpen(false);
+        onNavigate();
+        navigate(to);
+    };
 
     if (collapsed) {
         return (
@@ -108,7 +117,7 @@ function WorkspaceSwitcher({ collapsed, onNavigate, onExpand, onCollapse }: { co
 
     return (
         <div className="app-workspace-sidebar-brand-row relative shrink-0 px-3 pt-3">
-            <Link to="/" onClick={onNavigate} className="app-workspace-sidebar-brand-button group" aria-label={`${appearance.brandName}首页`}>
+            <button type="button" onClick={() => setIsOpen((open) => !open)} aria-haspopup="menu" aria-expanded={isOpen} className="app-workspace-sidebar-brand-button group">
                 <span className="flex min-w-0 items-center gap-2">
                     <BrandLogoFrame className="app-workspace-brand-mark grid size-8 shrink-0 place-items-center rounded-[var(--r-sm)] shadow-sm" logoClassName="size-5 object-contain" alt="" fallback={<InfinityIcon className="size-4" strokeWidth={2.2} />} />
                     <span className="flex min-w-0 flex-col">
@@ -116,10 +125,36 @@ function WorkspaceSwitcher({ collapsed, onNavigate, onExpand, onCollapse }: { co
                         <span className="mt-1 truncate text-[var(--fs-label)] leading-none text-foreground/60">创作工作台</span>
                     </span>
                 </span>
-            </Link>
+                <ChevronDown className="size-4 shrink-0 text-foreground/40 transition-colors group-hover:text-foreground/70" strokeWidth={1.6} />
+            </button>
             <button type="button" className="app-workspace-sidebar-collapse-button" aria-label="收起侧栏" title="收起侧栏" onClick={onCollapse}>
                 <PanelLeftClose className="size-4" strokeWidth={1.7} />
             </button>
+            {isOpen ? (
+                <>
+                    <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="关闭工作区菜单" onClick={() => setIsOpen(false)} />
+                    <div className="app-workspace-nav-popover absolute left-3 right-3 top-full z-50 mt-1 overflow-hidden rounded-lg border border-[var(--workspace-border)] bg-[var(--workspace-surface-strong)] py-1" role="menu">
+                        <div className="px-3 py-2.5">
+                            <div className="truncate text-[var(--fs-body)] font-semibold">{appearance.brandName}</div>
+                            <div className="mt-0.5 truncate text-[var(--fs-label)] text-foreground/45">创作工作台</div>
+                        </div>
+                        <div className="mx-2 my-1 h-px bg-[var(--workspace-border)]" />
+                        <a href="/welcome" className="flex w-full items-center gap-2 px-3 py-2 text-[var(--fs-body)] text-foreground/80 transition-colors hover:bg-surface-hover hover:text-foreground" role="menuitem">
+                            品牌首页
+                        </a>
+                        {[{ label: "首页", to: "/" }, { label: "画布", to: "/canvas" }, { label: "设置", to: "/settings" }].map((entry) => (
+                            <button key={entry.to} type="button" onClick={() => go(entry.to)} className="flex w-full items-center gap-2 px-3 py-2 text-[var(--fs-body)] text-foreground/80 transition-colors hover:bg-surface-hover hover:text-foreground" role="menuitem">
+                                {entry.label}
+                            </button>
+                        ))}
+                        {user?.role === "admin" ? <button type="button" onClick={() => go("/admin")} className="flex w-full items-center gap-2 px-3 py-2 text-[var(--fs-body)] text-foreground/80 transition-colors hover:bg-surface-hover hover:text-foreground" role="menuitem"><ShieldCheck className="size-3.5" /> 管理员后台</button> : null}
+                        <div className="mx-2 my-1 h-px bg-[var(--workspace-border)]" />
+                        <button type="button" onClick={() => go("/canvas?mode=new")} className="flex w-full items-center gap-2 px-3 py-2 text-[var(--fs-body)] text-foreground/45 transition-colors hover:bg-surface-hover hover:text-foreground" role="menuitem">
+                            <Plus className="size-3.5" /> 新建画布
+                        </button>
+                    </div>
+                </>
+            ) : null}
         </div>
     );
 }

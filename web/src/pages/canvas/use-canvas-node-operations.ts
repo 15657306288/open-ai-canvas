@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateA
 import { App } from "antd";
 import copyToClipboard from "copy-to-clipboard";
 import { nanoid } from "nanoid";
+import { saveAs } from "file-saver";
 
 import { NODE_DEFAULT_SIZE } from "@/constant/canvas";
 import { FOLDER_COLLAPSED_HEIGHT, FOLDER_COLLAPSED_WIDTH, FRAME_HEADER_HEIGHT, getFrameChildIds, getFrameChildren, isFrameNode } from "@/lib/canvas/canvas-frame";
@@ -11,6 +12,10 @@ import { createCanvasNode, isHiddenBatchChild, removeCanvasNodes } from "@/lib/c
 import { isolateCopiedNodeMetadata, nextCopiedNodeTitle } from "@/lib/canvas/canvas-node-copy";
 import { CanvasNodeType, type CanvasConnection, type CanvasFolderStyle, type CanvasFolderTheme, type CanvasNodeData, type CanvasNodeMetadata, type CanvasNodeTypeId, type ContextMenuState, type Position } from "@/types/canvas";
 import { cloneCanvasDrawing } from "@/lib/canvas/canvas-drawing-storage";
+import { createZip } from "@/lib/zip";
+import { getMediaBlob } from "@/services/file-storage";
+import { getImageBlob } from "@/services/image-storage";
+import { buildCanvasMediaDownloadFileName, canvasMediaFileExtension } from "@/lib/canvas/canvas-media-download";
 import { isDrawingEngineAvailable, type CanvasDrawingEngine } from "@/lib/canvas/canvas-drawing-engine";
 import { useUserStore } from "@/stores/use-user-store";
 import { useEffectiveConfig } from "@/stores/use-config-store";
@@ -28,6 +33,7 @@ const CANVAS_NODES_CLIPBOARD_STORAGE_KEY = "open-ai-canvas:nodes-clipboard";
 
 type UseCanvasNodeOperationsOptions = {
     projectId: string;
+    canvasTitle: string;
     defaultDrawingEngine: CanvasDrawingEngine;
     nodesRef: { current: CanvasNodeData[] };
     connectionsRef: { current: CanvasConnection[] };
@@ -44,6 +50,7 @@ type UseCanvasNodeOperationsOptions = {
 
 export function useCanvasNodeOperations({
     projectId,
+    canvasTitle,
     defaultDrawingEngine,
     nodesRef,
     connectionsRef,
@@ -217,6 +224,47 @@ export function useCanvasNodeOperations({
         commitNodes(currentNodes.map((node) => positions.has(node.id) ? { ...node, position: positions.get(node.id)! } : node));
         message.success("已按相对布局加大间距");
     }, [commitNodes, message, nodesRef, selectedNodeIdsRef]);
+
+    const downloadSelectedNodes = useCallback(async () => {
+        const selected = nodesRef.current.filter((node) => selectedNodeIdsRef.current.has(node.id) && (node.type === CanvasNodeType.Image || node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio));
+        if (!selected.length) {
+            message.info("请选择至少一个图片、视频或音频节点");
+            return;
+        }
+
+        const files: { name: string; data: Blob }[] = [];
+        const usedNames = new Set<string>();
+        let failed = 0;
+        for (const node of selected) {
+            try {
+                const storageKey = node.metadata?.storageKey?.trim();
+                const content = node.metadata?.content?.trim();
+                const blob = storageKey
+                    ? node.type === CanvasNodeType.Image ? await getImageBlob(storageKey) : await getMediaBlob(storageKey)
+                    : content ? await (await fetch(content)).blob() : null;
+                if (!blob) {
+                    failed += 1;
+                    continue;
+                }
+                const baseName = buildCanvasMediaDownloadFileName(canvasTitle, node).replace(/\.[^.]+$/, "");
+                const extension = canvasMediaFileExtension(node);
+                let name = `${baseName}.${extension}`;
+                let suffix = 2;
+                while (usedNames.has(name)) name = `${baseName}-${suffix++}.${extension}`;
+                usedNames.add(name);
+                files.push({ name, data: blob });
+            } catch {
+                failed += 1;
+            }
+        }
+        if (!files.length) {
+            message.error("选中的媒体没有可下载内容");
+            return;
+        }
+        const zip = await createZip(files);
+        saveAs(zip, `${canvasTitle || "画布"}-选中媒体.zip`);
+        message.success(`已打包下载 ${files.length} 个媒体${failed ? `，${failed} 个无法读取` : ""}`);
+    }, [canvasTitle, message, nodesRef, selectedNodeIdsRef]);
 
     const alignSelectedNodes = useCallback((mode: CanvasAlignmentMode) => {
         const selected = nodesRef.current.filter((node) => selectedNodeIdsRef.current.has(node.id) && !node.metadata?.locked && !isFrameNode(node));
@@ -554,6 +602,7 @@ export function useCanvasNodeOperations({
         alignSelectedNodes,
         autoArrangeCanvasNodes,
         arrangeSelectedNodes,
+        downloadSelectedNodes,
         spreadSelectedNodes,
         copyNodesToClipboard,
         copySelectedNodes,

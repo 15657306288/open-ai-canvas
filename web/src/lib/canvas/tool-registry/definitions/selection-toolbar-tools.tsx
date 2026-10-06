@@ -1,4 +1,4 @@
-import { AlignHorizontalJustifyCenter, AlignHorizontalJustifyEnd, AlignHorizontalJustifyStart, AlignHorizontalSpaceAround, AlignHorizontalSpaceBetween, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, AlignVerticalJustifyStart, AlignVerticalSpaceAround, AlignVerticalSpaceBetween, AtSign, Film, FolderTree, Grid3X3, LayoutTemplate, Link2, LoaderCircle, Workflow } from "lucide-react";
+import { AlignHorizontalJustifyCenter, AlignHorizontalJustifyEnd, AlignHorizontalJustifyStart, AlignHorizontalSpaceAround, AlignHorizontalSpaceBetween, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, AlignVerticalJustifyStart, AlignVerticalSpaceAround, AlignVerticalSpaceBetween, AtSign, Download, Film, FolderTree, Grid3X3, LayoutTemplate, Link2, LoaderCircle, Sparkles, Workflow } from "lucide-react";
 
 import { registerToolbarTools, type ToolDefinition } from "@/lib/canvas/tool-registry";
 
@@ -15,9 +15,11 @@ export const selectionToolbarTools: ToolDefinition[] = [
     { id: "selection-arrange-column", toolbar: "selection", category: "arrange", label: "纵向排列", icon: <AlignVerticalSpaceAround />, defaultVisible: false, defaultOrder: 100, run: (ctx) => ctx.handlers.onArrange("column") },
     { id: "selection-arrange-grid", toolbar: "selection", category: "arrange", label: "宫格排列", icon: <Grid3X3 />, defaultVisible: false, defaultOrder: 110, run: (ctx) => ctx.handlers.onArrange("grid") },
     { id: "selection-arrange-flow", toolbar: "selection", category: "arrange", label: "按连线整理", icon: <Workflow />, defaultVisible: false, defaultOrder: 120, run: (ctx) => ctx.handlers.onArrange("flow") },
+    { id: "selection-auto-arrange", toolbar: "selection", category: "arrange", label: "自动整理", icon: <Sparkles />, defaultVisible: true, defaultOrder: 121, disabled: (ctx) => ctx.selectedCount < 2, run: (ctx) => ctx.handlers.onAutoArrangeSelection() },
+    { id: "selection-batch-download", toolbar: "selection", category: "resource", label: "批量下载", icon: <Download />, defaultVisible: true, defaultOrder: 122, disabled: (ctx) => ctx.selectedCount < 1, run: (ctx) => ctx.handlers.onDownloadSelection() },
     { id: "selection-create-storyboard", toolbar: "selection", category: "selection", label: "创建分镜组", icon: <LayoutTemplate />, defaultVisible: true, defaultOrder: 130, disabled: (ctx) => ctx.selectedCount < 2, run: (ctx) => ctx.handlers.onCreateStoryboard() },
     { id: "selection-create-reference-group", toolbar: "selection", category: "selection", label: "创建引用组", icon: <FolderTree />, defaultVisible: false, defaultOrder: 140, disabled: (ctx) => ctx.selectedCount < 2, run: (ctx) => ctx.handlers.onCreateReferenceGroup() },
-    { id: "selection-batch-connect", toolbar: "selection", category: "selection", label: "批量连接", icon: <Link2 />, defaultVisible: true, defaultOrder: 145, disabled: (ctx) => ctx.selectedCount < 2, run: (ctx) => ctx.handlers.onBatchConnect() },
+    { id: "selection-batch-connect", toolbar: "selection", category: "selection", label: "批量链接", icon: <Link2 />, defaultVisible: true, defaultOrder: 145, disabled: (ctx) => ctx.selectedCount < 2, run: (ctx) => ctx.handlers.onBatchConnect() },
     { id: "selection-send-to-agent", toolbar: "selection", category: "selection", label: "发送到 Agent", icon: <AtSign />, defaultVisible: true, defaultOrder: 148, disabled: (ctx) => ctx.selectedCount < 1, run: (ctx) => ctx.handlers.onSendSelectionToAgent() },
     {
         id: "selection-merge-videos",
@@ -25,7 +27,7 @@ export const selectionToolbarTools: ToolDefinition[] = [
         category: "selection",
         label: (ctx) => `合并选中视频（${ctx.selectedVideoCount}）`,
         icon: (ctx) => ctx.mergingVideos ? <LoaderCircle className="animate-spin" /> : <Film />,
-        defaultVisible: true,
+        defaultVisible: false,
         defaultOrder: 150,
         applicable: (ctx) => ctx.selectedVideoCount >= 2,
         disabled: (ctx) => ctx.mergingVideos,
