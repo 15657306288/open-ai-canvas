@@ -970,6 +970,7 @@ function InfiniteCanvasPage() {
         createStoryboardGroup,
         deleteConnection,
         deleteNodes,
+        downloadSelectedNodes,
         duplicateNode,
         hasCopiedNodes,
         pasteCopiedNodes,
@@ -980,6 +981,7 @@ function InfiniteCanvasPage() {
         toggleNodeLocked,
     } = useCanvasNodeOperations({
         projectId,
+        canvasTitle: currentProject?.title || "未命名画布",
         defaultDrawingEngine,
         nodesRef,
         connectionsRef,
@@ -2983,6 +2985,8 @@ function InfiniteCanvasPage() {
                                 onBatchConnect={() => beginBatchConnectionMode(Array.from(selectedNodeIds))}
                                 onMergeVideos={() => void mergeSelectedVideos()}
                                 onSendSelectionToAgent={() => sendSelectionToAgent()}
+                                onAutoArrangeSelection={autoArrangeCanvasNodes}
+                                onDownloadSelection={() => void downloadSelectedNodes()}
                             />
                         ) : null}
 
