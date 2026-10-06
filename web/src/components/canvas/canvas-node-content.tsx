@@ -69,6 +69,8 @@ export function CanvasNodeContent(props: CanvasNodeContentProps) {
         props.node.type === CanvasNodeType.Config ||
         props.node.type === CanvasNodeType.Script ||
         props.node.type === CanvasNodeType.BatchTable ||
+        props.node.type === CanvasNodeType.ProductDetail ||
+        props.node.type === CanvasNodeType.ProductReplica ||
         Boolean(props.node.metadata?.previsSceneId) ||
         (props.node.metadata?.workflowKind === "character" && Boolean(props.node.metadata.characterAssetId)) ||
         (props.node.metadata?.workflowKind === "story_input" && !props.isEditingContent) ||

@@ -3,6 +3,7 @@ import { App } from "antd";
 import { nanoid } from "nanoid";
 
 import { generationBatchStatus, isGenerationCostUncertainError } from "@/lib/canvas/canvas-generation-batch";
+import { isCommerceNode } from "@/lib/canvas/commerce-workflow";
 import { buildGenerationConfig, createGenerationRetryContext, generationTaskMetadata, resetGenerationTaskMetadata } from "@/lib/canvas/canvas-project-generation";
 import { unchangedModeratedPrompt } from "@/lib/generation-error";
 import { nodeGenerationPrompt } from "@/lib/canvas/generation-contract";
@@ -74,7 +75,8 @@ export function useCanvasGenerationBatches({ projectId, projectLoaded, nodes, no
                 mode,
                 status: "queued",
                 items: availableTargets.map((target) => ({ id: nanoid(), ...target, status: "waiting", retryCount: 0 })),
-                concurrency: options?.concurrency ? Math.max(1, Math.min(10, Math.floor(options.concurrency))) : undefined,
+                // 电商表用 concurrency=0 表示跟随运行时额度，不落到批次的固定上限上。
+                concurrency: isCommerceNode(sourceNode) && mode === "batch_image" ? undefined : options?.concurrency ? Math.max(1, Math.min(10, Math.floor(options.concurrency))) : undefined,
                 createdAt: now,
                 updatedAt: now,
             };
@@ -113,7 +115,8 @@ export function useCanvasGenerationBatches({ projectId, projectLoaded, nodes, no
                         let patch: Partial<CanvasGenerationBatchItem> | null = null;
                         if (!node) {
                             patch = { status: "failed", errorDetails: "目标节点已不存在" };
-                        } else if (node.metadata?.status === "success" && node.metadata.content) {
+                        } else if (node.metadata?.status === "success" && (node.metadata.content || node.metadata.storageKey)) {
+                            // 资源型产物（只带 storageKey）同样算完成，否则批次会永久停在 running。
                             patch = { status: "succeeded", taskId: node.metadata.taskId, errorDetails: undefined, costUncertain: false };
                         } else if (node.metadata?.status === "error") {
                             const errorDetails = node.metadata.errorDetails || "生成失败";
@@ -183,15 +186,17 @@ export function useCanvasGenerationBatches({ projectId, projectLoaded, nodes, no
             for (const sourceNode of currentNodes) {
                 for (const batch of sourceNode.metadata?.generationBatches || []) {
                     if (batch.projectId !== projectId || batch.status === "completed" || batch.status === "cancelled") continue;
-                    let batchAvailableSlots = batch.concurrency
-                        ? Math.max(0, batch.concurrency - batch.items.filter((item) => ["submitting", "queued", "running"].includes(item.status)).length)
+                    // 已保存的电商批次可能仍带着旧的固定上限，只有 waiting 项按当前额度调度。
+                    const batchConcurrency = isCommerceNode(sourceNode) && batch.mode === "batch_image" ? undefined : batch.concurrency;
+                    let batchAvailableSlots = batchConcurrency
+                        ? Math.max(0, batchConcurrency - batch.items.filter((item) => ["submitting", "queued", "running"].includes(item.status)).length)
                         : Number.POSITIVE_INFINITY;
                     for (const item of batch.items) {
                         if (item.status !== "waiting" || availableSlots <= 0 || batchAvailableSlots <= 0) continue;
                         const node = nodeById.get(item.nodeId);
                         if (!node) continue;
                         // 已绑定任务或已有成品的节点交给恢复/对账链路处理，绝不重复提交。
-                        if (node.metadata?.taskId || (node.metadata?.status === "success" && node.metadata.content)) continue;
+                        if (node.metadata?.taskId || (node.metadata?.status === "success" && (node.metadata.content || node.metadata.storageKey))) continue;
                         candidates.push({ batch, item, node });
                         availableSlots -= 1;
                         batchAvailableSlots -= 1;

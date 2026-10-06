@@ -15,14 +15,21 @@ import { useAssetStore } from "@/stores/use-asset-store";
 import { applyGenerationConsumerEffect, generationEffectApplied } from "@/services/generation-consumer-dedupe";
 import { commitProducedModel } from "@/lib/canvas/produced-model";
 import { CanvasNodeType, type CanvasGenerationMode, type CanvasNodeData, type CanvasNodeMetadata } from "@/types/canvas";
+import { isCommerceNode, applyCommerceOutput } from "@/lib/canvas/commerce-workflow";
 
 export function generationTaskInput(task: GenerationTask) {
     if (!task.inputJson) return null;
     try {
-        return JSON.parse(task.inputJson) as { mode?: CanvasGenerationMode; metadata?: { nodeId?: string; sourceNodeId?: string; domainProjectId?: string }; prompt?: string };
+        return JSON.parse(task.inputJson) as { mode?: CanvasGenerationMode; metadata?: { nodeId?: string; sourceNodeId?: string; domainProjectId?: string; clientOperationId?: string }; prompt?: string; systemPrompt?: string };
     } catch {
         return null;
     }
+}
+
+/** Persisted canvas tasks carry the operation identity inside input metadata. */
+export function generationTaskOperationId(task: GenerationTask) {
+    const operation = task.clientOperationId || generationTaskInput(task)?.metadata?.clientOperationId;
+    return typeof operation === "string" ? operation : "";
 }
 
 export function generationTaskNodeId(task: GenerationTask) {
@@ -194,6 +201,18 @@ export async function buildGenerationTaskNodeResult(node: CanvasNodeData, task: 
     }
 
     if (!result.text) throw new Error("后端任务没有返回文本");
+    // 电商策划结果回填 commerceWorkflow，而不是把配置节点改写成普通文本节点。
+    if (isCommerceNode(node) && node.metadata?.commerceWorkflow) {
+        const data = node.metadata.commerceWorkflow;
+        if (!data.pending || generationTaskOperationId(task) !== data.pending.operationId) return node;
+        try {
+            const commerceWorkflow = applyCommerceOutput(data, result.text);
+            return { ...node, metadata: { ...node.metadata, ...completedTaskMetadata(task), status: "success", errorDetails: undefined, generationErrorCode: undefined, resourceReloadAvailable: undefined, failedPromptFingerprint: undefined, commerceWorkflow } };
+        } catch (error) {
+            // 策划结构不完整时停在可恢复错误，保留原文与 pending，不自动继续收费生图。
+            return { ...node, metadata: { ...node.metadata, ...completedTaskMetadata(task), status: "error", errorDetails: error instanceof Error ? error.message : "策划解析失败", commerceWorkflow: { ...data, rawOutput: result.text } } };
+        }
+    }
     return {
         ...node,
         type: CanvasNodeType.Text,

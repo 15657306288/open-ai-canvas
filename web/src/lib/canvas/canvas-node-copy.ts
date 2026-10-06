@@ -69,6 +69,20 @@ export function isolateCopiedNodeMetadata(node: CanvasNodeData, idMap: ReadonlyM
     delete metadata.versionPrimary;
 
     metadata.copiedFromNodeId = node.id;
+    if (node.metadata?.commerceWorkflow) {
+        // 副本不得继承正在计费的任务、待确认状态与批量表；只保留可编辑的方案快照。
+        const data = node.metadata.commerceWorkflow;
+        const remap = (id: string) => idMap.get(id) || id;
+        metadata.commerceWorkflow = { ...structuredClone(data), pending: undefined, rawOutput: undefined, autoGenerate: undefined,
+            sourceNodeId: remapOwnedNodeId(data.sourceNodeId, idMap), inputNodeIds: remapReferenceIds(data.inputNodeIds, idMap),
+            inputIdentities: data.inputIdentities ? Object.fromEntries(Object.entries(data.inputIdentities).map(([id, identity]) => [remap(id), identity])) : undefined,
+            extraReferenceNodeIds: remapReferenceIds(data.extraReferenceNodeIds, idMap),
+            extraReferenceIdentities: data.extraReferenceIdentities ? Object.fromEntries(Object.entries(data.extraReferenceIdentities).map(([id, identity]) => [remap(id), identity])) : undefined,
+            templateCopies: data.templateCopies ? structuredClone(Object.fromEntries(Object.entries(data.templateCopies).map(([id, copy]) => [remap(id), copy]))) : undefined,
+            secondaryNodeIds: remapReferenceIds(data.secondaryNodeIds, idMap) || [],
+            screens: data.screens.map((screen) => ({ ...screen, templateNodeId: remapReferenceId(screen.templateNodeId, idMap), referenceNodeIds: remapReferenceIds(screen.referenceNodeIds, idMap) })) };
+        delete metadata.batchTable;
+    }
     if (node.type === CanvasNodeType.Image || node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio) {
         metadata.generationResultPlacement = "replace-node";
     }

@@ -1,6 +1,7 @@
 import { audioModelForConnection, audioReferenceCapacity, doubaoAudioInputError, isDoubaoAudioModel, maxModelInputCapacity, resolveCompatibleModel, type ModelInputSummary } from "@/lib/model-selection";
 import { getNodeAcceptedInputKinds, getNodeGenerationMode, getNodeInputKind, getNodeMaxInputCount } from "@/lib/canvas/node-registry";
 import { readNodeGenerationSpec, resolveGenerationSelection } from "@/lib/canvas/generation-contract";
+import { commerceBusy, isCommerceNode } from "@/lib/canvas/commerce-workflow";
 import type { AiConfig } from "@/stores/use-config-store";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData } from "@/types/canvas";
 
@@ -13,9 +14,26 @@ type CanvasConnectionPolicyOptions = {
 export function canvasConnectionError(config: AiConfig, nodes: CanvasNodeData[], connections: CanvasConnection[], candidate: ConnectionCandidate, options: CanvasConnectionPolicyOptions = {}) {
     const target = nodes.find((node) => node.id === candidate.toNodeId);
     if (!target) return "找不到连线目标节点";
+    const source = nodes.find((node) => node.id === candidate.fromNodeId);
+    // 电商配置节点不是图片资产：输出连线应从独立图片结果卡拖出。
+    if (source && isCommerceNode(source)) return "请从独立图片结果卡输出连线";
+    if (isCommerceNode(target)) {
+        if (target.metadata?.commerceWorkflow?.role === "result") return "结果组的产品引用已固定，请从配置节点新建一组；单屏参考图在编辑区添加";
+        if (target.metadata?.locked || commerceBusy(target) || target.metadata?.commerceWorkflow?.pending) return "电商节点正在运行或已锁定，请完成任务后修改引用";
+        if (source?.id === target.id) return "节点不能连接自身";
+        // 阻止把当前工作流已经产出的结果再反向连回配置节点形成循环。
+        const visited = new Set<string>();
+        const queue = [target.id];
+        while (queue.length) {
+            const id = queue.pop()!;
+            if (id === candidate.fromNodeId) return "不能将当前工作流的结果反向连入，避免循环引用";
+            if (visited.has(id)) continue;
+            visited.add(id);
+            connections.filter((edge) => edge.fromNodeId === id).forEach((edge) => queue.push(edge.toNodeId));
+        }
+    }
     const acceptedInputKinds = getNodeAcceptedInputKinds(target.type);
     if (acceptedInputKinds.length) {
-        const source = nodes.find((node) => node.id === candidate.fromNodeId);
         const sourceKind = source ? getNodeInputKind(source.type) : undefined;
         const isMediaConversion = target.type === CanvasNodeType.MediaConversion;
         const hasAcceptedSource = isMediaConversion

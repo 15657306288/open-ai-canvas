@@ -22,6 +22,8 @@ export const addNodeMenuCommands: AddNodeMenuCommand[] = [
     { id: "project-character", label: "角色卡", icon: <UserRound />, section: "node", defaultOrder: 55, run: (ctx) => ctx.handlers.onOpenProjectCharacters() },
     nodeCommand(CanvasNodeType.Video, { defaultOrder: 60, run: (ctx) => ctx.handlers.onAddVideo() }),
     nodeCommand(CanvasNodeType.BatchTable, { defaultOrder: 66, run: (ctx) => ctx.handlers.onAddExtensionNode(CanvasNodeType.BatchTable) }),
+    nodeCommand(CanvasNodeType.ProductDetail, { defaultOrder: 67, run: (ctx) => ctx.handlers.onAddExtensionNode(CanvasNodeType.ProductDetail) }),
+    nodeCommand(CanvasNodeType.ProductReplica, { defaultOrder: 68, run: (ctx) => ctx.handlers.onAddExtensionNode(CanvasNodeType.ProductReplica) }),
     nodeCommand(CanvasNodeType.MediaConversion, { badge: "本地", defaultOrder: 65, run: (ctx) => ctx.handlers.onAddExtensionNode(CanvasNodeType.MediaConversion) }),
     // 预演台落在节点分区，但它开的是导演工作台、不是某种画布节点，故不走注册表。
     { id: "previs", label: "预演台", icon: <Layers3 />, badge: "3D", section: "node", defaultOrder: 70, applicable: (ctx) => ctx.workspaceMode !== "simple", run: (ctx) => ctx.handlers.onOpenPrevis() },

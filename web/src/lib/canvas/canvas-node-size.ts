@@ -88,7 +88,9 @@ export function ensureMediaNodeMinimumSize(node: CanvasNodeData) {
         width = alignedSize.width;
         height = alignedSize.height;
     }
-    if (width < MEDIA_NODE_MIN_SIZE.width || height < MEDIA_NODE_MIN_SIZE.height) {
+    // manualSize 表示尺寸已由用户或拼合布局确定：只做下限保护之外的记录，不改写宽高，
+    // 否则竖向无缝拼合会被最小尺寸规则撑开、重新出现缝隙。
+    if (!node.metadata?.manualSize && (width < MEDIA_NODE_MIN_SIZE.width || height < MEDIA_NODE_MIN_SIZE.height)) {
         const scale = Math.max(1, MEDIA_NODE_MIN_SIZE.width / Math.max(1, width), MEDIA_NODE_MIN_SIZE.height / Math.max(1, height));
         width *= scale;
         height *= scale;

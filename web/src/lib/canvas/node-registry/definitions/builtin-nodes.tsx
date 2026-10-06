@@ -167,6 +167,23 @@ const BUILTIN_NODE_TRAITS = {
         resourceKind: () => "image",
         inputKind: "image",
     },
+    // 电商一键详情 / 一键复刻：自带配置 UI，隐藏普通输出端口，只接受图片与文本输入。
+    [CanvasNodeType.ProductDetail]: {
+        label: "一键详情",
+        icon: <PanelTop />,
+        minSize: { width: 520, height: 600 },
+        showInCreateMenu: true,
+        acceptsInputKind: ["image", "text"],
+        showOutputConnection: false,
+    },
+    [CanvasNodeType.ProductReplica]: {
+        label: "一键复刻",
+        icon: <WandSparkles />,
+        minSize: { width: 520, height: 600 },
+        showInCreateMenu: true,
+        acceptsInputKind: ["image", "text"],
+        showOutputConnection: false,
+    },
 } satisfies Record<string, Omit<CanvasNodeDefinition, "type" | "defaultTitle" | "defaultSize" | "defaultMetadata">>;
 
 export const BUILTIN_NODE_DEFINITIONS: CanvasNodeDefinition[] = (Object.keys(BUILTIN_NODE_TRAITS) as CanvasNodeType[]).map((type) => {

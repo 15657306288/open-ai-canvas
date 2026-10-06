@@ -1,5 +1,6 @@
 import { CanvasNodeType } from "@/types/canvas";
 import type { CanvasNodeMetadata } from "@/types/canvas";
+import { newCommerceWorkflow } from "@/lib/canvas/commerce-workflow";
 
 type CanvasNodeSpec = {
     width: number;
@@ -28,6 +29,8 @@ export const NODE_DEFAULT_SIZE = {
     [CanvasNodeType.ColorGrade]: { width: 420, height: 360, title: "调色" },
     [CanvasNodeType.MediaConversion]: { width: 480, height: 460, title: "转换" },
     [CanvasNodeType.BatchTable]: { width: 1280, height: 560, title: "批量创作表" },
+    [CanvasNodeType.ProductDetail]: { width: 660, height: 860, title: "一键详情" },
+    [CanvasNodeType.ProductReplica]: { width: 660, height: 760, title: "一键复刻" },
 } satisfies Record<CanvasNodeType, { width: number; height: number; title: string }>;
 
 export const NODE_SPECS = {
@@ -119,6 +122,14 @@ export const NODE_SPECS = {
                 rows: [],
             },
         },
+    },
+    [CanvasNodeType.ProductDetail]: {
+        ...NODE_DEFAULT_SIZE[CanvasNodeType.ProductDetail],
+        metadata: { status: "idle", commerceWorkflow: newCommerceWorkflow() },
+    },
+    [CanvasNodeType.ProductReplica]: {
+        ...NODE_DEFAULT_SIZE[CanvasNodeType.ProductReplica],
+        metadata: { status: "idle", commerceWorkflow: { ...newCommerceWorkflow(), followTemplate: true } },
     },
 } satisfies Record<CanvasNodeType, CanvasNodeSpec>;
 

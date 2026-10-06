@@ -1,3 +1,7 @@
+import { CommerceWorkflowNode } from "@/components/canvas/commerce-workflow-node";
+import "@/components/canvas/commerce-workflow-node.css";
+import { commerceBusy, isCommerceNode } from "@/lib/canvas/commerce-workflow";
+import { useCommerceWorkflow } from "./use-commerce-workflow";
 import { CanvasWorkspacePanel } from "@/components/canvas/canvas-workspace-panel";
 import { isCanvasNodeGenerating } from "@/lib/canvas/canvas-node-task-state";
 import { createCanvasStateWriter } from "@/lib/canvas/canvas-editor-state";
@@ -1927,6 +1931,7 @@ function InfiniteCanvasPage() {
         confirmBatchGenDialog,
         fillRowsFromConnections,
         generateRows: generateBatchRows,
+        generateConfirmedCommerceRows,
         moveReferenceCell: moveBatchReferenceCell,
         patchTable: patchBatchTable,
         removeReferenceColumn: removeBatchReferenceColumn,
@@ -1941,6 +1946,33 @@ function InfiniteCanvasPage() {
         setConnections,
         setSelectedNodeIds,
         enqueueGenerationBatch,
+        readOnly: Boolean(versions.preview),
+    });
+
+    // 一键详情 / 一键复刻工作流：复用现有任务、模型目录与图片资产，不引入独立任务系统。
+    const commerceWorkflow = useCommerceWorkflow({
+        projectId,
+        domainProjectId: currentProject?.projectId,
+        readOnly: Boolean(versions.preview),
+        nodesRef,
+        connectionsRef,
+        setNodes,
+        setConnections,
+        generateConfirmedRows: generateConfirmedCommerceRows,
+        createFileNode,
+        startGenerationRequest,
+        finishGenerationRequest,
+        bindGenerationTask,
+        applyGenerationTaskResult,
+        onResultCreated: (nodeId) => {
+            const selection = new Set([nodeId]);
+            selectedNodeIdsRef.current = selection;
+            setSelectedNodeIds(selection);
+            setSelectedConnectionId(null);
+            setDialogNodeId(null);
+            setToolbarNodeId(null);
+            fitCanvasSelection();
+        },
     });
 
     useEffect(() => {
@@ -2237,6 +2269,29 @@ function InfiniteCanvasPage() {
 
     const renderCanvasNodeContent = useCallback(
         (contentNode: CanvasNodeData) => {
+            if (isCommerceNode(contentNode) && contentNode.metadata?.commerceWorkflow) {
+                return (
+                    <CommerceWorkflowNode
+                        node={contentNode}
+                        nodes={nodesRef.current}
+                        connections={connections}
+                        theme={theme}
+                        readOnly={Boolean(versions.preview)}
+                        workflow={commerceWorkflow}
+                        patchMetadata={updateNodeMetadataFromContent}
+                        focus={focusCanvasImageNode}
+                        batch={visibleGenerationBatch(contentNode)}
+                        stopBatch={(batchId) => stopRemainingBatchItems(contentNode.id, batchId)}
+                        retryItem={(batchId, itemId) => retryFailedBatchItems(contentNode.id, batchId, itemId)}
+                        disconnect={(sourceId) => {
+                            // 断线同样要检查只读、锁定与在途任务，不能只禁用按钮而让回调仍可写入。
+                            const node = nodesRef.current.find((item) => item.id === contentNode.id);
+                            if (versions.preview || !node || node.metadata?.locked || node.metadata?.commerceWorkflow?.pending || commerceBusy(node) || commerceWorkflow.activeIds.has(node.id)) return;
+                            setConnections((edges) => edges.filter((edge) => !(edge.toNodeId === node.id && edge.fromNodeId === sourceId)));
+                        }}
+                    />
+                );
+            }
             if (contentNode.metadata?.workflowKind === "character" && contentNode.metadata.characterAssetId) {
                 return <CanvasCharacterReferenceNodeContent node={contentNode} />;
             }
@@ -2352,6 +2407,8 @@ function InfiniteCanvasPage() {
             createAndGenerateScriptVideos,
             createScriptActionBoards,
             createStoryboardFromBatchTable,
+            commerceWorkflow,
+            versions.preview,
             createScriptImageNodes,
             createScriptVideoNodes,
             currentProject?.previsScenes,
@@ -2862,6 +2919,7 @@ function InfiniteCanvasPage() {
 
                         {dialogNode &&
                         !isCanvasImageSourceNode(dialogNode) &&
+                        !isCommerceNode(dialogNode) &&
                         !dialogNode.metadata?.fileUpload &&
                         dialogNode.type !== CanvasNodeType.Script &&
                         dialogNode.type !== CanvasNodeType.BatchTable &&

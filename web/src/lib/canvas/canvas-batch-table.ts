@@ -229,15 +229,37 @@ export function batchRowReady(row: CanvasBatchRow, table: CanvasBatchTableData, 
     });
 }
 
+/** Row ids currently held by a running batch item. Shared by pricing, board and submission guards. */
+export function batchRunningRowIds(source: CanvasNodeData, nodes: CanvasNodeData[]): Set<string> {
+    const running = new Set<string>();
+    const liveItems = (source.metadata?.generationBatches || [])
+        .filter((batch) => batch.mode === "batch_image")
+        .flatMap((batch) => batch.items)
+        .filter((item) => ["waiting", "submitting", "queued", "running"].includes(item.status));
+    if (!liveItems.length) return running;
+    const activeNodeIds = new Set(liveItems.map((item) => item.nodeId));
+    // A commerce result group may not have persisted its batchTable yet, so the row id
+    // carried by the batch item is authoritative; the persisted table adds nothing here.
+    liveItems.forEach((item) => { if (item.rowId) running.add(item.rowId); });
+    source.metadata?.batchTable?.rows.forEach((row) => {
+        if (batchRowOutputNodeIds(row).some((outputNodeId) => activeNodeIds.has(outputNodeId))) running.add(row.id);
+    });
+    return running;
+}
+
 export function batchGenerationRows(source: CanvasNodeData, nodes: CanvasNodeData[], requestedRowIds?: string[]) {
     const table = source.metadata?.batchTable;
     if (!table) return [];
     const byId = new Map(nodes.map((node) => [node.id, node]));
-    const active = new Set((source.metadata?.generationBatches || []).filter((batch) => batch.mode === "batch_image").flatMap((batch) => batch.items.filter((item) => ["waiting", "submitting", "queued", "running"].includes(item.status)).map((item) => item.nodeId)));
+    const liveItems = (source.metadata?.generationBatches || []).filter((batch) => batch.mode === "batch_image").flatMap((batch) => batch.items.filter((item) => ["waiting", "submitting", "queued", "running"].includes(item.status)));
+    const active = new Set(liveItems.map((item) => item.nodeId));
+    // A row is in flight when its output card is held, or when a batch item still targets
+    // that row before its card was assigned. Both must be excluded to avoid double charging.
+    const activeRowIds = new Set(liveItems.map((item) => item.rowId));
     const requested = requestedRowIds ? new Set(requestedRowIds) : null;
     return table.rows.filter((row) => {
         if ((requested && !requested.has(row.id)) || !batchRowReady(row, table, byId)) return false;
-        if (batchRowOutputNodes(row, byId).some((output) => active.has(output.id))) return false;
+        if (activeRowIds.has(row.id) || batchRowOutputNodes(row, byId).some((output) => active.has(output.id))) return false;
         return Boolean(requested) || !batchRowHasResult(row, byId);
     });
 }

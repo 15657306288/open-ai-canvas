@@ -18,6 +18,11 @@ import {
     removeLastBatchReferenceColumn,
     reorderBatchReferenceColumns,
 } from "@/lib/canvas/canvas-batch-table";
+import { commerceSnapshot, isCommerceNode } from "@/lib/canvas/commerce-workflow";
+import { commerceScreenImageSize } from "@/lib/canvas/commerce-image-size";
+import { modelCapabilityConfigFor } from "@/lib/model-capabilities";
+import { modelCompatibilityError } from "@/lib/model-selection";
+import { synchronizeGenerationSpec } from "@/lib/canvas/generation-contract";
 import { createCanvasNode } from "@/lib/canvas/canvas-project-domain";
 import { buildGenerationConfig, getGenerationCount, resetGenerationTaskMetadata } from "@/lib/canvas/canvas-project-generation";
 import { MEDIA_NODE_MIN_SIZE, nodeSizeFromRatio } from "@/lib/canvas/canvas-node-size";
@@ -27,6 +32,7 @@ import { CanvasNodeType, type CanvasBatchRow, type CanvasBatchTableData, type Ca
 import type { BatchGenerationSettings } from "@/components/canvas/batch-generation-settings-dialog";
 
 type Options = {
+    readOnly?: boolean;
     nodesRef: { current: CanvasNodeData[] };
     connectionsRef: { current: CanvasConnection[] };
     setNodes: Dispatch<SetStateAction<CanvasNodeData[]>>;
@@ -36,6 +42,7 @@ type Options = {
 };
 
 type PendingBatchGen = {
+    commerceSnapshot?: string;
     nodeId: string;
     rows: CanvasBatchRow[];
     concurrency: number;
@@ -57,7 +64,7 @@ function batchOutputLabels(operation: CanvasBatchTableData["operation"], rowInde
     };
 }
 
-export function useCanvasBatchTable({ nodesRef, connectionsRef, setNodes, setConnections, setSelectedNodeIds, enqueueGenerationBatch }: Options) {
+export function useCanvasBatchTable({ nodesRef, connectionsRef, setNodes, setConnections, setSelectedNodeIds, enqueueGenerationBatch, readOnly = false }: Options) {
     const { message } = App.useApp();
     const effectiveConfig = useEffectiveConfig();
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
@@ -234,6 +241,12 @@ export function useCanvasBatchTable({ nodesRef, connectionsRef, setNodes, setCon
         const table = sourceNode?.metadata?.batchTable;
         if (!sourceNode || !table) return;
 
+        // 电商表在提交前必须复核锁定/只读与输入快照，避免用过期确认产生新的收费任务。
+        if (isCommerceNode(sourceNode) && (readOnly || sourceNode.metadata?.locked || pending.commerceSnapshot !== commerceSnapshot(sourceNode, nodesRef.current, connectionsRef.current))) {
+            message.warning("配置或输入素材已变化，请重新确认生成");
+            return;
+        }
+
             const selectableRowIds = new Set(selectableRows(sourceNode, pending.requestedRowIds).map((row) => row.id));
         if (JSON.stringify(table) !== pending.tableSnapshot || !rows.every((row) => selectableRowIds.has(row.id))) {
             message.warning("表格、素材或任务状态已变化，请重新打开生成设置后提交");
@@ -241,6 +254,13 @@ export function useCanvasBatchTable({ nodesRef, connectionsRef, setNodes, setCon
         }
 
         const mergedConfig = { ...effectiveConfig, ...settings };
+        if (isCommerceNode(sourceNode)) {
+            // 逐屏按实际引用数量校验模型能力，而不是沿用全局配置的一次性判断。
+            for (const row of rows) {
+                const error = modelCompatibilityError(mergedConfig, mergedConfig.imageModel || mergedConfig.model, { capability: "image", input: { imageCount: row.inputNodeIds.length, textCount: 0, videoCount: 0, audioCount: 0, characterCount: 0 } });
+                if (error) { message.error(error); return; }
+            }
+        }
         if (!isAiConfigReady(mergedConfig, mergedConfig.imageModel || mergedConfig.model)) {
             message.error("所选图片模型尚未配置，未提交生成任务");
             return;
@@ -267,7 +287,9 @@ export function useCanvasBatchTable({ nodesRef, connectionsRef, setNodes, setCon
                 ]
                     .filter(Boolean)
                     .join("\n\n");
-                const existingIds = batchRowOutputNodeIds(row).filter((outputNodeId) => nextNodes.some((node) => node.id === outputNodeId && node.type === CanvasNodeType.Image));
+                const commerce = isCommerceNode(sourceNode);
+                // 电商表每次运行都产出新结果卡，旧成品必须保留；普通表沿用「复用空占位卡」的行为。
+                const existingIds = commerce ? [] : batchRowOutputNodeIds(row).filter((outputNodeId) => nextNodes.some((node) => node.id === outputNodeId && node.type === CanvasNodeType.Image));
                 const outputIds: string[] = [];
                 for (let index = 0; index < outputCount; index += 1) {
                     const existingIndex = existingIds[index] ? nextNodes.findIndex((node) => node.id === existingIds[index]) : -1;
@@ -277,7 +299,10 @@ export function useCanvasBatchTable({ nodesRef, connectionsRef, setNodes, setCon
                         prompt,
                         composerContent,
                 model: buildGenerationConfig(mergedConfig, undefined, "image").model,
-                size: mergedConfig.size,
+                // 逐屏规格由该屏的尺寸方案与所选模型能力共同决定。
+                size: isCommerceNode(sourceNode)
+                    ? commerceScreenImageSize(modelCapabilityConfigFor(mergedConfig, mergedConfig.imageModel || mergedConfig.model).image, mergedConfig.size, sourceNode, sourceNode.metadata?.commerceWorkflow?.screens.find((screen) => screen.id === row.id), nodesRef.current)
+                    : mergedConfig.size,
                 quality: mergedConfig.quality,
                 transparentBackground: mergedConfig.transparentBackground,
                 count: 1,
@@ -301,7 +326,11 @@ export function useCanvasBatchTable({ nodesRef, connectionsRef, setNodes, setCon
                         existingIndex >= 0
                             ? { ...nextNodes[existingIndex], metadata, position: topLeft, width: cardSize.width, height: cardSize.height }
                             : { ...createCanvasNode(CanvasNodeType.Image, position, metadata), position: topLeft, width: cardSize.width, height: cardSize.height };
-                    output.title = labels.title;
+                    output.title = commerce
+                        ? sourceNode.metadata?.commerceWorkflow?.screens.find((screen) => screen.id === row.id)?.title || labels.title
+                        : labels.title;
+                    // 电商任务按行写入生成合同，确保入队、恢复调度与结果回填指向同一目标。
+                    if (commerce) output.metadata = synchronizeGenerationSpec({ ...output, metadata: { ...metadata, generationSpec: undefined } }, metadata).metadata;
             if (existingIndex >= 0) nextNodes[existingIndex] = output;
             else nextNodes.push(output);
             nextConnections = nextConnections.filter((connection) => connection.toNodeId !== output.id);
@@ -340,9 +369,13 @@ export function useCanvasBatchTable({ nodesRef, connectionsRef, setNodes, setCon
         setNodes(nextNodes);
         setConnections(nextConnections);
         setSelectedNodeIds(new Set(targets.map((target) => target.nodeId)));
-        if (enqueueGenerationBatch(nodeId, "batch_image", targets, { concurrency })) message.success(`${targets.length} 个任务已加入并发队列`);
+        if (enqueueGenerationBatch(nodeId, "batch_image", targets, { concurrency })) {
+            message.success(`${targets.length} 个任务已加入并发队列`);
+            return true;
+        }
+        return false;
         },
-        [connectionsRef, effectiveConfig, enqueueGenerationBatch, isAiConfigReady, message, nodesRef, selectableRows, setConnections, setNodes, setSelectedNodeIds],
+        [connectionsRef, effectiveConfig, enqueueGenerationBatch, isAiConfigReady, message, nodesRef, readOnly, selectableRows, setConnections, setNodes, setSelectedNodeIds],
     );
 
     const generateRows = useCallback(
@@ -350,22 +383,43 @@ export function useCanvasBatchTable({ nodesRef, connectionsRef, setNodes, setCon
         const sourceNode = nodesRef.current.find((item) => item.id === nodeId);
         const table = sourceNode?.metadata?.batchTable;
         if (!sourceNode || !table) return;
-        const imageModel = effectiveConfig.imageModel || effectiveConfig.model;
-        if (!isAiConfigReady(effectiveConfig, imageModel)) {
+        if (isCommerceNode(sourceNode) && (readOnly || sourceNode.metadata?.locked)) return;
+        const imageConfig = isCommerceNode(sourceNode) ? { ...effectiveConfig, model: sourceNode.metadata?.model || effectiveConfig.imageModel, imageModel: sourceNode.metadata?.model || effectiveConfig.imageModel } : effectiveConfig;
+        const imageModel = imageConfig.imageModel || imageConfig.model;
+        if (!isAiConfigReady(imageConfig, imageModel)) {
             navigateToSettings({ continueCreation: true });
             return;
         }
             const rows = selectableRows(sourceNode, requestedRowIds);
         if (!rows.length) return message.info("没有可提交的未完成任务，请检查参考图和提示词");
 
-        setBatchGenDialog({ open: true, pending: { nodeId, rows, concurrency: table.concurrency, tableSnapshot: JSON.stringify(table), requestedRowIds } });
+        setBatchGenDialog({ open: true, pending: { nodeId, rows, concurrency: table.concurrency, tableSnapshot: JSON.stringify(table), requestedRowIds,
+            commerceSnapshot: isCommerceNode(sourceNode) ? commerceSnapshot(sourceNode, nodesRef.current, connectionsRef.current) : undefined } });
         },
-        [effectiveConfig, isAiConfigReady, message, nodesRef, selectableRows],
+        [effectiveConfig, isAiConfigReady, message, nodesRef, readOnly, selectableRows],
     );
 
     const closeBatchGenDialog = useCallback(() => {
         setBatchGenDialog({ open: false, pending: null });
     }, []);
+
+    // 仅供已完成费用确认的 commerce 流程使用；不能拿它绕过其他入口的收费确认。
+    const generateConfirmedCommerceRows = useCallback(
+        (nodeId: string, requestedRowIds?: string[]) => {
+            const source = nodesRef.current.find((node) => node.id === nodeId);
+            const table = source?.metadata?.batchTable;
+            if (!source || !table || !isCommerceNode(source) || readOnly || source.metadata?.locked) return false;
+            const rows = selectableRows(source, requestedRowIds);
+            if (!rows.length) return false;
+            const model = source.metadata?.model || effectiveConfig.imageModel || effectiveConfig.model;
+            const executed = executeBatchGeneration(
+                { nodeId, rows, requestedRowIds, concurrency: table.concurrency, tableSnapshot: JSON.stringify(table), commerceSnapshot: commerceSnapshot(source, nodesRef.current, connectionsRef.current) },
+                { model, imageModel: model, size: source.metadata?.size || effectiveConfig.size, quality: source.metadata?.quality || effectiveConfig.quality, count: "1", transparentBackground: effectiveConfig.transparentBackground },
+            );
+            return executed === true;
+        },
+        [connectionsRef, effectiveConfig, executeBatchGeneration, nodesRef, readOnly, selectableRows],
+    );
 
     const confirmBatchGenDialog = useCallback(
         (settings: BatchGenerationSettings) => {
@@ -377,7 +431,12 @@ export function useCanvasBatchTable({ nodesRef, connectionsRef, setNodes, setCon
         [batchGenDialog.pending, executeBatchGeneration],
     );
 
-    const dialogConfig = useMemo(() => effectiveConfig, [effectiveConfig]);
+    const dialogConfig = useMemo(() => {
+        const source = nodesRef.current.find((node) => node.id === batchGenDialog.pending?.nodeId);
+        if (!source || !isCommerceNode(source)) return effectiveConfig;
+        const model = source.metadata?.model || effectiveConfig.imageModel;
+        return { ...effectiveConfig, model, imageModel: model, size: source.metadata?.size || effectiveConfig.size, quality: source.metadata?.quality || effectiveConfig.quality };
+    }, [effectiveConfig, batchGenDialog.pending, nodesRef]);
 
     return {
         addReferenceColumn,
@@ -385,6 +444,7 @@ export function useCanvasBatchTable({ nodesRef, connectionsRef, setNodes, setCon
         addRow,
         fillRowsFromConnections,
         generateRows,
+        generateConfirmedCommerceRows,
         moveReferenceCell,
         patchTable,
         removeReferenceColumn,

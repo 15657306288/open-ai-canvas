@@ -32,6 +32,7 @@ type CanvasNodeProps = {
     connectionApproach?: Position;
     forceInputVisible?: boolean;
     showImageInfo: boolean;
+    seamlessImage?: boolean;
     reduceMediaEffects?: boolean;
     readOnly?: boolean;
     resourceLabel?: CanvasResourceReference;
@@ -81,6 +82,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     connectionApproach,
     forceInputVisible = false,
     showImageInfo,
+    seamlessImage = false,
     reduceMediaEffects = false,
     readOnly = false,
     resourceLabel,
@@ -134,7 +136,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     const showStatusTrack = Boolean(resourceLabel || data.metadata?.locked || isBatchRoot || (isBatchChild && !readOnly) || (hasMediaContent && !readOnly));
     const isActive = isConnectionTarget || isSelected || isFocusRelated;
     const effectiveRenderLOD: CanvasNodeRenderLOD = renderLOD === "full" || hovered || isEditingContent || isEditingTitle || mediaActive ? "full" : renderLOD;
-    const showChrome = effectiveRenderLOD === "full";
+    const showChrome = effectiveRenderLOD === "full" && (!seamlessImage || hovered || isSelected || isEditingTitle);
     const nodeState = isFocusRelated ? "focus" : isConnectionTarget ? "target" : isSelected ? "selected" : isRelated && !isBatchChild ? "related" : "idle";
     const showOutputConnection = getNodeDefinition(data.type)?.showOutputConnection !== false;
     const assetTags = data.metadata?.assetTags?.filter((tag) => tag.trim()) || [];
@@ -286,6 +288,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                 width: data.width,
                 height: data.height,
                 contain: "layout style",
+                ...(seamlessImage ? { "--node-radius": "0px" } : {}),
             }}
             onMouseEnter={() => {
                 setHovered(true);
@@ -319,8 +322,8 @@ export const CanvasNode = React.memo(function CanvasNode({
                 style={{
                     background: hasImageContent || hasVideoContent ? "transparent" : theme.node.fill,
                     // 固定占位但不绘制描边，避免聚焦切换时边框宽度变化造成白边跳动。
-                    border: isComposerNode ? "0" : "1px solid transparent",
-                    boxShadow: isComposerNode || !showChrome ? "none" : isSelected || isFocusRelated ? theme.node.hoverShadow : theme.node.shadow,
+                    border: isComposerNode || seamlessImage ? "0" : "1px solid transparent",
+                    boxShadow: seamlessImage || isComposerNode || !showChrome ? "none" : isSelected || isFocusRelated ? theme.node.hoverShadow : theme.node.shadow,
                     outline: !showChrome && isActive ? `1px solid ${theme.node.activeStroke}` : undefined,
                     "--connection-tilt-x": `${connectionTilt?.rotateX || 0}deg`,
                     "--connection-tilt-y": `${connectionTilt?.rotateY || 0}deg`,
@@ -519,6 +522,7 @@ function areCanvasNodePropsEqual(previous: CanvasNodeProps, next: CanvasNodeProp
         previous.connectionApproach?.y === next.connectionApproach?.y &&
         previous.forceInputVisible === next.forceInputVisible &&
         previous.showImageInfo === next.showImageInfo &&
+        previous.seamlessImage === next.seamlessImage &&
         previous.reduceMediaEffects === next.reduceMediaEffects &&
         previous.readOnly === next.readOnly &&
         previous.resourceLabel === next.resourceLabel &&
