@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { curationQuery, matchesCuration } from "../src/components/skills/skill-curation-browser";
+import { curationQuery, matchesCuration, effectiveCurationRoot, groupCuratedSkills, curationIcon } from "../src/components/skills/skill-curation-browser";
 import type { SkillCuration } from "../src/services/api/skill-curation";
 import type { Skill } from "../src/services/api/skills";
 
@@ -16,5 +16,15 @@ describe("platform curation", () => {
         expect(matchesCuration(skill, enabled, "child")).toBe(true);
         expect(matchesCuration(skill, enabled, "__uncategorized__")).toBe(false);
         expect(matchesCuration({ ...skill, skillId: "two" }, enabled, "__uncategorized__")).toBe(true);
+    });
+    test("dynamic roots use overrides, default bucket, icons and disabled gate", () => {
+        const enabled: SkillCuration = { ...data, enabled: true, roots: [{ id: "custom", name: "Custom", iconKey: "landmark", enabled: true, sortOrder: 0 }, { id: "__unassigned__", name: "未归入启用分类", iconKey: "shapes", enabled: true, sortOrder: 1 }], rootAssignments: [{ skillId: skill.skillId, rootId: "custom" }] };
+        expect(effectiveCurationRoot(skill, enabled)).toBe("custom");
+        expect(curationQuery(enabled, "root:custom")).toEqual({ platformRootId: "custom" });
+        expect(curationQuery({ ...enabled, enabled: false }, "root:custom")).toEqual({});
+        expect(matchesCuration(skill, enabled, "root:custom")).toBe(true);
+        expect(effectiveCurationRoot({ ...skill, isPrivate: true }, enabled)).toBe("__unassigned__");
+        expect(groupCuratedSkills([skill], enabled)[0].label).toBe("Custom");
+        expect(curationIcon("unknown")).toBe(curationIcon("shapes"));
     });
 });

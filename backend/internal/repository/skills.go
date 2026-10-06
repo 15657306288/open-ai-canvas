@@ -11,6 +11,7 @@ import (
 )
 
 type SkillListFilter struct {
+	PlatformRootID        string
 	PlatformCategoryID    string
 	PlatformUncategorized bool
 	UserID                string
@@ -79,6 +80,9 @@ func (r *Repository) Skills(filter SkillListFilter) ([]model.Skill, int64, error
 	if filter.Tag != "" {
 		query = query.Where("skills.tag = ?", filter.Tag)
 	}
+	if filter.PlatformRootID != "" {
+		query = query.Where(effectiveCurationRoot+" = ?", filter.PlatformRootID)
+	}
 	if filter.PlatformCategoryID != "" {
 		query = query.Where("EXISTS ("+effectiveCurationCategory+" AND c.id = ?)", filter.PlatformCategoryID)
 	}
@@ -145,6 +149,9 @@ func (r *Repository) DeleteSkill(id string) error {
 			return err
 		}
 		if err := tx.Delete(&model.SkillCurationAssignment{}, "skill_id = ?", id).Error; err != nil {
+			return err
+		}
+		if err := tx.Delete(&model.SkillCurationRootAssignment{}, "skill_id = ?", id).Error; err != nil {
 			return err
 		}
 		if err := tx.Delete(&model.UserSkillState{}, "skill_id = ?", id).Error; err != nil {

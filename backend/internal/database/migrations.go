@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 46
+const CurrentSchemaVersion int64 = 47
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -147,6 +147,7 @@ var schemaMigrations = []migration{
 		return tx.AutoMigrate(&model.TopupProduct{}, &model.PaymentOrder{})
 	}},
 	{version: 46, name: "skill_curation", checksum: "sha256:skill-curation-v46-20261005", apply: migrateSkillCuration},
+	{version: 47, name: "skill_curation_roots", checksum: "sha256:skill-curation-roots-v47-20261005", apply: migrateSkillCurationRoots},
 }
 
 func migratePrefixedIDSequenceReconcile(tx *gorm.DB) error {

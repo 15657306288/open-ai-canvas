@@ -393,3 +393,5 @@ CSV 使用中文表头、UTF-8 BOM、CRLF；金额按整数分精确转换为两
 ## 平台技能策展
 
 新增登录读取 `/api/skills/curation` 与管理员 GET／PUT `/api/admin/skill-curation`；原技能列表仅在策展开启时应用新增分类筛选，响应结构不变。见 [接口与行为](./skill-curation)。
+
+一级分类扩展：管理写入增加 root 命令，assignment.rootId 与子分类完整集合一起保存；列表增加 platformRootId 筛选。关闭模式继续忽略新增筛选。

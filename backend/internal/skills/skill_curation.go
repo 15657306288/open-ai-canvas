@@ -10,10 +10,12 @@ import (
 
 type SkillCuration = repository.SkillCuration
 type SkillCurationAssignmentInput struct {
+	RootID      *string  `json:"rootId,omitempty"`
 	SkillID     string   `json:"skillId"`
 	CategoryIDs []string `json:"categoryIds"`
 }
 type SkillCurationUpdate struct {
+	Root             *model.SkillCurationRoot      `json:"root,omitempty"`
 	ExpectedRevision *int64                        `json:"expectedRevision"`
 	Enabled          *bool                         `json:"enabled,omitempty"`
 	Category         *model.SkillCurationCategory  `json:"category,omitempty"`
@@ -46,6 +48,9 @@ func (s *Service) UpdateSkillCuration(actor *model.User, req SkillCurationUpdate
 		return nil, err
 	}
 	count := 0
+	if req.Root != nil {
+		count++
+	}
 	if req.Enabled != nil {
 		count++
 	}
@@ -66,11 +71,14 @@ func (s *Service) UpdateSkillCuration(actor *model.User, req SkillCurationUpdate
 		if err != nil {
 			return err
 		}
+		if req.Root != nil {
+			return saveCurationRoot(repo, state, *req.Root)
+		}
 		if req.Category != nil {
 			c := *req.Category
 			c.Name = strings.Join(strings.Fields(c.Name), " ")
 			c.NormalizedName = strings.ToLower(c.Name)
-			if utf8.RuneCountInString(c.Name) < 1 || utf8.RuneCountInString(c.Name) > 64 || skillCategoryLabels[c.RootTag] == "" {
+			if utf8.RuneCountInString(c.Name) < 1 || utf8.RuneCountInString(c.Name) > 64 || !activeCurationRoot(state, c.RootTag) {
 				return kernel.BadAuthRequest("分类名称或一级分类无效")
 			}
 			exists := c.ID == ""
@@ -101,11 +109,24 @@ func (s *Service) UpdateSkillCuration(actor *model.User, req SkillCurationUpdate
 		if err != nil {
 			return kernel.NotFound("公开技能不存在")
 		}
+		rootID := state.EffectiveRoot(skill)
+		if a.RootID != nil {
+			if *a.RootID != "" && !activeCurationRoot(state, *a.RootID) {
+				return kernel.BadAuthRequest("一级分类必须存在且启用")
+			}
+			rootID = *a.RootID
+			if rootID == "" {
+				rootID = skill.Tag
+				if !activeCurationRoot(state, rootID) {
+					rootID = repository.UnassignedSkillRoot
+				}
+			}
+		}
 		seen := map[string]bool{}
 		for _, id := range a.CategoryIDs {
 			valid := false
 			for _, c := range state.Categories {
-				if c.ID == id && c.Enabled && c.RootTag == skill.Tag {
+				if c.ID == id && c.Enabled && c.RootTag == rootID {
 					valid = true
 				}
 			}
@@ -113,6 +134,11 @@ func (s *Service) UpdateSkillCuration(actor *model.User, req SkillCurationUpdate
 				return kernel.BadAuthRequest("分类必须启用、同根且不能重复")
 			}
 			seen[id] = true
+		}
+		if a.RootID != nil {
+			if err := repo.AssignSkillCurationRoot(a.SkillID, *a.RootID); err != nil {
+				return err
+			}
 		}
 		return repo.AssignSkillCuration(a.SkillID, a.CategoryIDs)
 	})

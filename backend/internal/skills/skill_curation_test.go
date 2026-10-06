@@ -17,6 +17,9 @@ func TestSkillCurationManagementAvailable(t *testing.T) {
 func newCurationTest(t *testing.T) (*Service, *gorm.DB, *model.User) {
 	t.Helper()
 	svc, db := newSkillLibraryCategoryTestService(t)
+	if err := db.AutoMigrate(&model.SkillCurationRoot{}, &model.SkillCurationRootAssignment{}); err != nil {
+		t.Fatal(err)
+	}
 	if err := db.AutoMigrate(&model.SkillCurationSetting{}, &model.SkillCurationCategory{}, &model.SkillCurationAssignment{}, &model.AdminAuditEvent{}); err != nil {
 		t.Fatal(err)
 	}

@@ -41,7 +41,7 @@ const sortOptions: { label: string; value: SkillSort }[] = [
     { label: "最近更新", value: "updated" },
 ];
 
-import { SkillCurationBrowser, useSkillCuration, curationQuery } from "@/components/skills/skill-curation-browser";
+import { SkillCurationBrowser, useSkillCuration, curationQuery, groupCuratedSkills, curationIcon, effectiveCurationRoot } from "@/components/skills/skill-curation-browser";
 
 export default function SkillsPage() {
     const { curation, error: curationError, retry: retryCuration } = useSkillCuration();
@@ -52,6 +52,7 @@ export default function SkillsPage() {
     const [search, setSearch] = useState("");
     const debouncedSearch = useDebouncedValue(search, 250);
     const [tag, setTag] = useState("all");
+    useEffect(() => { if (curation?.enabled) setTag("all"); }, [curation?.enabled]);
     const [libraryCategoryId, setLibraryCategoryId] = useState("all");
     const [libraryCategoryList, setLibraryCategoryList] = useState<SkillLibraryCategoryList | null>(null);
     const [libraryCategoryError, setLibraryCategoryError] = useState("");
@@ -146,7 +147,8 @@ export default function SkillsPage() {
         return () => { cancelled = true; };
     }, [libraryCategoryScope, reloadKey]);
 
-    const groupedSkills = useMemo(() => groupSkills(skills, categories), [categories, skills]);
+    const groupedSkills = useMemo(() => curation?.enabled ? groupCuratedSkills(skills, curation) : groupSkills(skills, categories), [categories, skills, curation]);
+    const browseCategories: SkillCategory[] = curation?.enabled ? (curation.roots || []).map((root) => ({ value: root.id, label: root.name })) : categories;
     const filtersActive = Boolean(search || (!isLibraryScope && tag !== "all") || (isLibraryScope && libraryCategoryId !== "all") || sort !== "popular");
     const resetFilters = useCallback(() => { setSearch(""); setTag("all"); setLibraryCategoryId("all"); setSort("popular"); setPage(1); }, []);
 
@@ -315,6 +317,7 @@ export default function SkillsPage() {
         <SkillCard
             key={skill.skillId}
             skill={skill}
+            rootLabel={curation?.enabled ? curation.roots?.find((root) => root.id === effectiveCurationRoot(skill, curation))?.name : undefined}
             categories={categories}
             libraryCategories={libraryCategories}
             canCategorize={isLibraryScope}
@@ -336,7 +339,7 @@ export default function SkillsPage() {
     ) : !isLibraryScope && groupedSkills.length ? (
         <div key={`${scope}-${page}`} className="skills-scope-panel">
             {groupedSkills.map((group) => {
-                const GroupIcon = categoryIconOf(group.value);
+                const GroupIcon = curation?.enabled ? curationIcon(curation.roots?.find((root) => root.id === group.value)?.iconKey) : categoryIconOf(group.value);
                 return (
                     <section key={group.value} data-category={group.value} aria-labelledby={`skill-category-${group.value}`}>
                         <div className="skill-section-heading">
@@ -425,15 +428,15 @@ export default function SkillsPage() {
                                 </div>
                             </div>
                             <nav className="skills-library-category-list" aria-label="技能广场分类">
-                                <button type="button" className={`skills-library-category-item${scope === "public" && tag === "all" ? " is-active" : ""}`} aria-pressed={scope === "public" && tag === "all"} onClick={() => selectMarketplaceCategory("all")}>
+                                <button type="button" className={`skills-library-category-item${scope === "public" && tag === "all" && (!curation?.enabled || !platformCategory) ? " is-active" : ""}`} aria-pressed={scope === "public" && tag === "all" && (!curation?.enabled || !platformCategory)} onClick={() => { setPlatformCategory(""); selectMarketplaceCategory("all"); }}>
                                     <span><Sparkles className="size-4" aria-hidden="true" />全部技能</span>
                                     <span>{marketplaceCategoryTotal}</span>
                                 </button>
-                                {categories.map((category) => {
-                                    const Icon = categoryIconOf(category.value);
-                                    const active = scope === "public" && tag === category.value;
+                                {browseCategories.map((category) => {
+                                    const Icon = curation?.enabled ? curationIcon(curation.roots?.find((root) => root.id === category.value)?.iconKey) : categoryIconOf(category.value);
+                                    const active = scope === "public" && (curation?.enabled ? platformCategory === `root:${category.value}` : tag === category.value);
                                     return (
-                                        <button key={category.value} type="button" className={`skills-library-category-item${active ? " is-active" : ""}`} aria-pressed={active} onClick={() => selectMarketplaceCategory(category.value)}>
+                                        <button key={category.value} type="button" className={`skills-library-category-item${active ? " is-active" : ""}`} aria-pressed={active} onClick={() => { if (curation?.enabled) { setPlatformCategory(`root:${category.value}`); selectMarketplaceCategory("all"); } else selectMarketplaceCategory(category.value); }}>
                                             <span><Icon className="size-4" aria-hidden="true" />{category.label}</span>
                                             <span>{category.count ?? "—"}</span>
                                         </button>
@@ -541,7 +544,7 @@ export default function SkillsPage() {
     );
 }
 
-function SkillCard({ skill, categories, libraryCategories, canCategorize, loading, style, onOpen, onAdd, onLike, onEdit, onDelete, onSetLibraryCategory }: { skill: Skill; categories: SkillCategory[]; libraryCategories: SkillLibraryCategory[]; canCategorize: boolean; loading: boolean; style?: CSSProperties; onOpen: () => void; onAdd: () => void; onLike: () => void; onEdit: () => void; onDelete: () => void; onSetLibraryCategory: (categoryId: string) => void }) {
+function SkillCard({ skill, rootLabel, categories, libraryCategories, canCategorize, loading, style, onOpen, onAdd, onLike, onEdit, onDelete, onSetLibraryCategory }: { skill: Skill; rootLabel?: string; categories: SkillCategory[]; libraryCategories: SkillLibraryCategory[]; canCategorize: boolean; loading: boolean; style?: CSSProperties; onOpen: () => void; onAdd: () => void; onLike: () => void; onEdit: () => void; onDelete: () => void; onSetLibraryCategory: (categoryId: string) => void }) {
     const CategoryIcon = categoryIconOf(skill.tag);
     const currentLibraryCategory = libraryCategories.find((category) => category.id === skill.libraryCategoryId);
     const libraryCategoryLabel = currentLibraryCategory?.name || (skill.libraryCategoryId ? "已归类" : "未分类");
@@ -597,7 +600,7 @@ function SkillCard({ skill, categories, libraryCategories, canCategorize, loadin
                     <span>{formatSkillCount(skill.likeCount)}</span>
                 </button>
                 <span className="skill-card-author">{skill.effectiveUser.name || "未知用户"}</span>
-                <span className="skill-card-tag">{skillCategoryLabel(skill.tag, categories)}</span>
+                <span className="skill-card-tag">{rootLabel || skillCategoryLabel(skill.tag, categories)}</span>
                 {skill.isPrivate ? <span className="skill-card-flag">仅自己</span> : null}
             </div>
             {/* 加入是这个页面的主行为，给它完整的按钮 + 文案 + 已加入人数，不再藏在角落的加号里。 */}

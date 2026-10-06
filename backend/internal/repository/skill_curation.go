@@ -10,8 +10,10 @@ import (
 
 type SkillCuration struct {
 	model.SkillCurationSetting
-	Categories  []model.SkillCurationCategory   `json:"categories"`
-	Assignments []model.SkillCurationAssignment `json:"assignments"`
+	Roots           []model.SkillCurationRoot           `json:"roots,omitempty"`
+	RootAssignments []model.SkillCurationRootAssignment `json:"rootAssignments,omitempty"`
+	Categories      []model.SkillCurationCategory       `json:"categories"`
+	Assignments     []model.SkillCurationAssignment     `json:"assignments"`
 }
 
 // Read the version before and after the snapshot so concurrent edits cannot
@@ -25,6 +27,21 @@ func (r *Repository) SkillCuration(admin bool) (*SkillCuration, error) {
 		if !admin && !out.Enabled {
 			return out, nil
 		}
+		roots, err := r.SkillCurationRoots()
+		if err != nil {
+			return nil, err
+		}
+		for _, root := range roots {
+			if admin || root.Enabled {
+				out.Roots = append(out.Roots, root)
+			}
+		}
+		if !admin {
+			out.Roots = append(out.Roots, model.SkillCurationRoot{ID: UnassignedSkillRoot, Name: "未归入启用分类", IconKey: "shapes", Enabled: true})
+		}
+		if err := r.db.Model(&model.SkillCurationRootAssignment{}).Select("skill_curation_root_assignments.*").Joins("JOIN skills ON skills.id = skill_curation_root_assignments.skill_id").Where("skills.status = 1 AND skills.is_private = false").Order("skill_id").Find(&out.RootAssignments).Error; err != nil {
+			return nil, err
+		}
 		query := r.db.Order("sort_order, id")
 		if !admin {
 			query = query.Where("enabled = ?", true)
@@ -32,10 +49,22 @@ func (r *Repository) SkillCuration(admin bool) (*SkillCuration, error) {
 		if err := query.Find(&out.Categories).Error; err != nil {
 			return nil, err
 		}
+		if !admin {
+			visible := []model.SkillCurationCategory{}
+			for _, c := range out.Categories {
+				for _, root := range out.Roots {
+					if root.ID == c.RootTag {
+						visible = append(visible, c)
+						break
+					}
+				}
+			}
+			out.Categories = visible
+		}
 		query = r.db.Model(&model.SkillCurationAssignment{}).Select("skill_curation_assignments.*").
 			Joins("JOIN skills ON skills.id = skill_curation_assignments.skill_id").Where("skills.status = 1 AND skills.is_private = false")
 		if !admin {
-			query = query.Joins("JOIN skill_curation_categories c ON c.id = skill_curation_assignments.category_id").Where("c.enabled = true AND c.root_tag = skills.tag")
+			query = query.Joins("JOIN skill_curation_categories c ON c.id = skill_curation_assignments.category_id").Where("c.enabled = true AND c.root_tag = " + effectiveCurationRoot)
 		}
 		if err := query.Order("skill_id, category_id").Find(&out.Assignments).Error; err != nil {
 			return nil, err
@@ -111,4 +140,4 @@ func (r *Repository) AssignSkillCuration(skillID string, ids []string) error {
 	return nil
 }
 
-const effectiveCurationCategory = `SELECT 1 FROM skill_curation_assignments a JOIN skill_curation_categories c ON c.id = a.category_id WHERE a.skill_id = skills.id AND c.enabled = true AND c.root_tag = skills.tag AND skills.is_private = false`
+const effectiveCurationCategory = `SELECT 1 FROM skill_curation_assignments a JOIN skill_curation_categories c ON c.id = a.category_id WHERE a.skill_id = skills.id AND c.enabled = true AND c.root_tag = ` + effectiveCurationRoot + ` AND skills.is_private = false`

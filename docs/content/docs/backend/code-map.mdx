@@ -163,3 +163,5 @@ HTTP 请求 -> handler -> service（稳定导入面 / 别名）-> app（组合�
 ## 技能策展
 
 `internal/skills/skill_curation.go` 负责校验，`internal/repository/skill_curation.go` 负责分类持久化与 CAS 审计交易，handler／app bridge 接入原有技能域。
+
+`skill_curation_roots.go` 扩展动态根维护、有效根查询和空表回落；数据库迁移 47 接续 46。

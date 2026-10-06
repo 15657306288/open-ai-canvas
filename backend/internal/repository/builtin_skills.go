@@ -28,6 +28,9 @@ func (r *Repository) DeleteBuiltinSkill(skillID string, actorID string) error {
 		if err := tx.Delete(&model.SkillCurationAssignment{}, "skill_id = ?", skillID).Error; err != nil {
 			return err
 		}
+		if err := tx.Delete(&model.SkillCurationRootAssignment{}, "skill_id = ?", skillID).Error; err != nil {
+			return err
+		}
 		if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "skill_id"}}, DoUpdates: clause.AssignmentColumns([]string{"deleted_by", "deleted_at"})}).Create(&model.BuiltinSkillTombstone{SkillID: skillID, DeletedBy: actorID, DeletedAt: now}).Error; err != nil {
 			return err
 		}
