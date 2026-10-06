@@ -41,7 +41,11 @@ const sortOptions: { label: string; value: SkillSort }[] = [
     { label: "最近更新", value: "updated" },
 ];
 
+import { SkillCurationBrowser, useSkillCuration, curationQuery } from "@/components/skills/skill-curation-browser";
+
 export default function SkillsPage() {
+    const { curation, error: curationError, retry: retryCuration } = useSkillCuration();
+    const [platformCategory, setPlatformCategory] = useState("");
     const { message, modal } = App.useApp();
     const [scope, setScope] = useState<SkillScope>("public");
     const [sort, setSort] = useState<SkillSort>("popular");
@@ -106,7 +110,7 @@ export default function SkillsPage() {
                 ? { libraryUncategorized: true }
                 : libraryCategoryId !== "all" ? { libraryCategoryId } : {}
             : {};
-        listSkills({ page, pageSize, scope, sort, search: debouncedSearch || undefined, tag: !isLibraryScope && tag !== "all" ? tag : undefined, ...libraryFilter })
+        listSkills({ page, pageSize, scope, sort, search: debouncedSearch || undefined, tag: !isLibraryScope && tag !== "all" ? tag : undefined, ...libraryFilter, ...curationQuery(curation, platformCategory) })
             .then((result) => {
                 if (cancelled) return;
                 setSkills(result.skills);
@@ -126,7 +130,7 @@ export default function SkillsPage() {
         return () => {
             cancelled = true;
         };
-    }, [debouncedSearch, isLibraryScope, libraryCategoryId, page, pageSize, reloadKey, scope, sort, tag]);
+    }, [debouncedSearch, isLibraryScope, libraryCategoryId, page, pageSize, reloadKey, scope, sort, tag, curation, platformCategory]);
 
     useEffect(() => {
         let cancelled = false;
@@ -370,6 +374,7 @@ export default function SkillsPage() {
                 <PageHeader title="技能库" description="把提示词、角色设定和创作方法，变成随时可用的能力。" actions={<Button type="primary" icon={<Plus className="size-4" />} onClick={() => setInstallOpen(true)}>安装技能</Button>} />
 
                 <div className="skills-browse-bar">
+                <SkillCurationBrowser data={curation} value={platformCategory} onChange={(value) => { setPlatformCategory(value); setTag("all"); setPage(1); }} error={curationError} retry={retryCuration} />
                 <div className="skills-navigation">
                     <div className="skills-tabs" ref={tabsRef} role="tablist" aria-label="技能库范围" onKeyDown={(event) => {
                         if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;

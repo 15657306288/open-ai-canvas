@@ -5,10 +5,14 @@ import { Check, LoaderCircle, Plus, Search, Sparkles, Users } from "lucide-react
 import { AppModal } from "@/components/ui/product/app-modal";
 import type { CanvasTheme } from "@/lib/canvas-theme";
 import type { Skill, SkillCategory, SkillLibraryCategory } from "@/services/api/skills";
+import { SkillCurationBrowser, matchesCuration, type useSkillCuration } from "@/components/skills/skill-curation-browser";
 
 type SkillLibraryTab = "enabled" | "installed" | "market";
 
 type CanvasAgentSkillLibraryModalProps = {
+    curationState: ReturnType<typeof useSkillCuration>;
+    platformCategory: string;
+    onPlatformCategoryChange: (value: string) => void;
     open: boolean;
     theme: CanvasTheme;
     installedSkills: Skill[];
@@ -29,6 +33,7 @@ type CanvasAgentSkillLibraryModalProps = {
 };
 
 export function CanvasAgentSkillLibraryModal({
+    curationState, platformCategory, onPlatformCategoryChange,
     open,
     theme,
     installedSkills,
@@ -84,6 +89,7 @@ export function CanvasAgentSkillLibraryModal({
         const keyword = search.trim().toLocaleLowerCase("zh-CN");
         const source = tab === "market" ? marketSkills : librarySource;
         return source.filter((skill) => {
+            if (!matchesCuration(skill, curationState.curation, platformCategory)) return false;
             if (tab === "market" && category !== "all" && skill.tag !== category) return false;
             if (tab !== "market") {
                 if (libraryCategoryId === "__uncategorized__" && skill.libraryCategoryId) return false;
@@ -94,7 +100,7 @@ export function CanvasAgentSkillLibraryModal({
                 .toLocaleLowerCase("zh-CN")
                 .includes(keyword);
         });
-    }, [categories, category, libraryCategoryId, librarySource, marketSkills, search, tab]);
+    }, [categories, category, libraryCategoryId, librarySource, marketSkills, search, tab, curationState.curation, platformCategory]);
 
     useEffect(() => {
         const target = loadMoreRef.current;
@@ -181,6 +187,7 @@ export function CanvasAgentSkillLibraryModal({
                         className="canvas-agent-skill-library-search"
                     />
                     <nav className="canvas-agent-skill-library-categories thin-scrollbar" aria-label="技能视图与分类">
+                        <SkillCurationBrowser data={curationState.curation} value={platformCategory} onChange={onPlatformCategoryChange} error={curationState.error} retry={curationState.retry} />
                         <div className="canvas-agent-skill-library-category-group">
                             <div className="canvas-agent-skill-library-category-heading">我的技能分类</div>
                             <SkillTab active={tab !== "market" && libraryCategoryId === "all"} label="全部分类" count={librarySource.length} onClick={() => selectLibraryCategory("all")} />

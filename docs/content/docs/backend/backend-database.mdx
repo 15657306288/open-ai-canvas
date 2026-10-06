@@ -297,3 +297,7 @@ Schema 32 为 `channel_models` 新增 `tags`（TEXT、NOT NULL、默认 `'[]'`�
 - 启动幂等装载 87 个预设（风格 45、运镜 33、九宫格 9），不下载第三方媒体。显式 ID 与用户工具冲突时启动报错，不覆盖用户数据；PostgreSQL 同步自增序列。
 - 工具预览纳入资源引用检查；自定义预览必须是当前用户已上传完成的资源。公开工具暂不接受私人预览资源。
 - SQLite → PostgreSQL 迁移包含上述两表。首次启动前备份测试数据；回退旧代码不能视为数据库降级，应使用备份恢复，不手工重写迁移记录。
+
+## 可选技能策展
+
+迁移 46 新增 skill_curation_settings、skill_curation_categories、skill_curation_assignments；默认关闭，不导入技能内容。表结构与事务规则见 [平台技能策展](./skill-curation)。

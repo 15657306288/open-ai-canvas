@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 43
+const CurrentSchemaVersion int64 = 46
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -55,6 +55,7 @@ type migration struct {
 }
 
 var schemaMigrations = []migration{
+	// 44 and 45 are reserved for independent migrations.
 	{version: 1, name: "baseline_gorm_schema", checksum: baselineSchemaChecksum, apply: migrateSchemaV1},
 	{version: 2, name: "schema_migrations_applied_at_index", checksum: schemaMigrationAppliedAtIndexChecksum, apply: migrateSchemaV2},
 	{version: 3, name: "asset_taxonomy_candidate_identity", checksum: assetTaxonomyCandidateIdentityChecksum, apply: migrateSchemaV3},
@@ -145,6 +146,7 @@ var schemaMigrations = []migration{
 	{version: 43, name: "topup_sale_strategies", checksum: "sha256:topup-sale-strategies-v43-20260929", apply: func(tx *gorm.DB) error {
 		return tx.AutoMigrate(&model.TopupProduct{}, &model.PaymentOrder{})
 	}},
+	{version: 46, name: "skill_curation", checksum: "sha256:skill-curation-v46-20261005", apply: migrateSkillCuration},
 }
 
 func migratePrefixedIDSequenceReconcile(tx *gorm.DB) error {
