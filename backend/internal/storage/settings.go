@@ -11,7 +11,7 @@ const (
 	qiniuKodoProvider    = "qiniu"
 	s3Provider           = "s3"
 	defaultOSSPathPrefix = "open-ai-canvas"
-	resourceAccessURLTTL = 5 * time.Minute
+	resourceAccessURLTTL = 4 * time.Hour
 )
 
 type Settings struct {
@@ -92,6 +92,21 @@ func NormalizeSettings(value Settings) Settings {
 	}
 	value.SessionToken = strings.TrimSpace(value.SessionToken)
 	value.StorageLocationID = strings.TrimSpace(value.StorageLocationID)
+	if value.Runtime.TransferTimeout <= 0 {
+		value.Runtime.TransferTimeout = 2 * time.Minute
+	}
+	if value.Runtime.AccessURLTTL <= 0 {
+		value.Runtime.AccessURLTTL = resourceAccessURLTTL
+	}
+	if value.Runtime.ProviderAccessURLTTL <= 0 {
+		value.Runtime.ProviderAccessURLTTL = 4 * time.Hour
+	}
+	if value.Runtime.MaxBufferedUploadSize <= 0 {
+		value.Runtime.MaxBufferedUploadSize = 64 << 20
+	}
+	if value.Runtime.ErrorBodyLimit <= 0 {
+		value.Runtime.ErrorBodyLimit = 1024
+	}
 	value.ArchivedCredentials = CloneCredentials(value.ArchivedCredentials)
 	return value
 }

@@ -31,6 +31,7 @@ import { usePrevisSaveCoordinator } from "@/components/canvas/previs/use-previs-
 import "./canvas-previs-workbench.css";
 import { useAssetStore, type ModelAsset } from "@/stores/use-asset-store";
 import { usePrevisWorkbenchStore } from "@/stores/canvas/use-previs-workbench-store";
+import { PREVIS_MODES, previsModeCapabilities } from "@/lib/canvas/previs/previs-modes";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
 import type { CanvasNodeData } from "@/types/canvas";
 import type { PrevisCameraMove, PrevisRenderMode, PrevisScene, PrevisSceneOutput, PrevisTransform, PrevisVec3 } from "@/types/previs";
@@ -70,6 +71,8 @@ export function CanvasPrevisWorkbench({ open, canvasId, scene, imageNodes, onboa
         return () => media.removeEventListener("change", update);
     }, []);
     const [onboardingRestartSignal, setOnboardingRestartSignal] = useState(0);
+    const mode = usePrevisWorkbenchStore((state) => state.mode);
+    const setMode = usePrevisWorkbenchStore((state) => state.setMode);
     const viewMode = usePrevisWorkbenchStore((state) => state.viewMode);
     const setViewMode = usePrevisWorkbenchStore((state) => state.setViewMode);
     const selectedObjectId = usePrevisWorkbenchStore((state) => state.selectedObjectId);
@@ -117,8 +120,8 @@ export function CanvasPrevisWorkbench({ open, canvasId, scene, imageNodes, onboa
     const addAsset = useAssetStore((state) => state.addAsset);
     const modelAssets = useMemo(() => assets.filter((asset): asset is ModelAsset => asset.kind === "model"), [assets]);
 
-    const capabilities = { timeline: true, keyframes: sequencerVisible, bones: true, cameraTools: Boolean(selectedCameraId && !selectedObjectId && !selectedLightId), renderModes: PREVIS_RENDER_MODE_LABELS.map((option) => option.value) };
-    const renderModeOptions = PREVIS_RENDER_MODE_LABELS;
+    const capabilities = previsModeCapabilities(mode);
+    const renderModeOptions = PREVIS_RENDER_MODE_LABELS.filter((option) => capabilities.renderModes.includes(option.value));
 
     const draftRef = useRef<PrevisScene | null>(null);
     const stagedRef = useRef<PrevisTransaction | null>(null);
@@ -1096,8 +1099,9 @@ export function CanvasPrevisWorkbench({ open, canvasId, scene, imageNodes, onboa
             setSelectedBone(null);
         }
         setPlaying(false);
+        setMode("animate");
         setSequencerVisible(true);
-    }, [selectedActor, setPlaying, setSelectedBone, setSelectedLightId, setSelectedObjectId, setSequencerVisible, stagedTransaction]);
+    }, [selectedActor, setMode, setPlaying, setSelectedBone, setSelectedLightId, setSelectedObjectId, setSequencerVisible, stagedTransaction]);
 
     useEffect(() => {
         const onPreviewRequested = (event: Event) => {
@@ -1150,7 +1154,7 @@ export function CanvasPrevisWorkbench({ open, canvasId, scene, imageNodes, onboa
 
     return (
         <div data-canvas-previs-workbench data-canvas-no-zoom className="previs-desk fixed inset-0 z-[var(--z-toast)] flex min-h-0 min-w-0 flex-col overflow-hidden" style={workbenchThemeStyle}>
-            <header className="previs-desk-header">
+            <header className="previs-desk-header thin-scrollbar overflow-x-auto overflow-y-hidden">
                 <button type="button" className="previs-desk-icon-button" aria-label="关闭预演台" title="关闭预演台" onClick={closeWorkbench}><X className="size-4" /></button>
                 <div className="previs-desk-brand">
                     <span className="previs-desk-logo">影策</span>
@@ -1167,6 +1171,24 @@ export function CanvasPrevisWorkbench({ open, canvasId, scene, imageNodes, onboa
                     <span className="previs-desk-context-dot" />
                     <span>{selectedActor ? `角色 · ${selectedActor.name}` : selectedLight ? `灯光 · ${selectedLight.name}` : selectedCameraId ? `机位 · ${selectedCamera?.name || activeCamera?.name || "摄影机"}` : `镜头 · ${activeShot.name}`}</span>
                 </div>
+                <nav className="previs-mode-switch" aria-label="预演台模式">
+                    {PREVIS_MODES.map((item) => (
+                        <button
+                            key={item.mode}
+                            type="button"
+                            className={`previs-mode-switch-button ${mode === item.mode ? "is-active" : ""}`}
+                            aria-pressed={mode === item.mode}
+                            data-mode={item.mode}
+                            title={item.hint}
+                            onClick={(event) => {
+                                setMode(item.mode);
+                                releasePrevisFocusAfterPointer(event);
+                            }}
+                        >
+                            {item.label}
+                        </button>
+                    ))}
+                </nav>
                 <div className="previs-desk-header-spacer" />
                 <span className={`previs-desk-save ${saveStatusClass}`} aria-live="polite">{saveIndicator.label}</span>
                 {saveIndicator.retryable ? <button type="button" className="previs-desk-header-action" aria-label="重试保存" disabled={retrying || saveIndicator.busy} onClick={() => void retrySave()}><RotateCcw className="size-3.5" />重试保存</button> : null}
@@ -1378,7 +1400,7 @@ export function CanvasPrevisWorkbench({ open, canvasId, scene, imageNodes, onboa
                             renderMode={renderMode}
                             playhead={playhead}
                             playing={playing}
-                            showMotionPaths={draft.objects.some((object) => object.keyframes.length > 1) || draft.cameras.some((camera) => camera.keyframes.length > 1)}
+                            showMotionPaths={capabilities.timeline}
                             trajectoryDrawing={trajectoryDrawing}
                             onTrajectoryComplete={handleTrajectoryComplete}
                             viewMode={viewMode}
@@ -1394,6 +1416,7 @@ export function CanvasPrevisWorkbench({ open, canvasId, scene, imageNodes, onboa
                             showModelLoadNotice
                             showNavigation={false}
                         />
+                        <CanvasPrevisOnboarding scope={onboardingScope} open={open} restartSignal={onboardingRestartSignal} className="pv-onboarding" />
                         {viewMode === "camera" && (selectedCamera || activeCamera) ? (
                             <div className="pv-cam-hud" role="status">
                                 <Camera className="size-3" />
@@ -1417,7 +1440,7 @@ export function CanvasPrevisWorkbench({ open, canvasId, scene, imageNodes, onboa
                             onFocusSelected={() => viewportRef.current?.focusSelected()}
                             onFrameScene={() => viewportRef.current?.frameScene()}
                             onZoom={(factor) => viewportRef.current?.zoom(factor)}
-                            timelineOpen={sequencerVisible}
+                            timelineOpen={capabilities.timeline && sequencerVisible}
                             onOpenTimeline={enterAnimationMode}
                             scenePanelOpen={compactLayout ? scenePanelOpen : sceneDocked}
                             onToggleScenePanel={() => compactLayout ? setScenePanelOpen((value) => !value) : setSceneDocked((value) => !value)}
@@ -1540,11 +1563,9 @@ export function CanvasPrevisWorkbench({ open, canvasId, scene, imageNodes, onboa
                         </button>
                     </aside>
                 </div>
-                {sequencerVisible ? (
-                    <section className="pv-inline-timeline">
-                        <PrevisSequencer scene={draft} shot={activeShot} camera={activeCamera} objects={draft.objects} selectedObjectId={selectedObjectId} selectedBone={selectedBone} playhead={playhead} playing={playing} autoKey={autoKey} height={sequencerHeight} visible onPlayToggle={() => setPlaying(!playing)} onPlayheadChange={setPlayhead} onAutoKeyChange={setAutoKey} onHeightChange={setSequencerHeight} onVisibilityChange={setSequencerVisible} onSelectObject={setSelectedObjectId} onSelectBone={setSelectedBone} onRecordKeyframe={recordSelectedKeyframe} onAddShot={addShot} onDeleteKeyframe={deleteKeyframe} onSetKeyframeEasing={setKeyframeEasing} onSelectShot={(id) => { commit((current) => ({ ...current, activeShotId: id })); setPlayhead(0); }} />
-                    </section>
-                ) : null}
+                <section className="pv-inline-timeline">
+                    {capabilities.timeline ? <PrevisSequencer scene={draft} shot={activeShot} camera={activeCamera} objects={draft.objects} selectedObjectId={selectedObjectId} selectedBone={selectedBone} playhead={playhead} playing={playing} autoKey={autoKey} height={sequencerHeight} visible={sequencerVisible} onPlayToggle={() => setPlaying(!playing)} onPlayheadChange={setPlayhead} onAutoKeyChange={setAutoKey} onHeightChange={setSequencerHeight} onVisibilityChange={setSequencerVisible} onSelectObject={setSelectedObjectId} onSelectBone={setSelectedBone} onRecordKeyframe={recordSelectedKeyframe} onAddShot={addShot} onDeleteKeyframe={deleteKeyframe} onSetKeyframeEasing={setKeyframeEasing} onSelectShot={(id) => { commit((current) => ({ ...current, activeShotId: id })); setPlayhead(0); }} /> : null}
+                </section>
 
         </div>
     );
