@@ -44,7 +44,20 @@ export type CreationTask = {
     choices?: CreationTaskChoice[];
     /** 补充说明输入框占位文案；undefined 表示该任务不提供这个入口。 */
     notesHint?: string;
+    /**
+     * 可选技能配方（backend seed/presets.json 的 presetId），按任务媒体类型圈定。
+     * 全站只有几十个配方，后端的 scene 只区分内容领域（短剧/电商）不区分媒体，
+     * 所以视频配方不得混进图片任务，反之亦然；第一个是默认值。
+     */
+    presetIds: string[];
 };
+
+// 店面拆解的材料全是图，但产出是结构化文本，因此走文本模式的多模态分析。
+const teardownSlots = (): CreationTaskSlot[] => [
+    { key: "storefront", name: "店面截图", media: ["image"], required: true, hint: "店铺首页或主图区截图，你想对标的那家。" },
+    { key: "samples", name: "竞品图片", media: ["image"], required: false, hint: "主图、详情页或模特图，多张越多结论越稳，可选。" },
+    { key: "notes", name: "补充样本", media: ["image"], required: false, hint: "其他视觉参考图，可留空。" },
+];
 
 const imageSlots = (): CreationTaskSlot[] => [
     { key: "product", name: "添加商品", media: ["image"], required: true, hint: "商品主体图，必填。外观、颜色与 logo 需保持一致。" },
@@ -61,13 +74,50 @@ const videoSlots = (): CreationTaskSlot[] => [
 
 const languageChoice: CreationTaskChoice = { key: "language", label: "图片文案", options: [{ value: "中文", label: "中文" }, { value: "英文", label: "英文" }] };
 
+// 平台选项不只是下拉：它决定比例、最小尺寸与套图顺序，会写进内部提示词供技能参考。
+const platformChoice: CreationTaskChoice = {
+    key: "platform",
+    label: "目标平台",
+    options: [
+        { value: "淘宝/天猫", label: "淘宝/天猫" },
+        { value: "京东", label: "京东" },
+        { value: "拼多多", label: "拼多多" },
+        { value: "抖音电商", label: "抖音电商" },
+        { value: "小红书", label: "小红书" },
+        { value: "Amazon", label: "Amazon" },
+        { value: "独立站", label: "独立站" },
+    ],
+};
+
+// 品类选项决定品类打法是否适用：皮草不能用食品口碵，生鲜不能用皮草绘图逻辑。
+const categoryChoice: CreationTaskChoice = {
+    key: "category",
+    label: "商品类目",
+    options: [
+        { value: "女装皮草", label: "女装皮草" },
+        { value: "食品三农生鲜", label: "食品三农生鲜" },
+        { value: "其他品类", label: "其他品类" },
+    ],
+};
+
 // 图片比例不放在 choices 里：面板直接用当前模型真实支持的比例，
 // 避免出现一个和生成参数脱钩的假下拉。
-const imageChoices = () => [languageChoice];
+const imageChoices = () => [platformChoice, categoryChoice, languageChoice];
 
 export const CREATION_TASKS: CreationTask[] = [
     {
+        key: "ecommerce-visual-teardown",
+        name: "店面视觉拆解",
+        detail: "反推竞品配色、版式与光影",
+        mode: "text",
+        scenario: "ecommerce",
+        slots: teardownSlots(),
+        notesHint: "店铺名称、主打品类、想学这家的哪一点、不想学的部分",
+        presetIds: ["ecom-visual-teardown"],
+    },
+    {
         key: "ecommerce-image-set",
+        presetIds: ["ecom-shelf-ready", "ecom-image"],
         name: "商详套图",
         detail: "一次生成完整详情页套图",
         mode: "image",
@@ -89,6 +139,7 @@ export const CREATION_TASKS: CreationTask[] = [
     },
     {
         key: "ecommerce-hero",
+        presetIds: ["ecom-shelf-ready", "ecom-image"],
         name: "商品主图",
         detail: "白底、场景与卖点图",
         mode: "image",
@@ -105,6 +156,7 @@ export const CREATION_TASKS: CreationTask[] = [
     },
     {
         key: "ecommerce-scene",
+        presetIds: ["ecom-shelf-ready", "ecom-image"],
         name: "使用场景图",
         detail: "把商品放进真实使用环境",
         mode: "image",
@@ -120,6 +172,7 @@ export const CREATION_TASKS: CreationTask[] = [
     },
     {
         key: "ecommerce-spoken-video",
+        presetIds: ["ad-full-chain", "h3-video", "seedance-video"],
         name: "电商带货视频",
         detail: "商品展示与带货短视频",
         mode: "video",
@@ -129,6 +182,7 @@ export const CREATION_TASKS: CreationTask[] = [
     },
     {
         key: "ecommerce-brand-video",
+        presetIds: ["ad-full-chain", "h3-video", "seedance-video"],
         name: "品牌广告",
         detail: "视听统一的品牌宣传片",
         mode: "video",
@@ -138,6 +192,7 @@ export const CREATION_TASKS: CreationTask[] = [
     },
     {
         key: "ecommerce-drama-video",
+        presetIds: ["short-drama-starter", "short-drama-pilot", "ai-performer"],
         name: "剧情短片",
         detail: "情节紧凑的剧情短片",
         mode: "video",
@@ -199,6 +254,10 @@ export function buildCreationTaskPrompt(input: CreationTaskPromptInput) {
         summary.modules.forEach((module) => directives.push(`- ${module.name}（${Math.max(1, Math.floor(input.moduleSelection[module.key] || module.count))} 张）：${module.spec}`));
     }
     const specs = [];
+    const platform = input.choiceValues.platform;
+    if (platform) specs.push(`目标平台：${platform}（请沿用该平台的图片尺寸、白底要求与套图顺序）`);
+    const category = input.choiceValues.category;
+    if (category) specs.push(`商品类目：${category}（请沿用该品类的视觉重点、卖点结构与合规红线）`);
     const language = input.choiceValues.language;
     if (language) specs.push(`图文语言：${language}`);
     if (task.mode === "image" && input.settings.ratio) specs.push(`图片比例：${input.settings.ratio}`);

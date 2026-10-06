@@ -14,7 +14,7 @@ import { useExternalAssetSources } from "@/hooks/use-external-asset-sources";
 import { modelCapabilityConfigFor, normalizeImageValue, normalizeVideoValue, videoDurationAllowed, videoDurationOptions } from "@/lib/model-capabilities";
 import { inferVideoOperation, modelGroupReferenceLimits, resolveCompatibleModel, mergedImageCapabilityConfig, type ModelRequirements } from "@/lib/model-selection";
 import type { BackendGenerationResult } from "@/services/api/generation-task";
-import type { Skill } from "@/services/api/skills";
+import type { Skill, SkillPreset } from "@/services/api/skills";
 import type { GenerationTask } from "@/services/api/task-center";
 import { loadCreationConversations, pendingCreationTaskIds, removeCreationConversationSnapshot, saveCreationConversations, updateCreationConversationSnapshot } from "@/services/creation-conversation-store";
 import { resolveModelChannel, selectableModelsByCapability, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
@@ -143,6 +143,9 @@ export default function CreatePage() {
     const [taskChoiceValues, setTaskChoiceValues] = useState<Record<string, string>>({});
     const [taskNotes, setTaskNotes] = useState("");
     const [pendingTaskSlot, setPendingTaskSlot] = useState<string | null>(null);
+    const [taskPreset, setTaskPreset] = useState<SkillPreset | null>(null);
+    const [taskPresetBusy, setTaskPresetBusy] = useState(false);
+    const [skillPresets, setSkillPresets] = useState<SkillPreset[]>([]);
     const externalAssetSources = useExternalAssetSources(libraryOpen);
     const abortRef = useRef<AbortController | null>(null);
     const composerFocusRef = useRef<HTMLTextAreaElement>(null);
@@ -373,6 +376,27 @@ export default function CreatePage() {
             .catch(() => setAddedSkills([]));
     }, []);
 
+    const skillPresetsPromiseRef = useRef<Promise<SkillPreset[]> | null>(null);
+    const loadSkillPresets = useCallback(() => {
+        if (!skillPresetsPromiseRef.current) {
+            skillPresetsPromiseRef.current = import("@/services/api/skills")
+                .then(({ listSkillPresets }) => listSkillPresets())
+                .then(({ presets }) => { setSkillPresets(presets || []); return presets || []; })
+                .catch(() => [] as SkillPreset[]);
+        }
+        return skillPresetsPromiseRef.current;
+    }, []);
+
+    const applySkillPreset = useCallback(async (presetId: string) => {
+        const api = await import("@/services/api/skills");
+        const preset = (await loadSkillPresets()).find((item) => item.presetId === presetId);
+        if (!preset) return null;
+        const { skills: installed } = await api.listAddedSkills();
+        const missing = preset.skillIds.filter((id) => !installed.some((skill) => skill.skillId === id && skill.isAdded));
+        for (const id of missing) { try { await api.addSkill(id); } catch { /* 配方仍可使用已安装部分。 */ } }
+        return preset;
+    }, [loadSkillPresets]);
+
     useEffect(() => {
         if (isEmpty || !followLatestMessageRef.current) return;
         const frame = window.requestAnimationFrame(() => {
@@ -476,6 +500,11 @@ export default function CreatePage() {
         ...externalLibraryItems,
     ], [assets, externalLibraryItems, mode, videoReferenceLimits]);
     const activeTask = activeTaskKey ? creationTask(activeTaskKey) : undefined;
+    const taskProfile = useMemo(() => modelCapabilityConfigFor(config, selectedModel), [config, selectedModel]);
+    const taskPresets = useMemo(() => {
+        const allowed = new Set(activeTask?.presetIds || []);
+        return skillPresets.filter((preset) => allowed.has(preset.presetId));
+    }, [activeTask, skillPresets]);
 
     const openTask = (key: string) => {
         const task = creationTask(key);
@@ -487,12 +516,22 @@ export default function CreatePage() {
         setTaskSlotAttachmentIds({});
         setAgentMode(false);
         selectMode(task.mode);
+        setTaskPreset(null);
+        if (task.presetIds[0]) void selectTaskPreset(task.presetIds[0]);
     };
+
+    const selectTaskPreset = useCallback(async (presetId: string) => {
+        setTaskPresetBusy(true);
+        try { setTaskPreset(presetId ? await applySkillPreset(presetId) : null); }
+        catch { setTaskPreset(null); }
+        finally { setTaskPresetBusy(false); }
+    }, [applySkillPreset]);
 
     const closeTask = () => {
         setActiveTaskKey(null);
         setTaskSlotAttachmentIds({});
         setTaskNotes("");
+        setTaskPreset(null);
         setPrompt("");
     };
 
@@ -523,9 +562,9 @@ export default function CreatePage() {
             slotLabels[slot.key] = (taskSlotAttachmentIds[slot.key] || []).map((id) => labelByAttachment.get(id)).filter((label): label is string => Boolean(label));
         });
         const moduleSelection = activeTask.modules ? taskModuleSelection : {};
-        const images = activeTask.modules
-            ? selectedModuleSummary(activeTask, moduleSelection).images
-            : 1;
+        const summary = activeTask.modules ? selectedModuleSummary(activeTask, moduleSelection) : null;
+        const images = summary ? summary.images : 1;
+        const summaryText = summary && summary.modules.length ? `${summary.kinds} 类共 ${summary.images} 张：` + summary.modules.map((item) => item.name).join("、") : "";
         return {
             prompt: buildCreationTaskPrompt({
                 task: activeTask,
@@ -536,8 +575,10 @@ export default function CreatePage() {
                 settings: { ratio, seconds },
             }),
             count: String(Math.max(1, Math.min(4, images))),
+            skillIds: taskPreset?.skillIds,
+            displayText: [activeTask.name, summaryText, taskNotes.trim()].filter(Boolean).join("\n"),
         };
-    }, [activeTask, attachments, ratio, seconds, taskChoiceValues, taskModuleSelection, taskNotes, taskSlotAttachmentIds]);
+    }, [activeTask, attachments, ratio, seconds, taskChoiceValues, taskModuleSelection, taskNotes, taskPreset, taskSlotAttachmentIds]);
 
     const submitActiveTask = () => {
         if (!activeTask || busy) return;
@@ -685,7 +726,7 @@ export default function CreatePage() {
 
     // 任务面板在同一次点击里组装好提示词与出图张数；React state 还没提交，
     // 所以这里显式接收本次要用的值，而不是等下一次渲染再读闭包。
-    const submit = async (retryContext?: CreationRetryContext, retryLockKey?: string, override?: { prompt?: string; count?: string }) => {
+    const submit = async (retryContext?: CreationRetryContext, retryLockKey?: string, override?: { prompt?: string; count?: string; skillIds?: string[]; displayText?: string }) => {
         const releaseRetryLock = () => {
             if (retryLockKey) retryPreparingRef.current.delete(retryLockKey);
         };
@@ -733,7 +774,11 @@ export default function CreatePage() {
             audioCount: referenceAudios.length,
             characterCount: 0,
         });
-        const skillReferences = references.flatMap((reference) => (reference.skill ? [reference.skill] : []));
+        const requestedSkillIds = override?.skillIds || [];
+        const skillReferences = (requestedSkillIds.length
+            ? (await import("@/services/api/skills")).listAddedSkills().then(({ skills }) => skills).then((skills) => skills.filter((skill) => requestedSkillIds.includes(skill.skillId)))
+            : Promise.resolve(references.flatMap((reference) => (reference.skill ? [reference.skill] : []))))
+            .then((skills) => skills.filter((skill, index, all) => all.findIndex((item) => item.skillId === skill.skillId) === index));
         let runtime: CreationRuntime;
         try {
             runtime = await loadCreationRuntime();
@@ -748,8 +793,8 @@ export default function CreatePage() {
             skillExecution = await runtime.skillRuntime.prepare({
                 profile: "creation",
                 prompt: expandCreationPrompt(text, references, attachments),
-                skills: skillReferences,
-                selectedSkillIds: skillReferences.map((skill) => skill.skillId),
+                skills: await skillReferences,
+                selectedSkillIds: (await skillReferences).map((skill) => skill.skillId),
             });
         } catch (error) {
             toast.error(error instanceof Error ? error.message : "技能上下文加载失败");
@@ -760,7 +805,7 @@ export default function CreatePage() {
         const expandedPrompt = skillExecution.prompt;
         const referenceMetadata = skillExecution.metadata;
         followLatestMessageRef.current = true;
-        const userMessage = newMessage("user", text, { mode, model: selectedModel, attachments, references, settings });
+        const userMessage = newMessage("user", override?.displayText ?? text, { mode, model: selectedModel, attachments, references, settings });
         const assistantMessage = newMessage("assistant", "", { mode, model: selectedModel, status: mode === "text" && textStreaming ? "streaming" : "pending", settings, ...retryContext });
         const originConversationId = activeConversation.id;
         const updateOriginAssistant = (updater: (item: CreationMessage) => CreationMessage) => updateConversationMessage(originConversationId, assistantMessage.id, updater);
@@ -1193,9 +1238,13 @@ export default function CreatePage() {
                         secondsOptions={videoDurationOptions(videoProfile).map((value) => ({ value: String(value), label: String(value) + " 秒" }))}
                         onSecondsChange={setComposerSeconds}
                         model={selectedModel}
-                        onModelChange={(value) => updateConfig(activeTask.mode === "image" ? "imageModel" : "videoModel", value)}
+                        onModelChange={(value) => updateConfig(activeTask.mode === "text" ? "textModel" : activeTask.mode === "image" ? "imageModel" : "videoModel", value)}
                         config={config}
                         modelRequirements={modelRequirements}
+                        preset={taskPreset}
+                        presets={taskPresets}
+                        onPresetChange={(presetId) => void selectTaskPreset(presetId)}
+                        presetBusy={taskPresetBusy}
                         onSubmit={submitActiveTask}
                         onClose={closeTask}
                     /> : <div className="creation-task-cards">

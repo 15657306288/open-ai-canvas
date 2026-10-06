@@ -5,10 +5,11 @@
 
 import { useMemo } from "react";
 import { Button } from "antd";
-import { LoaderCircle, Minus, Plus, X } from "lucide-react";
+import { LoaderCircle, Minus, Plus, Sparkles, X } from "lucide-react";
 
 import { Tooltip } from "@/components/ui/base/tooltip";
 import { ModelPicker } from "@/components/model-picker";
+import type { SkillPreset } from "@/services/api/skills";
 import { CreditSymbol, requestCreditCost } from "@/constant/credits";
 import { modelOptionName, resolveModelChannel, type AiConfig } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
@@ -42,6 +43,12 @@ export type CreationTaskPanelProps = {
     onModelChange: (value: string) => void;
     config: AiConfig;
     modelRequirements: ModelRequirements;
+    /** 当前生效的技能配方；null = 未选配方。 */
+    preset?: SkillPreset | null;
+    /** 可选配方目录，下拉可切换。 */
+    presets: SkillPreset[];
+    onPresetChange: (presetId: string) => void;
+    presetBusy?: boolean;
     onSubmit: () => void;
     onClose: () => void;
 };
@@ -96,6 +103,14 @@ export function CreationTaskPanel(props: CreationTaskPanelProps) {
                 <div>
                     <h3>{task.name}</h3>
                     <p>{task.detail}</p>
+                    {props.preset || props.presetBusy ? (
+                        <p className="creation-task-panel-preset" aria-live="polite">
+                            <Sparkles aria-hidden="true" />
+                            {props.preset
+                                ? <span>已应用技能配方「{props.preset.name}」·{props.preset.skillIds.length} 个技能</span>
+                                : <span>正在挂载技能配方…</span>}
+                        </p>
+                    ) : null}
                 </div>
                 <Tooltip title="收起面板">
                     <button type="button" className="creation-task-panel-close" onClick={props.onClose} aria-label="收起任务面板"><X aria-hidden="true" /></button>
@@ -178,6 +193,17 @@ export function CreationTaskPanel(props: CreationTaskPanelProps) {
                 <section className="creation-task-section" aria-labelledby="creation-task-settings-title">
                     <h4 id="creation-task-settings-title">生成设置</h4>
                     <div className="creation-task-fields">
+                        <label className="creation-task-field is-preset">
+                            <span>技能配方</span>
+                            <select
+                                value={props.preset?.presetId || ""}
+                                disabled={props.busy || props.presetBusy}
+                                onChange={(event) => props.onPresetChange(event.target.value)}
+                            >
+                                <option value="">不使用配方</option>
+                                {props.presets.map((item) => <option key={item.presetId} value={item.presetId}>{item.name}（{item.scene}）</option>)}
+                            </select>
+                        </label>
                         {task.choices?.map((choice) => (
                             <label key={choice.key} className="creation-task-field">
                                 <span>{choice.label}</span>
@@ -190,6 +216,7 @@ export function CreationTaskPanel(props: CreationTaskPanelProps) {
                                 </select>
                             </label>
                         ))}
+                        {/* 文本任务（如店面拆解）既不输出图也不输出视频，不应出现比例或时长下拉。 */}
                         {task.mode === "image" ? (
                             <label className="creation-task-field">
                                 <span>图片比例</span>
@@ -197,14 +224,14 @@ export function CreationTaskPanel(props: CreationTaskPanelProps) {
                                     {props.ratioOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                                 </select>
                             </label>
-                        ) : (
+                        ) : task.mode === "video" ? (
                             <label className="creation-task-field">
                                 <span>视频时长</span>
                                 <select value={props.seconds} disabled={props.busy} onChange={(event) => props.onSecondsChange(event.target.value)}>
                                     {props.secondsOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                                 </select>
                             </label>
-                        )}
+                        ) : null}
                         {task.notesHint ? (
                             <label className="creation-task-field is-notes">
                                 <span>补充说明（可选）</span>

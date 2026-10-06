@@ -54,6 +54,26 @@
       "upgrade": "Seedance 八块公式 single 已通过 E1 实测（2026-09-22），待 singles 上架后替换域包位。"
     },
     {
+      "presetId": "ecom-visual-teardown",
+      "name": "店面视觉拆解",
+      "scene": "ecommerce",
+      "skillIds": ["ecom-visual-teardown"],
+      "rationale": "把竞品店面拆成可执行的视觉规则：配色、版式、光影、材质与排版节奏拆成可执行约束，不停留在“高级感”这类无法落地的形容词上。",
+      "source": "hand-curated",
+      "evidence": "E4",
+      "upgrade": "目前靠用户自提供截图与主图；页面自动抓取需要新增后端抓取能力。"
+    },
+    {
+      "presetId": "ecom-shelf-ready",
+      "name": "电商上架合规套图",
+      "scene": "ecommerce",
+      "skillIds": ["ecom-platform-specs", "ecom-compliance-gate", "ecom-category-playbook", "14811816982028"],
+      "rationale": "上架前的完整链路：平台规范给出尺寸与套图优先级，合规分级拦掉功效与虚假宣称，品类打法保证材质与卖点不跑偏，官方系列套图生成负责批量出图。",
+      "source": "hand-curated",
+      "evidence": "E4",
+      "upgrade": "品类打法目前只覆盖女装皮草与食品三农生鲜，接入后台类目后再拆成独立配方。"
+    },
+    {
       "presetId": "ecom-image",
       "name": "电商大图与系列图",
       "scene": "ecommerce",
