@@ -42,7 +42,8 @@ describe("canvas visual contrast", () => {
     test("keeps the original transparent edge for standard canvas nodes", async () => {
         const source = await Bun.file(new URL("../src/components/canvas/canvas-node.tsx", import.meta.url)).text();
 
-        expect(source).toContain('border: isComposerNode ? "0" : "1px solid transparent"');
-        expect(source).not.toContain('border: isComposerNode ? "0" : `1px solid ${theme.node.edge}`');
+        // 拼合组图片同样不画边框；断言保持「不使用随主题变化的动态描边」这一意图。
+        expect(source).toContain('isComposerNode || seamlessImage ? "0" : "1px solid transparent"');
+        expect(source).not.toContain('"1px solid ${theme.node.edge}"');
     });
 });

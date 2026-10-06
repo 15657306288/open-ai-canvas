@@ -136,7 +136,12 @@ export const CanvasNode = React.memo(function CanvasNode({
     const showStatusTrack = Boolean(resourceLabel || data.metadata?.locked || isBatchRoot || (isBatchChild && !readOnly) || (hasMediaContent && !readOnly));
     const isActive = isConnectionTarget || isSelected || isFocusRelated;
     const effectiveRenderLOD: CanvasNodeRenderLOD = renderLOD === "full" || hovered || isEditingContent || isEditingTitle || mediaActive ? "full" : renderLOD;
+    // 引用拼合组的图片按 Frame 的 imageAssembly 标记渲染：默认不画边框与阴影，
+    // 悬停/选中/改标题时再临时恢复必要 chrome。
     const showChrome = effectiveRenderLOD === "full" && (!seamlessImage || hovered || isSelected || isEditingTitle);
+    // 拼合组内的图片与配置节点一样不画边框；其余节点保留 1px 透明描边占位，
+    // 避免聚焦切换时边框宽度变化造成白边跳动。
+    const seamlessBorder = isComposerNode || seamlessImage ? "0" : "1px solid transparent";
     const nodeState = isFocusRelated ? "focus" : isConnectionTarget ? "target" : isSelected ? "selected" : isRelated && !isBatchChild ? "related" : "idle";
     const showOutputConnection = getNodeDefinition(data.type)?.showOutputConnection !== false;
     const assetTags = data.metadata?.assetTags?.filter((tag) => tag.trim()) || [];
@@ -322,7 +327,8 @@ export const CanvasNode = React.memo(function CanvasNode({
                 style={{
                     background: hasImageContent || hasVideoContent ? "transparent" : theme.node.fill,
                     // 固定占位但不绘制描边，避免聚焦切换时边框宽度变化造成白边跳动。
-                    border: isComposerNode || seamlessImage ? "0" : "1px solid transparent",
+                    // 固定占位但不绘制描边，避免聚焦切换时边框宽度变化造成白边跳动。
+                    border: seamlessBorder,
                     boxShadow: seamlessImage || isComposerNode || !showChrome ? "none" : isSelected || isFocusRelated ? theme.node.hoverShadow : theme.node.shadow,
                     outline: !showChrome && isActive ? `1px solid ${theme.node.activeStroke}` : undefined,
                     "--connection-tilt-x": `${connectionTilt?.rotateX || 0}deg`,
