@@ -27,6 +27,12 @@ func (r *Repository) User(id string) (*model.User, error) {
 	return &user, nil
 }
 
+// UpdateUserLoginTime preserves concurrent changes to status and profile fields.
+func (r *Repository) UpdateUserLoginTime(userID string, now time.Time) error {
+	return r.db.Model(&model.User{}).Where("id = ?", userID).
+		Updates(map[string]any{"last_login_at": now, "updated_at": now}).Error
+}
+
 func (r *Repository) UserByAccount(account string) (*model.User, error) {
 	var user model.User
 	if err := r.db.Where("lower(username) = lower(?) OR lower(email) = lower(?)", account, account).First(&user).Error; err != nil {

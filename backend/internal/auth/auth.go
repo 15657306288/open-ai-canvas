@@ -281,7 +281,7 @@ func (s *Service) Login(req LoginRequest) (*AuthSessionResult, error) {
 	now := time.Now()
 	user.LastLoginAt = &now
 	user.UpdatedAt = now
-	if err := s.repo.Save(user); err != nil {
+	if err := s.repo.UpdateUserLoginTime(user.ID, now); err != nil {
 		return nil, err
 	}
 	if err := s.host.EnsureSignupBonus(user.ID); err != nil {
