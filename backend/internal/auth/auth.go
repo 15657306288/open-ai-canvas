@@ -252,6 +252,19 @@ func (s *Service) Register(req RegisterRequest) (*AuthSessionResult, error) {
 	return s.createAuthSession(&user)
 }
 
+// LoginRateLimitSubject uses the same account lookup as password authentication.
+func (s *Service) LoginRateLimitSubject(account string) (string, error) {
+	account = strings.TrimSpace(account)
+	user, err := s.repo.UserByAccount(account)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return "input:" + strings.ToLower(account), nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return "user:" + user.ID, nil
+}
+
 func (s *Service) Login(req LoginRequest) (*AuthSessionResult, error) {
 	account := strings.TrimSpace(req.Username)
 	user, err := s.repo.UserByAccount(account)
