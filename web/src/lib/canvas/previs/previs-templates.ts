@@ -132,6 +132,7 @@ export function createPrevisSceneFromTemplate(templateId: PrevisTemplateId, titl
         title,
         background: "#d8dde3",
         environmentIntensity: 0.7,
+        environment: { mode: "color" },
         gridVisible: true,
         objects: blueprint.objects,
         cameras: [blueprint.camera],
