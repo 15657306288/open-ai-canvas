@@ -27,13 +27,17 @@ description: 信封、错误码与 OpenAPI
 
 ## 资源访问与 OSS/CDN 分发
 
+普通上传、分片合并及 URL 导入按内容签名识别 MIME，不以客户端声明或文件扩展名决定媒体类型；无法识别的内容仍可作为附件上传。上传标识对应的 ready/failed 重试均先读取内容，并核对检测后的 MIME、资源类型与大小；不一致返回 409，不覆盖原对象。这是内容判型与元数据一致性校验，不是完整格式解码或内容摘要去重。
+
+非媒体文件（包括可执行脚本的 SVG）通过平台本地读取或代理交付，强制 `Content-Disposition: attachment` 与 `Content-Security-Policy: sandbox; default-src 'none'`，不向浏览器或访问描述返回其 OSS/CDN 直链。普通图片、音频及视频保持原有媒体分发规则。历史资源不在本次变更中批量重新判型。
+
 资源展示、播放、下载、复制地址和模型输入统一消费资源访问合同，不在客户端通过 `direct=1`、`proxy=1` 或存储厂商规则选择出口。
 
 - `POST /api/resources/access` 要求登录，请求体为 1–100 项 `{ resourceId, purpose?, variant? }`。`purpose` 支持 `display`、`copy`、`download`、`browser-process`、`provider-input`；`variant` 支持 `original`、`playback`、`thumbnail`（缩略图未生成前回落原件，`fallbackReason` 为 `thumbnail_not_ready`）。每项独立返回 `access` 或结构化 `error`。
-- `access.delivery` 为 `cdn`、`origin`、`platform-local` 或 `platform-proxy`。配置了可用 CDN 时返回 CDN 地址；OSS 源站签名是源站直连，不等于 CDN。`requireCDN` 开启且 CDN 鉴权不完整时失败，不静默回源。浏览器的展示、复制、下载和本地处理不允许使用 `platform-proxy`，云资源正文始终由 OSS/CDN 直接发送给浏览器；`allowPrivateProxy` 只允许服务端在 `provider-input` 场景向第三方模型提交参考素材时读取私有源站。
+- `access.delivery` 为 `cdn`、`origin`、`platform-local` 或 `platform-proxy`。媒体配置了可用 CDN 时返回 CDN 地址；OSS 源站签名是源站直连，不等于 CDN。媒体的 `requireCDN` 开启且 CDN 鉴权不完整时失败，不静默回源。浏览器媒体的展示、复制、下载和本地处理不使用 `platform-proxy`，正文由 OSS/CDN 直接发送；`allowPrivateProxy` 允许服务端在 `provider-input` 场景读取私有媒体源站。非媒体附件始终通过平台控制响应头，不受上述媒体直连规则影响。
 - `expiresAt` / `refreshAt` 只描述当前授权有效期。有效期来自后台「资源与请求策略」（`provider-input` 与其余签名访问分别配置，默认均为 4 小时）；公开 CDN 可没有 `expiresAt`。签名地址不写入画布或服务端持久化内容。
 - `display`、`copy`、`browser-process` 的源站签名把签名起始时间对齐到有效期 1/4 的时间窗（按 Unix 纪元对齐），过期时间为窗口起点加有效期：同一窗口内重复签发得到逐字节相同的 URL，刷新画布或多实例签发都能命中浏览器 HTTP 缓存；签名同时携带 `response-cache-control=private, max-age=<有效期>, immutable`，由对象存储回写缓存头。`download` 与 `provider-input` 仍按当前时间签发，不带缓存覆盖。
-- `GET /api/resources/:id/file` 仍是稳定平台入口，负责本地/平台代理字节流，云资源只返回 307 到 CDN 或对象存储；`?access=1` 只返回访问描述，不打开正文。`Range` 只影响字节流路径。
+- `GET /api/resources/:id/file` 仍是稳定平台入口，负责本地/平台代理字节流，可直连的云媒体返回 307 到 CDN 或对象存储，非媒体附件走平台流；`?access=1` 只返回访问描述，不打开正文。`Range` 只影响字节流路径。
 - 公共资源、画布分享、外观、公告、管理员资源和日志媒体复用同一个 HTTP 执行器。公共签名链接受自身到期时间和变体绑定限制，但已签发的外部 URL 不承诺立即撤销。
 
 当前自动签名能力：公开 CDN、七牛私有下载签名和对象存储源站签名。阿里云/腾讯云私有 CDN 签名尚未自动支持，不能仅填写 CDN 域名就宣称已命中 CDN。真实 CORS、Range、CDN 命中率及账单收益必须在实际云环境通过浏览器网络记录和服务端流量观测验收。

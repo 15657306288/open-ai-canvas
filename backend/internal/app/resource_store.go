@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"mime"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -19,7 +18,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gabriel-vasile/mimetype"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/assets"
 	"infinite-canvas/backend/internal/model"
 )
 
@@ -43,9 +44,6 @@ func (s *Service) uploadResource(userID string, header *multipart.FileHeader, ki
 	if err != nil {
 		return nil, err
 	}
-	if existing != nil && existing.Status == model.ResourceStatusReady {
-		return existing, nil
-	}
 	if existing != nil && existing.Status == model.ResourceStatusPending {
 		return nil, resourceUploadInProgress()
 	}
@@ -55,8 +53,13 @@ func (s *Service) uploadResource(userID string, header *multipart.FileHeader, ki
 	}
 	defer file.Close()
 
-	mimeType := strings.TrimSpace(header.Header.Get("Content-Type"))
-	mimeType = detectUploadedMimeType(file, header.Filename, mimeType)
+	mimeType, err := detectUploadedMimeType(file)
+	if err != nil {
+		return nil, err
+	}
+	if !(forceLocal && kind == "live2d") {
+		kind = uploadedResourceKind(mimeType)
+	}
 	if existing != nil {
 		return s.retryStoredResource(userID, existing, kind, mimeType, header.Size, file)
 	}
@@ -87,13 +90,14 @@ func (s *Service) UploadResourceFile(userID string, fileName string, size int64,
 	if err != nil {
 		return nil, err
 	}
-	if existing != nil && existing.Status == model.ResourceStatusReady {
-		return existing, nil
-	}
 	if existing != nil && existing.Status == model.ResourceStatusPending {
 		return nil, resourceUploadInProgress()
 	}
-	mimeType := detectUploadedMimeType(file, fileName, "")
+	mimeType, err := detectUploadedMimeType(file)
+	if err != nil {
+		return nil, err
+	}
+	kind = uploadedResourceKind(mimeType)
 	if existing != nil {
 		return s.retryStoredResource(userID, existing, kind, mimeType, size, file)
 	}
@@ -112,21 +116,23 @@ func (s *Service) UploadResourceFile(userID string, fileName string, size int64,
 	return resource, err
 }
 
-func detectUploadedMimeType(file io.ReadSeeker, fileName string, declared string) string {
-	declared = strings.TrimSpace(strings.Split(declared, ";")[0])
-	if declared != "" && declared != "application/octet-stream" {
-		return declared
+func detectUploadedMimeType(file io.ReadSeeker) (string, error) {
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return "", err
 	}
-	buffer := make([]byte, 512)
-	read, _ := file.Read(buffer)
-	_, _ = file.Seek(0, io.SeekStart)
-	if detected := http.DetectContentType(buffer[:read]); detected != "" && detected != "application/octet-stream" {
-		return strings.TrimSpace(strings.Split(detected, ";")[0])
+	detected, err := mimetype.DetectReader(file)
+	_, seekErr := file.Seek(0, io.SeekStart)
+	if err != nil || seekErr != nil {
+		return "", errors.Join(err, seekErr)
 	}
-	if fromExtension := mime.TypeByExtension(filepath.Ext(fileName)); fromExtension != "" {
-		return strings.TrimSpace(strings.Split(fromExtension, ";")[0])
+	return strings.TrimSpace(strings.Split(detected.String(), ";")[0]), nil
+}
+
+func uploadedResourceKind(mimeType string) string {
+	if !assets.InlineMediaType(mimeType) {
+		return "file"
 	}
-	return "application/octet-stream"
+	return normalizeResourceKind("", mimeType)
 }
 
 func (s *Service) ImportResourceURL(userID string, rawURL string, kind string, width int, height int, durationMs int64, uploadIdentity ...string) (*model.Resource, error) {
@@ -134,9 +140,6 @@ func (s *Service) ImportResourceURL(userID string, rawURL string, kind string, w
 	existing, err := s.resourceForUploadKey(userID, uploadKey)
 	if err != nil {
 		return nil, err
-	}
-	if existing != nil && existing.Status == model.ResourceStatusReady {
-		return existing, nil
 	}
 	if existing != nil && existing.Status == model.ResourceStatusPending {
 		return nil, resourceUploadInProgress()
@@ -149,7 +152,11 @@ func (s *Service) ImportResourceURL(userID string, rawURL string, kind string, w
 	if err != nil {
 		return nil, err
 	}
-	kind = normalizeResourceKind(kind, payload.mimeType)
+	payload.mimeType, err = detectUploadedMimeType(bytes.NewReader(payload.data))
+	if err != nil {
+		return nil, err
+	}
+	kind = uploadedResourceKind(payload.mimeType)
 	if kind == "image" && (width <= 0 || height <= 0) {
 		if decodedWidth, decodedHeight := imageDimensions(payload.data); decodedWidth > 0 && decodedHeight > 0 {
 			width = decodedWidth
@@ -251,19 +258,22 @@ func (s *Service) storeResource(userID string, kind string, fileName string, mim
 }
 
 func (s *Service) storeResourceWithWriter(userID string, kind string, fileName string, mimeType string, size int64, width int, height int, durationMs int64, body io.Reader, uploadKey *string, forceLocal bool, writeObject func(*model.Resource, string, io.Reader) (string, error)) (*model.Resource, bool, error) {
+	// Live2D is reserved for the administrator's validated local import path.
+	if !(forceLocal && kind == "live2d") {
+		kind = normalizeResourceKind(kind, mimeType)
+	}
 	if existing, err := s.resourceForUploadKey(userID, uploadKey); err != nil {
 		return nil, false, err
 	} else if existing != nil {
 		if existing.Status == model.ResourceStatusReady {
+			if err := validateResourceUploadIdentity(existing, kind, mimeType, size); err != nil {
+				return nil, false, err
+			}
 			return existing, false, nil
 		}
 		return nil, false, resourceUploadInProgress()
 	}
 	now := time.Now()
-	// Live2D is reserved for the administrator's validated local import path.
-	if !(forceLocal && kind == "live2d") {
-		kind = normalizeResourceKind(kind, mimeType)
-	}
 	var setting ossSettingValue
 	var storageSettingID string
 	var useOSS bool
@@ -289,6 +299,9 @@ func (s *Service) storeResourceWithWriter(userID string, kind string, fileName s
 	if err := s.repo.CreateResource(&resource); err != nil {
 		if existing, lookupErr := s.resourceForUploadKey(userID, uploadKey); lookupErr == nil && existing != nil {
 			if existing.Status == model.ResourceStatusReady {
+				if err := validateResourceUploadIdentity(existing, kind, mimeType, size); err != nil {
+					return nil, false, err
+				}
 				return existing, false, nil
 			}
 			return nil, false, resourceUploadInProgress()
@@ -371,15 +384,15 @@ func (s *Service) retryStoredResource(userID string, resource *model.Resource, k
 	if resource == nil {
 		return nil, errors.New("资源不存在")
 	}
-	if resource.Status == model.ResourceStatusReady {
-		return resource, nil
-	}
-	if resource.Status != model.ResourceStatusFailed {
+	if resource.Status != model.ResourceStatusFailed && resource.Status != model.ResourceStatusReady {
 		return nil, resourceUploadInProgress()
 	}
 	kind = normalizeResourceKind(kind, mimeType)
-	if resource.Size != size || resource.Kind != kind || (resource.MimeType != "" && mimeType != "" && resource.MimeType != mimeType) {
-		return nil, NewAppError(http.StatusConflict, "上传幂等标识已用于其他文件")
+	if err := validateResourceUploadIdentity(resource, kind, mimeType, size); err != nil {
+		return nil, err
+	}
+	if resource.Status == model.ResourceStatusReady {
+		return resource, nil
 	}
 	claimed, err := s.repo.ClaimFailedResourceUpload(userID, resource.ID)
 	if err != nil {
@@ -388,6 +401,9 @@ func (s *Service) retryStoredResource(userID string, resource *model.Resource, k
 	if !claimed {
 		latest, latestErr := s.repo.ResourceForUser(userID, resource.ID)
 		if latestErr == nil && latest.Status == model.ResourceStatusReady {
+			if err := validateResourceUploadIdentity(latest, kind, mimeType, size); err != nil {
+				return nil, err
+			}
 			return latest, nil
 		}
 		return nil, resourceUploadInProgress()
@@ -430,4 +446,11 @@ func (s *Service) retryStoredResource(userID string, resource *model.Resource, k
 	}
 	s.recordActivity(userID, "resource", 1)
 	return resource, nil
+}
+
+func validateResourceUploadIdentity(resource *model.Resource, kind, mimeType string, size int64) error {
+	if resource.Size != size || resource.Kind != kind || resource.MimeType != mimeType {
+		return NewAppError(http.StatusConflict, "上传幂等标识已用于其他文件")
+	}
+	return nil
 }
