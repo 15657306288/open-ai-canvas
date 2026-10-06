@@ -405,35 +405,42 @@ async function smokeWorkbench(cdp, baseUrl) {
     assert(defaultLayoutMode === "true", "A5a 统一预演台默认进入布景上下文", `got ${JSON.stringify(defaultLayoutMode)}`);
     await openUnifiedWorkbench(cdp, "A");
 
-    // 使用真实产品 dock 验证 Tooltip 的 hover 与键盘触发，不能只验证包装 span 存在。
-    const tooltipButton = 'button[aria-label="移动对象"]';
-    const hoverPoint = await cdp.evaluate(`(() => { const r = document.querySelector(${JSON.stringify(tooltipButton)}).getBoundingClientRect(); return {x:r.x+r.width/2, y:r.y+r.height/2}; })()`);
+    // 使用真实产品 dock（FloatingDock）验证提示的 hover 与键盘触发，不能只验证按钮存在。
+    const dockSelector = '[role="toolbar"][aria-label="预演台视口工具"]';
+    assert(await cdp.poll(`!!document.querySelector(${JSON.stringify(dockSelector)})`, "previs dock", 10000), "A5b 预演台视口工具条已渲染");
+    assert(await cdp.evaluate(`!!document.querySelector('${dockSelector} [role="radiogroup"][aria-label="变换模式"] [role="radio"][aria-label="移动对象 (W)"]')`), "A5b 变换模式切换包含移动对象 (W)");
+    const tooltipButton = `${dockSelector} button[aria-label="适配全部对象"]`;
+    const hoverPoint = await cdp.evaluate(`(() => { const b = document.querySelector(${JSON.stringify(tooltipButton)}); if (!b) return null; const r = b.getBoundingClientRect(); return {x:r.x+r.width/2, y:r.y+r.height/2}; })()`);
+    if (!hoverPoint) throw new Error("A: 适配全部对象 dock button not found");
     await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...hoverPoint });
-    const describedTooltip = `(() => { const b = document.querySelector(${JSON.stringify(tooltipButton)}); const ids = (b?.getAttribute('aria-describedby') || '').split(/\\s+/); return ids.some(id => document.getElementById(id)?.textContent.includes('移动对象')); })()`;
+    const describedTooltip = `(() => { const b = document.querySelector(${JSON.stringify(tooltipButton)}); return !!b && [...b.querySelectorAll('.aceternity-dock-tooltip')].some((t) => (t.textContent || '').includes('适配全部对象')); })()`;
     assert(await cdp.poll(describedTooltip, "tooltip on hover", 5000), "A5b Tooltip hover describes the actual control");
     await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 1, y: 1 });
-    await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
-    await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
-    assert(await cdp.poll(`!document.querySelector('[role="tooltip"]')`, "tooltip dismiss", 5000), "A5b Escape dismisses Tooltip");
+    assert(await cdp.poll(`!(${describedTooltip})`, "tooltip dismiss", 5000), "A5b Tooltip dismisses when pointer leaves");
     await cdp.evaluate(`document.querySelector(${JSON.stringify(tooltipButton)}).focus()`);
     for (const modifiers of [8, 0]) {
         await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9, modifiers });
         await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9, modifiers });
     }
     assert(await cdp.poll(`document.activeElement === document.querySelector(${JSON.stringify(tooltipButton)}) && (${describedTooltip})`, "tooltip on keyboard focus", 5000), "A5c Tab focus opens Tooltip without an extra wrapper stop");
-    await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
-    await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
     await cdp.evaluate("document.activeElement?.blur()");
 
-    // 统一工作台默认同时提供镜头设计与可收起的动画时间轴；自动关键帧初始关闭。
-    const layoutGating = await cdp.evaluate(`(() => ({
+    // 摆场模式不显示时间轴；切到动画模式才出现时间轴，且自动关键帧初始关闭。
+    const readGating = `(() => ({
         workbench: !!document.querySelector('[data-canvas-previs-workbench]'),
         layout: !!document.querySelector('.pv-layout'),
         sequencer: document.querySelectorAll('.previs-sequencer').length,
         autoKey: document.querySelector('button[title="自动关键帧"]')?.getAttribute('aria-pressed') ?? null,
-    }))()`);
+    }))()`;
+    const layoutGating = await cdp.evaluate(readGating);
     assert(layoutGating.workbench && layoutGating.layout, "A6 统一预演台布局上下文已就绪", JSON.stringify(layoutGating));
-    assert(layoutGating.sequencer === 1 && layoutGating.autoKey === "false", "A7 时间轴可见且 AutoKey 默认关闭", JSON.stringify(layoutGating));
+    assert(layoutGating.sequencer === 0, "A6a 摆场模式不显示时间轴", JSON.stringify(layoutGating));
+    if (!(await cdp.click('button[data-mode="animate"]'))) throw new Error("A: 动画模式按钮不可点击");
+    assert(await cdp.poll(`document.querySelectorAll('.previs-sequencer').length === 1`, "animate sequencer", 10000), "A7 动画模式显示时间轴");
+    const animateGating = await cdp.evaluate(readGating);
+    assert(animateGating.autoKey === "false", "A7a AutoKey 默认关闭", JSON.stringify(animateGating));
+    if (!(await cdp.click('button[data-mode="layout"]'))) throw new Error("A: 摆场模式按钮不可点击");
+    assert(await cdp.poll(`document.querySelectorAll('.previs-sequencer').length === 0`, "layout hides sequencer", 10000), "A7b 回到摆场模式隐藏时间轴");
 
     const propMenuOpened = await cdp.click('[aria-label="添加道具"]');
     if (!propMenuOpened) throw new Error("A: 添加道具 button not clickable");

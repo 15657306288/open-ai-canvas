@@ -64,7 +64,8 @@ for (const pathname of ["/welcome", "/welcome/"]) {
     test(`public film entry remains independent: ${pathname}`, async () => {
         const entry = await prepareEntry(false, pathname);
         await entry.loaded;
-        expect(entry.events).toEqual(["./welcome-application"]);
+        // 欢迎页沿用站点外观（#683），但外观请求不阻塞欢迎页入口加载。
+        expect(entry.events).toEqual(["appearance", "./welcome-application"]);
     });
 }
 
