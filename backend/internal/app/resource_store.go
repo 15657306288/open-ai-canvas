@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -79,9 +80,24 @@ func (s *Service) uploadResource(userID string, header *multipart.FileHeader, ki
 }
 
 // UploadResourceFile 接收已完整落盘的本地文件（分片上传合并后调用）。
-// 它与 UploadResource 共享资源幂等、媒体探测、配额和持久化语义，唯一差异是分片会话已在 handler 校验单文件上限，
-// 因而此处不再重复该上限检查；uploadIdentity 用于跨请求重试时复用同一逻辑资源，避免重复对象。
+// 它与 UploadResource 共享资源幂等、媒体探测、配额和持久化语义。
 func (s *Service) UploadResourceFile(userID string, fileName string, size int64, kind string, width int, height int, durationMs int64, file io.ReadSeeker, uploadIdentity ...string) (*model.Resource, error) {
+	return s.uploadResourceFile(userID, "", fileName, size, kind, width, height, durationMs, file, uploadIdentity...)
+}
+
+func (s *Service) UploadReservedResourceFile(userID, reservationID, fileName string, size int64, kind string, width, height int, durationMs int64, file io.ReadSeeker, uploadIdentity ...string) (*model.Resource, error) {
+	if reservationID == "" {
+		return nil, BadAuthRequest("上传会话不存在")
+	}
+	defer func() {
+		if err := s.ReleaseChunkUploadSession(userID, reservationID); err != nil {
+			log.Printf("release upload session failed: %v", err)
+		}
+	}()
+	return s.uploadResourceFile(userID, reservationID, fileName, size, kind, width, height, durationMs, file, uploadIdentity...)
+}
+
+func (s *Service) uploadResourceFile(userID, reservationID, fileName string, size int64, kind string, width int, height int, durationMs int64, file io.ReadSeeker, uploadIdentity ...string) (*model.Resource, error) {
 	if file == nil || size <= 0 {
 		return nil, BadAuthRequest("请选择要上传的文件")
 	}
@@ -99,7 +115,16 @@ func (s *Service) UploadResourceFile(userID string, fileName string, size int64,
 	}
 	kind = uploadedResourceKind(mimeType)
 	if existing != nil {
+		if reservationID != "" {
+			if err := s.ReleaseChunkUploadSession(userID, reservationID); err != nil {
+				return nil, err
+			}
+		}
 		return s.retryStoredResource(userID, existing, kind, mimeType, size, file)
+	}
+	if reservationID != "" {
+		resource, _, err := s.storeResource(userID, kind, fileName, mimeType, size, width, height, durationMs, file, uploadKey, false, reservationID)
+		return resource, err
 	}
 	day, err := s.reserveChunkedUploadQuota(userID, size)
 	if err != nil {
@@ -253,11 +278,15 @@ func (s *Service) openResourceRange(userID string, resource *model.Resource, ran
 	return &ResourceStream{Resource: resource, Body: stream.Body, StatusCode: stream.StatusCode, ContentLength: stream.ContentLength, ContentRange: stream.ContentRange, AcceptRanges: stream.AcceptRanges}, nil
 }
 
-func (s *Service) storeResource(userID string, kind string, fileName string, mimeType string, size int64, width int, height int, durationMs int64, body io.Reader, uploadKey *string, forceLocal bool) (*model.Resource, bool, error) {
-	return s.storeResourceWithWriter(userID, kind, fileName, mimeType, size, width, height, durationMs, body, uploadKey, forceLocal, s.storeResourceObject)
+func (s *Service) storeResource(userID string, kind string, fileName string, mimeType string, size int64, width int, height int, durationMs int64, body io.Reader, uploadKey *string, forceLocal bool, reservationIDs ...string) (*model.Resource, bool, error) {
+	return s.storeResourceWithWriter(userID, kind, fileName, mimeType, size, width, height, durationMs, body, uploadKey, forceLocal, s.storeResourceObject, reservationIDs...)
 }
 
-func (s *Service) storeResourceWithWriter(userID string, kind string, fileName string, mimeType string, size int64, width int, height int, durationMs int64, body io.Reader, uploadKey *string, forceLocal bool, writeObject func(*model.Resource, string, io.Reader) (string, error)) (*model.Resource, bool, error) {
+func (s *Service) storeResourceWithWriter(userID string, kind string, fileName string, mimeType string, size int64, width int, height int, durationMs int64, body io.Reader, uploadKey *string, forceLocal bool, writeObject func(*model.Resource, string, io.Reader) (string, error), reservationIDs ...string) (*model.Resource, bool, error) {
+	reservationID := ""
+	if len(reservationIDs) > 0 {
+		reservationID = reservationIDs[0]
+	}
 	// Live2D is reserved for the administrator's validated local import path.
 	if !(forceLocal && kind == "live2d") {
 		kind = normalizeResourceKind(kind, mimeType)
@@ -321,7 +350,7 @@ func (s *Service) storeResourceWithWriter(userID string, kind string, fileName s
 	}
 	resource.Status = model.ResourceStatusReady
 	resource.ETag = etag
-	if err := s.repo.SaveResource(&resource); err != nil {
+	if err := s.saveResourceWithinStorageLimit(&resource, reservationID); err != nil {
 		cleanupErr := s.deleteStoredResourceObject(userID, &resource)
 		if cleanupErr == nil {
 			if deleteErr := s.repo.DeleteResource(userID, resource.ID); deleteErr != nil {
@@ -435,7 +464,7 @@ func (s *Service) retryStoredResource(userID string, resource *model.Resource, k
 	}
 	resource.Status = model.ResourceStatusReady
 	resource.ETag = etag
-	if err := s.repo.SaveResource(resource); err != nil {
+	if err := s.saveResourceWithinStorageLimit(resource, ""); err != nil {
 		s.releaseRetryUploadQuota(userID, day, size)
 		resource.Status = model.ResourceStatusFailed
 		resource.Error = "保存资源重试就绪状态失败"
