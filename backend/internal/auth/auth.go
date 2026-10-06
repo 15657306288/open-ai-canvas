@@ -199,9 +199,7 @@ func (s *Service) Register(req RegisterRequest) (*AuthSessionResult, error) {
 		return nil, err
 	}
 	if email != "" {
-		if _, err := s.repo.UserByEmail(email); err == nil {
-			return nil, kernel.BadAuthRequest("邮箱已被注册")
-		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		if err := s.repo.CheckEmailAvailable(email, ""); err != nil {
 			return nil, err
 		}
 	}
@@ -243,7 +241,7 @@ func (s *Service) Register(req RegisterRequest) (*AuthSessionResult, error) {
 		if err := s.repo.CreateUserWithEmailVerification(&user, verifiedCode.ID, time.Now()); err != nil {
 			return nil, err
 		}
-	} else if err := s.repo.Create(&user); err != nil {
+	} else if err := s.repo.CreateRegisteredUser(&user); err != nil {
 		return nil, err
 	}
 	if err := s.host.EnsureSignupBonus(user.ID); err != nil {

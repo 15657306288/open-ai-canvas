@@ -5,6 +5,12 @@ description: 信封、错误码与 OpenAPI
 
 # HTTP API 合同
 
+## 注册邮箱等价检查
+
+公开注册与邮箱绑定的唯一性检查将 `gmail.com` 和 `googlemail.com` 视为同一域，移除本地部分的点及 `+` 后缀。例如 `a.b+x@googlemail.com` 与 `ab@gmail.com` 不允许创建两个账号。其他域保留点和 `+`；现有域名白名单规则保持不变。
+
+邮箱原值仍按原有小写、去首尾空格规则保存。登录、密码重置、验证码收件地址保持精确邮箱匹配，避免既有重复别名账号被合并或错误授权。已存在的重复账号不迁移、不删除、不重新发放注册奖励；它们会阻止相同规范信箱的新注册。写入前在事务内重新检查，以覆盖不同实例使用不同验证码的并发注册。无数据库结构迁移；唯一性由公开注册与绑定的事务入口保证，直接 SQL 写入不属于该约束入口。
+
 ## AutoDL 视频画面规格配置
 
 渠道模型的 `capabilityConfig.video.resolutions` 与 `defaultResolution` 直接表示所选完整分辨率与默认值，始终生效；不再使用或返回 `customSizeEnabled`、`customScreenSpec`。AutoDL v2.3.0 未声明独立比例参数，因此 `ratios` 为空、`defaultRatio` 为空字符串，横竖与方形由完整分辨率标签表达。
