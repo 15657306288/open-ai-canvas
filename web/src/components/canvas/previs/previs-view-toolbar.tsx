@@ -39,7 +39,7 @@ export function PrevisViewToolbar({ viewMode, onViewModeChange, inline = false }
                             aria-label={`${item.label} ${item.hint}`}
                             title={item.hint}
                             className="previs-view-toolbar-button inline-flex h-8 min-w-11 items-center justify-center rounded-[var(--r-md)] px-2 text-[var(--fs-tiny)] font-semibold tracking-wide transition-colors hover:bg-[var(--previs-control-hover)] hover:text-[var(--previs-dock-fg-strong)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--control-focus-ring)] motion-reduce:transition-none"
-                            style={active ? { color: "var(--previs-dock-fg-strong)" } : undefined}
+                            style={active ? { background: "var(--previs-dock-active-surface)", color: "var(--previs-dock-fg-strong)" } : undefined}
                             onClick={(event) => {
                                 onViewModeChange(item.mode);
                                 // 焦点留在按钮上会让交互控件守卫吃掉 W/E/R 变换快捷键。

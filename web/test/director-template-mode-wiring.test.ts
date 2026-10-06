@@ -129,7 +129,11 @@ describe("模式接线", () => {
         expect(dock).toContain("RENDER_VIEW_BUTTONS.filter((item) => renderModes.includes(item.mode))");
         // 写死的按钮会绕过门控。
         expect(dock).not.toContain('onClick={() => onRenderModeChange("pose")}');
-        expect(workbench).toContain("renderModes={capabilities.renderModes}");
+        // 工作台当前挂的是 PrevisCanvasDock：它不提供渲染视图入口，唯一入口是已按模式过滤的顶栏下拉。
+        const canvasDock = readFileSync(resolve(import.meta.dir, "../src/components/canvas/previs/previs-canvas-dock.tsx"), "utf8");
+        expect(workbench).toContain("<PrevisCanvasDock");
+        expect(canvasDock).not.toContain("onRenderModeChange");
+        expect(workbench).not.toContain("<PrevisViewportDock");
     });
 
     test("store 层夹住 renderMode：任何路径都无法设置当前模式不允许的视图", () => {
@@ -148,7 +152,11 @@ describe("模式接线", () => {
     });
 
     test("小屏把属性检查器放到下方而不是隐藏，姿态与骨骼入口仍可达", () => {
-        expect(workbench).toContain("max-lg:col-span-2 max-lg:max-h-[40vh] max-lg:border-l-0 max-lg:border-t");
+        // 窄屏下检查器改为可开合的侧滑面板，dock 提供开关入口，而不是直接隐藏。
+        const workbenchCss = readFileSync(resolve(import.meta.dir, "../src/components/canvas/previs/canvas-previs-workbench.css"), "utf8");
+        expect(workbench).toContain('className={`pv-panel pv-panel--right thin-scrollbar ${inspectorOpen ? "is-open" : ""}`}');
+        expect(workbench).toContain("onToggleInspector={() => compactLayout ? setInspectorOpen((value) => !value) : setInspectorDocked((value) => !value)}");
+        expect(workbenchCss).toContain(".pv-panel--right.is-open { transform: translateX(0); }");
         expect(workbench).not.toContain("border-l max-lg:hidden");
     });
 
