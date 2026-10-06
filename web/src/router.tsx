@@ -22,6 +22,7 @@ const ChannelsPage = lazy(() => import("@/pages/admin/channels/channels-page"));
 const LogicalModelsPage = lazy(() => import("@/pages/admin/logical-models/logical-models-page"));
 const AdminPluginsPage = lazy(() => import("@/pages/admin/plugins/plugins-page"));
 const AdminToolsPage = lazy(() => import("@/pages/admin/tools/admin-tools-page"));
+const SkillCurationPage = lazy(() => import("@/pages/admin/skill-curation-page"));
 const AdminPaymentsPage = lazy(() => import("@/pages/admin/payments/payments-page"));
 const LogsPage = lazy(() => import("@/pages/admin/logs/logs-page"));
 const RedemptionCodesPage = lazy(() => import("@/pages/admin/redemption-codes/redemption-codes-page"));
@@ -81,10 +82,10 @@ function AuthenticatedWorkspaceLayout() {
  */
 function devRoutes() {
     const FolderPreviewLab = lazy(() => import("@/pages/dev/folder-preview-lab"));
-    const DirectorReproLab = lazy(() => import("@/pages/dev/director-repro-lab"));
+    const PrevisReproLab = lazy(() => import("@/pages/dev/previs-repro-lab"));
     return [
         { path: "/dev/folders", element: fullScreenDeferred(<FolderPreviewLab />), errorElement: <RouteErrorPage /> },
-        { path: "/dev/director-repro", element: fullScreenDeferred(<DirectorReproLab />), errorElement: <RouteErrorPage /> },
+        { path: "/dev/previs-repro", element: fullScreenDeferred(<PrevisReproLab />), errorElement: <RouteErrorPage /> },
     ];
 }
 
@@ -190,6 +191,7 @@ export const router = createBrowserRouter([
                     { path: "models", element: <RequireFeature feature="frontendModelsEnabled"><LogicalModelsPage /></RequireFeature> },
                     { path: "plugins", element: <AdminPluginsPage /> },
                     { path: "tools", element: <AdminToolsPage /> },
+                    { path: "skill-curation", element: <SkillCurationPage /> },
                     { path: "payments", element: <AdminPaymentsPage /> },
                     { path: "prompt-templates", element: <StoryboardPromptsPage /> },
                     { path: "storyboard-prompts", element: <Navigate to="/admin/prompt-templates" replace /> },

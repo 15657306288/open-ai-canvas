@@ -15,8 +15,6 @@ export const SPLIT_MODULE_GROUPS: Record<string, readonly string[]> = {
     "components/canvas/canvas-node-content.tsx": ["components/canvas/canvas-node-media-content.tsx", "components/canvas/canvas-node-status-content.tsx"],
     "components/canvas/canvas-node-prompt-panel.tsx": ["components/canvas/canvas-node-prompt-config.ts", "components/canvas/canvas-node-prompt-references.tsx", "components/canvas/canvas-node-prompt-resize.tsx"],
     "components/canvas/canvas-script-node.tsx": ["components/canvas/canvas-script-node-parts.tsx"],
-    "components/canvas/director/canvas-director-workbench.tsx": ["components/canvas/director/director-inspectors.tsx"],
-    "components/canvas/director/director-viewport.tsx": ["components/canvas/director/director-viewport-capture.ts", "components/canvas/director/director-viewport-rig.ts"],
     "lib/art-critique/pipeline.ts": ["lib/art-critique/pipeline-messages.ts", "lib/art-critique/pipeline-parse.ts"],
     "lib/model-capabilities.ts": ["lib/model-capabilities-workflow.ts"],
     "pages/admin/components/admin-announcements-panel.tsx": ["pages/admin/components/admin-announcement-editor.tsx", "pages/admin/components/admin-announcement-results.ts"],

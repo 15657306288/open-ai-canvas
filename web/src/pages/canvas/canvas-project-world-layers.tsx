@@ -78,7 +78,7 @@ type CanvasProjectWorldLayersProps = {
     onViewImage: (node: CanvasNodeData) => void;
     onReplaceMedia: (node: CanvasNodeData) => void;
     onOpenTextEditor: (node: CanvasNodeData) => void;
-    onOpenDirector: (node: CanvasNodeData) => void;
+    onOpenPrevis: (node: CanvasNodeData) => void;
     onOpenDrawing: (node: CanvasNodeData) => void;
     onStartBatchConnection: (event: ReactPointerEvent, sourceNodeIds: string[]) => void;
 };
@@ -200,7 +200,7 @@ export const CanvasProjectWorldLayers = memo(function CanvasProjectWorldLayers(p
                         onViewImage={props.onViewImage}
                         onReplaceMedia={props.onReplaceMedia}
                         onOpenTextEditor={props.onOpenTextEditor}
-                        onOpenDirector={props.onOpenDirector}
+                        onOpenPrevis={props.onOpenPrevis}
                         onOpenDrawing={props.onOpenDrawing}
                         onContextMenu={props.onNodeContextMenu}
                     />
