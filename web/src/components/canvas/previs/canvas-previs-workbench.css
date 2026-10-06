@@ -124,7 +124,7 @@
     gap: 6px;
     height: var(--pd-topbar);
     min-width: 0;
-    overflow: hidden;
+    /* 窄屏下横向滚动（overflow-x-auto），避免右侧保存/回写按钮被裁掉。 */
     padding: 0 12px;
     border-bottom: 1px solid var(--pd-b0);
     background: var(--pd-s1);
@@ -1406,6 +1406,8 @@
     backdrop-filter: blur(16px); color: var(--pd-t0); font-size: var(--pd-ts-xs); font-weight: 600; pointer-events: none;
 }
 .pv-cam-hud__meta { color: var(--pd-t2); font-weight: 400; font-variant-numeric: tabular-nums; }
+/* 非模态引导：贴视口右上角，不挡中央构图。 */
+.pv-onboarding { position: absolute; top: 12px; right: 12px; z-index: 7; width: min(340px, calc(100% - 24px)); }
 @media (prefers-reduced-motion: reduce) {
     .pv-canvas-dock__view-grid button, .pv-canvas-dock__camera-list button { transition: none; }
 }

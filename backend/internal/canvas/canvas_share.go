@@ -234,7 +234,7 @@ func publicCanvasProject(project *model.CanvasProject, token string) (map[string
 		"connections":    publicCanvasConnections(source["connections"]),
 		"chatSessions":   []any{},
 		"activeChatId":   nil,
-		"previsScenes": []any{},
+		"previsScenes":   []any{},
 	}
 	rawNodes, _ := source["nodes"].([]any)
 	nodes := make([]any, 0, len(rawNodes))
