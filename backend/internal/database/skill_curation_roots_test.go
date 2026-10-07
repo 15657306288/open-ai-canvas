@@ -43,11 +43,11 @@ func TestSkillCurationRootsMigration(t *testing.T) {
 	}
 	found := false
 	for _, m := range schemaMigrations {
-		if m.version == 47 {
+		if m.version == 53 {
 			found = m.name == "skill_curation_roots" && m.checksum == "sha256:skill-curation-roots-v47-20261005"
 		}
 	}
 	if !found {
-		t.Fatal("migration 47 is not registered")
+		t.Fatal("migration 53 is not registered")
 	}
 }

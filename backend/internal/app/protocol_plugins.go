@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -159,17 +160,27 @@ func (c *pluginRuntime) bootstrapBuiltInPlugins() error {
 			return fmt.Errorf("官方插件 ID %q 重复", id)
 		}
 		builtInIDs[id] = struct{}{}
-		manifest := pkg.Manifest
+		manifestData := append([]byte(nil), pkg.ManifestRaw...)
 		record := byID[id]
 		if len(record.Raw) > 0 {
 			var previous protocol.Manifest
 			if err := json.Unmarshal(record.Raw, &previous); err == nil {
-				manifest.Metadata.Enabled = previous.Metadata.Enabled
+				if previous.Metadata.Enabled != pkg.Manifest.Metadata.Enabled {
+					var rawManifest map[string]json.RawMessage
+					if err := json.Unmarshal(manifestData, &rawManifest); err != nil {
+						return fmt.Errorf("读取官方插件 %q 清单：%w", id, err)
+					}
+					enabled, err := json.Marshal(previous.Metadata.Enabled)
+					if err != nil {
+						return fmt.Errorf("编码官方插件 %q 状态：%w", id, err)
+					}
+					rawManifest["enabled"] = enabled
+					manifestData, err = json.Marshal(rawManifest)
+					if err != nil {
+						return fmt.Errorf("编码官方插件 %q 清单：%w", id, err)
+					}
+				}
 			}
-		}
-		manifestData, err := json.Marshal(manifest)
-		if err != nil {
-			return fmt.Errorf("编码官方插件 %q：%w", id, err)
 		}
 		hash := official.hash
 		packageName := hash + ".yingce-plugin"
@@ -351,7 +362,7 @@ func (c *pluginRuntime) reload() error {
 	for _, storedRecord := range stored {
 		data := storedRecord.Raw
 		if len(data) > protocolPluginMaxBytes {
-			return fmt.Errorf("plugin %s exceeds %d bytes", storedRecord.ID, protocolPluginMaxBytes)
+			return fmt.Errorf("plugin %s exceeds %d bytes (got %d)", storedRecord.ID, protocolPluginMaxBytes, len(data))
 		}
 		var manifest protocol.Manifest
 		if err := json.Unmarshal(data, &manifest); err != nil {
@@ -909,11 +920,14 @@ func (c *pluginRuntime) readRegistry() ([]pluginRegistryRecord, error) {
 }
 
 func (c *pluginRuntime) writeRegistry(records []pluginRegistryRecord) error {
-	data, err := json.MarshalIndent(records, "", "  ")
-	if err != nil {
+	var data bytes.Buffer
+	encoder := json.NewEncoder(&data)
+	encoder.SetEscapeHTML(false)
+	// Pretty-printing expands large RawMessage manifests beyond the reload limit.
+	if err := encoder.Encode(records); err != nil {
 		return err
 	}
-	return writePluginFile(c.registryPath, data)
+	return writePluginFile(c.registryPath, data.Bytes())
 }
 
 // cachePluginPackage 写入以内容摘要命名的插件包缓存。文件名即摘要，且 writePluginFile

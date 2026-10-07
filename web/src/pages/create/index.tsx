@@ -31,10 +31,11 @@ import { buildCreationMentionReferences, expandCreationPrompt, reconcileCreation
 import { creationAttachmentFromAsset, creationAttachmentFromAudio, creationAttachmentFromAudioAsset, creationAttachmentFromDocument, creationAttachmentFromExternalAsset, creationAttachmentFromImage, creationAttachmentFromVideo, creationAttachmentFromVideoAsset, creationAttachmentKind, creationAudioAsset, creationFileAccepted, creationImageAsset, creationMediaAspectRatio, creationUploadAccept, creationVideoAsset, removeCreationAttachment, splitCreationAttachments, type CreationAttachment } from "./creation-assets";
 import { defaultCreationMode, modeLabels, type CreationConversation, type CreationMessage, type CreationMode, type CreationRetryContext, type CreationSettings, type CreationShotRailEntry, type CreationStatus } from "./creation-types";
 import { attachCreationTaskContexts, completedCreationGenerationTask, conversationTimestamp, creationShotRail, creationVideoShotOrdinal, isImageAttachment, isVideoAttachment, materializeCreationTaskResults, newConversation, newMessage, reconcileCreationTaskMessages } from "./creation-conversations";
-import { CreationComposer, CreationFeaturedWorks, CreationHistoryDrawer, CreationMessageView, CreationModeTabs, CreationWorkspaceToolbar, creationAssetCategoryLabels } from "./creation-workspace";
+import { CreationComposer, CreationEmptySuggest, CreationFeaturedWorks, CreationHistoryDrawer, CreationMessageView, CreationModeTabs, CreationWorkspaceToolbar, creationAssetCategoryLabels } from "./creation-workspace";
 import { CreationAgentEntry } from "./creation-agent-entry";
 import { createCreationSubmitGate } from "./creation-submit-gate";
 import { creationVideoConfig } from "./creation-generation-config";
+import { CreationLoginDialog } from "./creation-login-dialog";
 import { CREATIVE_SCENARIOS, type CreativeScenarioId } from "@/lib/creation/creative-scenarios";
 import { CreationTaskPanel } from "./creation-task-panel";
 import { buildCreationTaskPrompt, CREATION_TASKS, creationTask, defaultModuleSelection, selectedModuleSummary, type CreationTaskModuleSelection } from "./creation-task-catalog";
@@ -116,6 +117,9 @@ export default function CreatePage() {
     const [activeId, setActiveId] = useState("");
     const activeIdRef = useRef("");
     const [hydrated, setHydrated] = useState(false);
+    const userId = useUserStore((state) => state.user?.id || null);
+    const userSessionHydrated = useUserStore((state) => state.hydrated);
+    const [conversationScope, setConversationScope] = useState<string | null>(null);
     const [mode, setMode] = useState<CreationMode>(() => initialComposerPreferences.mode || defaultCreationMode);
     const [prompt, setPrompt] = useState("");
     const [attachments, setAttachments] = useState<CreationAttachment[]>([]);
@@ -135,6 +139,7 @@ export default function CreatePage() {
     const [busy, setBusy] = useState(false);
     const [referenceReplacementBusy, setReferenceReplacementBusy] = useState(false);
     const [historyOpen, setHistoryOpen] = useState(false);
+    const [loginDialogOpen, setLoginDialogOpen] = useState(false);
     const [libraryOpen, setLibraryOpen] = useState(false);
     // 任务面板：零提示词入口的状态。slotAttachmentIds 记录每份素材归到哪个槽位。
     const [activeTaskKey, setActiveTaskKey] = useState<string | null>(null);
@@ -287,20 +292,25 @@ export default function CreatePage() {
     }, [attachments, maxReferences, mentionReferences, mode, videoReferenceLimits]);
 
     useEffect(() => {
+        if (!userSessionHydrated) return;
         let cancelled = false;
+        const scope = getActiveUserScope();
+        setHydrated(false);
+        setConversationScope(null);
         void loadCreationConversations<CreationConversation>().then((stored) => {
-            if (cancelled) return;
+            if (cancelled || getActiveUserScope() !== scope || (useUserStore.getState().user?.id || null) !== userId) return;
             const next = stored?.length ? stored : [newConversation()];
             conversationsRef.current = next;
             setConversations(next);
             setActiveId(next[0].id);
+            setConversationScope(scope);
             setHydrated(true);
         });
         return () => {
             cancelled = true;
             // 页面卸载只停止当前页面的状态更新，后台任务由任务中心继续执行，返回页面后再恢复状态。
         };
-    }, []);
+    }, [userId, userSessionHydrated]);
 
     useEffect(() => () => abortRef.current?.abort(), []);
 
@@ -310,8 +320,8 @@ export default function CreatePage() {
 
     useEffect(() => {
         conversationsRef.current = conversations;
-        if (hydrated) void saveCreationConversations(conversations);
-    }, [conversations, hydrated]);
+        if (hydrated && userSessionHydrated && conversationScope === getActiveUserScope()) void saveCreationConversations(conversations);
+    }, [conversations, conversationScope, hydrated, userSessionHydrated]);
 
     useEffect(() => {
         if (!hydrated || !recoveryTaskKey || !pendingTaskIds.length) return;
@@ -738,6 +748,12 @@ export default function CreatePage() {
         const text = (override?.prompt ?? prompt).trim();
         const count = override?.count ?? countRef.current;
         if (!text || busy || !activeConversation) {
+            releaseRetryLock();
+            releaseSubmitGate();
+            return;
+        }
+        if (!useUserStore.getState().user) {
+            setLoginDialogOpen(true);
             releaseRetryLock();
             releaseSubmitGate();
             return;
@@ -1259,6 +1275,10 @@ export default function CreatePage() {
                             <span className="creation-task-card-copy"><strong>{task.name}</strong><span>{task.detail}</span></span>
                         </button>)}
                     </div>}
+                    <CreationEmptySuggest
+                        onStartPrompt={(nextMode, nextPrompt) => { setAgentMode(false); selectMode(nextMode); setPrompt(nextPrompt); window.requestAnimationFrame(() => composerFocusRef.current?.focus()); }}
+                        onOpenLibrary={() => { setAgentMode(false); selectMode("image"); setLibraryOpen(true); }}
+                    />
                 </section>
                 <CreationFeaturedWorks
                     onStartPrompt={(nextMode, nextPrompt) => { setAgentMode(false); selectMode(nextMode); setPrompt(nextPrompt); window.requestAnimationFrame(() => composerFocusRef.current?.focus()); }}
@@ -1281,6 +1301,7 @@ export default function CreatePage() {
             </div>}
         </div>
         <CreationHistoryDrawer open={historyOpen} conversations={historyConversations} activeId={activeConversation.id} onNew={startNewConversation} onClose={() => setHistoryOpen(false)} onSelect={selectConversation} onDelete={confirmDeleteConversation} onRename={renameConversationTitle} />
+        <CreationLoginDialog open={loginDialogOpen} onClose={() => setLoginDialogOpen(false)} />
         {libraryOpen ? <Suspense fallback={null}><AssetLibraryPickerModal
             remoteLibrary
             open={libraryOpen}
