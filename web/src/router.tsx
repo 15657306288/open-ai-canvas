@@ -73,6 +73,7 @@ const ProjectDetailPage = workspaceRoutePages.projectDetail;
 const ProjectCreatePage = workspaceRoutePages.projectCreate;
 const SettingsPage = workspaceRoutePages.settings;
 const ReferralPage = workspaceRoutePages.referral;
+const VideoReplicationAdminPage = lazyAdminPage(() => import("@/pages/admin/video-replication-page"));
 const AdminReferralPage = lazyAdminPage(() => import("@/pages/admin/referral/referral-admin-page"));
 const UserLayout = lazy(() => import("@/layouts/user-layout"));
 
@@ -245,6 +246,9 @@ export const router = createBrowserRouter([
                     { path: "models", element: <LogicalModelsPage /> },
                     { path: "ecommerce", element: <Navigate to="/admin/ecommerce/agent" replace /> },
                     { path: "ecommerce/agent", element: <EcommerceAgentConfigPage /> },
+                    { path: "video-agent", element: <Navigate to="/admin/video-agent/overview" replace /> },
+                    { path: "video-agent/:section", element: <VideoReplicationAdminPage /> },
+                    { path: "ecommerce/video", element: <Navigate to="/admin/video-agent/overview" replace /> },
                     { path: "ecommerce/library", element: <EcommerceManagementPage /> },
                     { path: "ecommerce/library/skills", element: <EcommerceManagementPage /> },
                     { path: "ecommerce/library/categories", element: <EcommerceManagementPage /> },

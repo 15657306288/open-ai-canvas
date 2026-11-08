@@ -27,6 +27,8 @@ type ModelPickerProps = {
     popoverClassName?: string;
     fullWidth?: boolean;
     placeholder?: string;
+    /** 覆盖触发按钮上显示的文字（例如后台显示管理员配置的模型名）。 */
+    triggerLabel?: string;
     onMissingConfig?: () => void;
     showSelectedPrice?: boolean;
     showOptionPrices?: boolean;
@@ -47,6 +49,7 @@ export function ModelPicker({
     popoverClassName,
     fullWidth = false,
     placeholder = "选择模型",
+    triggerLabel,
     onMissingConfig,
     showSelectedPrice = true,
     showOptionPrices = showSelectedPrice,
@@ -366,7 +369,7 @@ export function ModelPicker({
                         <span className="canvas-model-picker-trigger-icon">
                             <ModelIcon config={config} model={current} />
                         </span>
-                        <span className="min-w-0 flex-1 truncate">{current ? (creationVariant ? pickerModelDisplayName(config, current, showConfiguredModelName) : pickerModelOptionLabel(config, current, showConfiguredModelName)) : placeholder}</span>
+                        <span className="min-w-0 flex-1 truncate">{triggerLabel || (current ? (creationVariant ? pickerModelDisplayName(config, current, showConfiguredModelName) : pickerModelOptionLabel(config, current, showConfiguredModelName)) : placeholder)}</span>
                         {isCurrentCustomChannel ? <span className="shrink-0 rounded px-2 py-0.5 text-[var(--fs-label)] font-medium leading-none bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/25">个人</span> : null}
                         {showSelectedPrice && creditsEnabled ? <ModelPrice price={currentPrice} quote={routeQuote} compact /> : null}
                     </span>

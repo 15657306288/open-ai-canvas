@@ -247,6 +247,14 @@ func ecommerceRequest(ctx context.Context, endpoint, key string, timeout time.Du
 }
 
 func (s *Service) ecommerceChatJSON(ctx context.Context, cfg ecommerceProviderConfig, taskID, system, prompt string, images []string, out any) error {
+	return s.ecommerceMultimodalJSON(ctx, cfg, taskID, system, prompt, images, nil, out)
+}
+
+// ecommerceMultimodalJSON 在 ecommerceChatJSON 基础上允许附带整段参考视频（商品视频的视频理解）；视频只走后台配置的文本模型协议。
+func (s *Service) ecommerceMultimodalJSON(ctx context.Context, cfg ecommerceProviderConfig, taskID, system, prompt string, images, videos []string, out any) error {
+	if len(videos) > 0 && cfg.TextProvider == nil {
+		return errors.New("完整视频理解需要在后台配置支持视频输入的文本模型协议")
+	}
 	images = ecommerceVisionImages(cfg, images)
 	if cfg.TextProvider != nil {
 		callCtx, cancel := context.WithTimeout(ctx, cfg.TextTimeout)
@@ -256,6 +264,13 @@ func (s *Service) ecommerceChatJSON(ctx context.Context, cfg ecommerceProviderCo
 		input := canvasGenerationInput{Mode: "text", Prompt: prompt, Config: provider, TextOptions: canvasTextOptions{ThinkingLevel: cfg.TextThinkingLevel}}
 		for _, imageURL := range images {
 			input.ReferenceImages = append(input.ReferenceImages, providerMedia{DataURL: imageURL})
+		}
+		for _, videoURL := range videos {
+			media := providerMedia{URL: videoURL, MimeType: "video/mp4"}
+			if strings.HasPrefix(videoURL, "data:") {
+				media.URL, media.DataURL = "", videoURL
+			}
+			input.ReferenceVideos = append(input.ReferenceVideos, media)
 		}
 		started := time.Now()
 		result, err := runTextTask(withProtocolRegistry(callCtx, s.protocolRegistry()), input)
