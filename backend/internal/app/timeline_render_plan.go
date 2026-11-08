@@ -273,8 +273,8 @@ func buildRenderFFmpegArgs(plan renderPlan, target string) []string {
 			if seg.Clip.Volume > 0 {
 				volume = seg.Clip.Volume
 			}
-			filters = append(filters, fmt.Sprintf("[%d:a]aformat=sample_fmts=fltp:sample_rates=%d:channel_layouts=stereo,volume=%.3f,apad,atrim=0:%.3f,asetpts=N/SR/TB[%s]",
-				audioIn, renderSampleRate, volume, duration, audioLabel))
+			filters = append(filters, fmt.Sprintf("[%d:a]aformat=sample_fmts=fltp:sample_rates=%d:channel_layouts=stereo,volume=%.3f,apad,atrim=0:%.3f,asetpts=N/SR/TB%s[%s]",
+				audioIn, renderSampleRate, volume, duration, renderEdgeFadeFilter(duration), audioLabel))
 		}
 		labels = append(labels, videoLabel, audioLabel)
 	}
@@ -282,7 +282,7 @@ func buildRenderFFmpegArgs(plan renderPlan, target string) []string {
 	for _, label := range labels {
 		fmt.Fprintf(&concatInputs, "[%s]", label)
 	}
-	audioOut := "aout"
+	audioOut := "apre"
 	if len(overlays) > 0 {
 		audioOut = "abase"
 	}
@@ -305,8 +305,10 @@ func buildRenderFFmpegArgs(plan renderPlan, target string) []string {
 			fmt.Fprintf(&mixInputs, "[%s]", label)
 		}
 		// amix 会按输入数衰减音量，混音后乘回，保证配音响度不随片段数量变化。
-		filters = append(filters, fmt.Sprintf("%samix=inputs=%d:duration=first:dropout_transition=0,volume=%d[aout]", mixInputs.String(), len(overlays)+1, len(overlays)+1))
+		filters = append(filters, fmt.Sprintf("%samix=inputs=%d:duration=first:dropout_transition=0,volume=%d[apre]", mixInputs.String(), len(overlays)+1, len(overlays)+1))
 	}
+	// 限幅：多路混音乘回音量、模型音频本身偏响时都可能削顶，削顶在成片里就是「滋滋啦啦」的破音。只压峰值，不做自动响度。
+	filters = append(filters, "[apre]alimiter=limit=0.95:level=false[aout]")
 
 	args = append(args,
 		"-filter_complex", strings.Join(filters, ";"),
@@ -532,4 +534,14 @@ func renderFadeFilters(clip renderClip, duration float64) string {
 		fmt.Fprintf(&b, ",fade=t=out:st=%.3f:d=%.3f:color=%s", duration-fade, fade, color(clip.FadeOutColor))
 	}
 	return b.String()
+}
+
+// renderEdgeFadeFilter 给每段声音首尾加十几毫秒的淡入淡出：片段在任意采样点硬切时波形跳变会发出「咔哒」爆音，
+// 多段拼接后连成一串杂音；这么短的淡变听不出音量变化。
+func renderEdgeFadeFilter(duration float64) string {
+	const fade = 0.015
+	if duration <= fade*4 {
+		return ""
+	}
+	return fmt.Sprintf(",afade=t=in:st=0:d=%.3f,afade=t=out:st=%.3f:d=%.3f", fade, duration-fade, fade)
 }

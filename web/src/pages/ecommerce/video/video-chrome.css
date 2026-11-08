@@ -1,0 +1,336 @@
+/* 商品视频面板的质感层：功能切换、替换类型按钮、悬浮预览。选择器带 .ecv-shell 前缀，覆盖基础样式。 */
+
+.ecv-shell {
+    --ecv-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+    --ecv-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ---------- 单色功能标识：亮暗主题共用前景与中性表面 ---------- */
+.ecv-glyph-tile {
+    --glyph-accent: currentColor;
+    position: relative;
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 48px;
+    height: 48px;
+    padding: var(--space-3);
+    overflow: hidden;
+    border-radius: var(--r-lg);
+    background: var(--control-selected-bg);
+    color: var(--user-ink);
+}
+.ecv-swap-in {
+    animation: ecv-swap-in var(--motion-dur-base) var(--ecv-ease, ease) both;
+}
+@keyframes ecv-swap-in {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+/* ---------- 功能切换 ---------- */
+.ecv-shell .ecv-feature-card {
+    transition:
+        border-color var(--motion-dur-base) var(--ecv-ease),
+        background var(--motion-dur-base) var(--ecv-ease);
+}
+.ecv-shell .ecv-feature-card:hover {
+    background: var(--user-surface-hover);
+}
+.ecv-shell .ecv-feature-card:focus-visible,
+.ecv-shell .ecv-feature-menu > button:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+}
+.ecv-shell .ecv-feature-switch svg {
+    transition: transform 260ms var(--ecv-spring);
+}
+.ecv-shell .ecv-feature-menu {
+    display: grid;
+    visibility: hidden;
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+    transform-origin: top center;
+    transition:
+        opacity 180ms var(--ecv-ease),
+        transform 220ms var(--ecv-ease),
+        visibility 0s linear 220ms;
+}
+.ecv-shell .ecv-feature[data-open="true"] .ecv-feature-menu {
+    visibility: visible;
+    opacity: 1;
+    transform: none;
+    transition:
+        opacity 180ms var(--ecv-ease),
+        transform 260ms var(--ecv-spring),
+        visibility 0s;
+}
+.ecv-shell .ecv-feature-menu > button {
+    opacity: 0;
+    transform: translateY(-4px);
+    transition:
+        background 160ms var(--ecv-ease),
+        border-color 160ms var(--ecv-ease),
+        opacity 200ms var(--ecv-ease),
+        transform 240ms var(--ecv-ease);
+}
+.ecv-shell .ecv-feature[data-open="true"] .ecv-feature-menu > button {
+    opacity: 1;
+    transform: none;
+    transition-delay: 0s, 0s, calc(var(--i, 0) * 45ms + 40ms), calc(var(--i, 0) * 45ms + 40ms);
+}
+.ecv-shell .ecv-feature-menu .ecv-glyph-tile {
+    width: 40px;
+    height: 40px;
+    padding: var(--space-2);
+    border-radius: var(--r-md);
+    background: transparent;
+}
+.ecv-shell .ecv-feature-check {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 999px;
+}
+.ecv-shell .ecv-feature-menu .is-selected .ecv-feature-check {
+    background: var(--control-selected-fg);
+    color: var(--user-surface);
+}
+
+/* ---------- 替换类型按钮 ---------- */
+/* 列宽保证「精准商品」「组合替换」等四字类型名完整显示；面板变窄或译文较长时按列数自动减少，文字最多折两行。 */
+.ecv-shell .ecv-kinds {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 104px), 1fr));
+    gap: 8px;
+}
+.ecv-shell .ecv-kind {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    height: auto;
+    min-height: 40px;
+    padding: 4px 8px 4px 5px;
+    text-align: left;
+    white-space: normal;
+    border: 1px solid var(--user-border);
+    border-radius: 12px;
+    background: var(--user-surface);
+    color: var(--user-ink);
+    font-size: var(--fs-caption);
+    font-weight: 600;
+    cursor: pointer;
+    transition:
+        border-color 180ms var(--ecv-ease),
+        background 180ms var(--ecv-ease);
+}
+.ecv-shell .ecv-kind:hover {
+    border-color: var(--control-selected-border);
+    background: var(--user-surface-hover);
+}
+.ecv-shell .ecv-kind:focus-visible {
+    outline: 2px solid var(--control-selected-fg);
+    outline-offset: 2px;
+}
+.ecv-shell .ecv-kind[aria-pressed="true"] {
+    border-color: var(--control-selected-border);
+    background: var(--control-selected-bg);
+    color: var(--control-selected-fg);
+}
+.ecv-kind-icon {
+    --glyph-accent: currentColor;
+    position: relative;
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    padding: 5px;
+    border-radius: 9px;
+    background: var(--user-surface-muted);
+    color: var(--user-ink);
+    transition:
+        background 200ms var(--ecv-ease, ease),
+        color 200ms var(--ecv-ease, ease);
+}
+.ecv-kind[aria-pressed="true"] .ecv-kind-icon {
+    background: var(--control-selected-bg);
+    color: var(--control-selected-fg);
+}
+.ecv-kind-label {
+    display: -webkit-box;
+    min-width: 0;
+    overflow: hidden;
+    line-height: 1.2;
+    overflow-wrap: break-word;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+}
+
+/* 批量换装仍复用此动画；视频功能图标使用单色静态反馈。 */
+@keyframes ecv-pop {
+    0% {
+        transform: scale(0.7);
+    }
+    60% {
+        transform: scale(1.12);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
+/* 悬浮说明卡（Tooltip 渲染在 body 下）。 */
+.ecv-kind-tip .ant-tooltip-container {
+    max-width: 260px;
+    padding: var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    background: var(--popover);
+    box-shadow: var(--elevation-overlay);
+}
+.ecv-kind-tip-body {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+.ecv-kind-tip-body .ecv-glyph-tile.is-kind {
+    background: transparent;
+    color: var(--popover-foreground);
+    width: 34px;
+    height: 34px;
+    padding: 7px;
+    border-radius: 10px;
+}
+.ecv-kind-tip-body strong {
+    display: block;
+    color: var(--popover-foreground);
+    font-size: var(--fs-ui);
+}
+.ecv-kind-tip-body small {
+    display: block;
+    margin-top: 2px;
+    color: color-mix(in srgb, var(--popover-foreground) 72%, transparent);
+    font-size: var(--fs-caption);
+    line-height: 1.5;
+}
+
+/* ---------- 悬浮预览（Popover 渲染在 body 下） ---------- */
+.ecv-hover-anchor {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+.ecv-video-preview-trigger {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+}
+.ecv-video-preview-trigger:focus-visible {
+    outline: 2px solid var(--control-selected-fg);
+    outline-offset: -2px;
+}
+.ecv-reference-player {
+    display: block;
+    width: 100%;
+    max-height: 70dvh;
+    object-fit: contain;
+}
+.ecv-hover-preview .ant-popover-inner {
+    padding: 6px;
+    overflow: hidden;
+    border-radius: 16px;
+    box-shadow: 0 22px 50px rgba(0, 0, 0, 0.3);
+}
+.ecv-hover-card {
+    width: 240px;
+    animation: ecv-swap-in 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.ecv-hover-card img,
+.ecv-hover-card video {
+    display: block;
+    width: 100%;
+    max-height: 340px;
+    border-radius: 11px;
+    background: #000;
+    object-fit: contain;
+}
+.ecv-hover-card.is-video {
+    width: 220px;
+}
+.ecv-hover-audio {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+    color: var(--control-selected-fg);
+}
+.ecv-hover-audio audio {
+    flex: 1;
+    min-width: 0;
+    height: 32px;
+}
+.ecv-hover-card footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 4px 2px;
+    font-size: 11px;
+}
+.ecv-hover-card footer span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.ecv-hover-card footer small {
+    flex: none;
+    color: #16a34a;
+    font-weight: 600;
+}
+
+@media (max-width: 520px) {
+    .ecv-shell .ecv-kinds {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ecv-swap-in,
+    .ecv-hover-card {
+        animation: none;
+    }
+    .ecv-shell .ecv-feature-menu,
+    .ecv-shell .ecv-feature-menu > button,
+    .ecv-shell .ecv-feature-card,
+    .ecv-shell .ecv-feature-switch svg,
+    .ecv-shell .ecv-kind,
+    .ecv-kind-icon {
+        transition: none;
+    }
+}
+
+/* 原片编辑 / 文字重绘 提示 */
+.ecv-mode-note {
+    margin: 8px 0 0;
+    padding: 8px 10px;
+    border: 1px solid color-mix(in srgb, #f59e0b 40%, transparent);
+    border-radius: 10px;
+    background: color-mix(in srgb, #f59e0b 10%, transparent);
+    color: var(--user-ink-muted);
+    font-size: 12px;
+    line-height: 1.5;
+}
+.ecv-mode-note.is-edit {
+    border-color: color-mix(in srgb, #10b981 40%, transparent);
+    background: color-mix(in srgb, #10b981 10%, transparent);
+}

@@ -1,0 +1,312 @@
+[data-admin-root] .vr-admin {
+    display: grid;
+    gap: 16px;
+    width: 100%;
+}
+/* 宽屏双栏：左侧分析/声音模型，右侧视频生成模型；窄屏回到单栏。 */
+[data-admin-root] .vr-admin-columns {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 16px;
+}
+[data-admin-root] .vr-admin-column {
+    display: grid;
+    gap: 16px;
+    min-width: 0;
+}
+@media (min-width: 1400px) {
+    [data-admin-root] .vr-admin-columns {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+[data-admin-root] .vr-admin-checks {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 8px 20px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+[data-admin-root] .vr-admin-checks li {
+    display: grid;
+    grid-template-columns: 16px auto minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+}
+[data-admin-root] .vr-admin-checks svg {
+    width: 16px;
+    height: 16px;
+}
+[data-admin-root] .vr-admin-checks .is-ok {
+    color: var(--status-success);
+}
+[data-admin-root] .vr-admin-checks .is-bad {
+    color: var(--status-error);
+}
+[data-admin-root] .vr-admin-checks span {
+    overflow: hidden;
+    color: var(--admin-text-secondary, var(--user-ink-muted));
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+[data-admin-root] .vr-admin-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px 16px;
+    margin-bottom: 12px;
+}
+[data-admin-root] .vr-admin-field {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+    min-width: 0;
+}
+[data-admin-root] .vr-admin-field.is-inline {
+    grid-template-columns: minmax(0, 1fr) 180px;
+    align-items: center;
+}
+[data-admin-root] .vr-admin-field > span {
+    display: grid;
+    gap: 2px;
+}
+[data-admin-root] .vr-admin-field small {
+    overflow-wrap: anywhere;
+    white-space: normal;
+    color: var(--admin-text-secondary, var(--user-ink-muted));
+    font-size: 12px;
+}
+[data-admin-root] .vr-admin-models {
+    display: grid;
+    gap: 12px;
+}
+[data-admin-root] .vr-admin .vr-admin-add-model-label {
+    color: var(--admin-text-secondary);
+}
+[data-admin-root] .vr-admin-model {
+    display: grid;
+    gap: 12px;
+    padding: 12px;
+    border: 1px solid var(--user-border);
+    border-radius: 10px;
+}
+[data-admin-root] .vr-admin-model-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+}
+[data-admin-root] .vr-admin-model-picker {
+    flex: 1 1 320px;
+    min-width: 0;
+}
+[data-admin-root] .vr-admin-analysis-picker {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+[data-admin-root] .vr-admin-analysis-grid > .vr-admin-field {
+    grid-row: span 3;
+    grid-template-rows: subgrid;
+    row-gap: var(--space-2);
+}
+@media (max-width: 720px) {
+    .vr-admin-analysis-popover .canvas-model-picker-two-pane {
+        grid-template-rows: auto minmax(0, 1fr);
+    }
+    .vr-admin-analysis-popover .canvas-model-picker-menu.is-model-list .canvas-model-picker-brand-rail {
+        display: flex;
+        overflow-x: auto;
+        overflow-y: hidden;
+        border-right: 0;
+        padding-right: 0;
+    }
+    .vr-admin-analysis-popover .canvas-model-picker-brand-rail .canvas-model-picker-brand {
+        flex: 0 0 152px;
+    }
+}
+/* 与首页同一个模型选择器；后台行内铺满整行，高度与前台商品视频的选择器一致。 */
+[data-admin-root] .vr-admin-model-picker .creation-model-picker.canvas-composer-model-picker {
+    width: 100%;
+    height: 40px;
+}
+[data-admin-root] .vr-admin-model-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+[data-admin-root] .vr-admin-recommend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+}
+[data-admin-root] .vr-admin-voices {
+    display: grid;
+    gap: 8px;
+}
+[data-admin-root] .vr-admin-voice {
+    display: grid;
+    grid-template-columns: minmax(120px, 1.2fr) minmax(90px, 1fr) 90px 110px minmax(140px, 1.6fr) 32px;
+    gap: 8px;
+    align-items: center;
+}
+@media (max-width: 900px) {
+    [data-admin-root] .vr-admin-voice {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+/* ---------- 电商视频 Agent 后台补充 ---------- */
+[data-admin-root] .vr-admin-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+[data-admin-root] .vr-admin-open {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+[data-admin-root] .vr-admin-open > div {
+    display: grid;
+    gap: 2px;
+}
+[data-admin-root] .vr-admin-open span,
+[data-admin-root] .vr-admin-kind span {
+    color: var(--admin-text-muted, #888);
+    font-size: 12px;
+}
+[data-admin-root] .vr-admin-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 12px;
+}
+@media (min-width: 1100px) {
+    [data-admin-root] .vr-admin-columns:has(.vr-admin-bars, .vr-admin-errors) {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+[data-admin-root] .vr-admin-bars,
+[data-admin-root] .vr-admin-errors {
+    display: grid;
+    gap: 10px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+[data-admin-root] .vr-admin-bars li {
+    display: grid;
+    grid-template-columns: 80px minmax(0, 1fr) 48px;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+}
+[data-admin-root] .vr-admin-bars i {
+    height: 8px;
+    border-radius: 999px;
+    background: var(--admin-accent, #6366f1);
+}
+[data-admin-root] .vr-admin-bars strong {
+    text-align: right;
+}
+[data-admin-root] .vr-admin-errors li {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 13px;
+    word-break: break-all;
+}
+[data-admin-root] .vr-admin-kinds {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 10px;
+}
+[data-admin-root] .vr-admin-kind {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border: 1px solid var(--admin-border, rgb(128 128 128 / 20%));
+    border-radius: 10px;
+}
+[data-admin-root] .vr-admin-kind > div {
+    display: grid;
+    gap: 2px;
+}
+.vr-admin-detail {
+    display: grid;
+    gap: 12px;
+}
+.vr-admin-detail h4 {
+    margin: 8px 0 0;
+    font-size: 14px;
+}
+.vr-admin-meta {
+    display: grid;
+    grid-template-columns: 96px minmax(0, 1fr);
+    gap: 6px 12px;
+    margin: 0;
+    font-size: 13px;
+}
+.vr-admin-meta dt {
+    opacity: 0.6;
+}
+.vr-admin-meta dd {
+    margin: 0;
+    word-break: break-all;
+}
+.vr-admin-meta dd.is-error {
+    color: #dc2626;
+}
+.vr-admin-media {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px;
+}
+.vr-admin-media video {
+    width: 100%;
+    max-height: 360px;
+    border-radius: 8px;
+    background: #000;
+}
+.vr-admin-assets {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 10px;
+}
+.vr-admin-assets figure {
+    display: grid;
+    gap: 4px;
+    margin: 0;
+}
+.vr-admin-assets img,
+.vr-admin-assets video {
+    width: 100%;
+    height: 120px;
+    border-radius: 8px;
+    background: rgb(128 128 128 / 12%);
+    object-fit: cover;
+}
+.vr-admin-assets audio {
+    width: 100%;
+}
+.vr-admin-assets figcaption {
+    font-size: 12px;
+    opacity: 0.7;
+}
+
+.vr-admin-region {
+    display: block;
+    max-width: 220px;
+    max-height: 220px;
+    margin-top: 6px;
+    border-radius: 6px;
+}

@@ -25,6 +25,10 @@ type TaskInput struct {
 	Parameters         map[string]any  `json:"parameters,omitempty"`
 	References         []TaskReference `json:"references,omitempty"`
 	Batch              *TaskBatch      `json:"batch,omitempty"`
+
+	// ProviderOptions 只供后端内部调用方按协议命名空间附加厂商字段（例如原片编辑时 TopView 的 duration=-1），
+	// 不从浏览器 JSON 读取，避免用户绕过参数白名单。
+	ProviderOptions map[string]map[string]any `json:"-"`
 }
 
 // TaskBatch 关联同一次提交拆出的多个任务（例如一次生成 3 条视频），

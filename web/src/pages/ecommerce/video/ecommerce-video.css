@@ -1,0 +1,1178 @@
+/* 电商 Agent「商品视频」：左侧参数面板（复用 .ecs-composer 外壳）+ 右侧视频作品。 */
+.ecs-shell {
+    --ecv-good: #16a34a;
+    --ecv-bad: var(--destructive, #dc2626);
+    --ecv-illus-bg: color-mix(in srgb, var(--user-ink) 5%, var(--user-surface));
+}
+
+/* ---------- 当前视频功能 + 切换 ---------- */
+.ecv-feature {
+    position: relative;
+    margin-top: var(--space-3);
+}
+.ecv-feature-card {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-3);
+    width: 100%;
+    padding: var(--space-3);
+    border: 1px solid var(--user-border);
+    border-radius: var(--r-lg);
+    background: var(--user-surface-muted);
+    color: var(--user-ink);
+    text-align: left;
+    cursor: pointer;
+    transition: border-color var(--ecs-motion);
+}
+.ecv-feature-card:hover {
+    border-color: var(--control-selected-border);
+}
+.ecv-feature-icon {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    flex: none;
+    border-radius: var(--r-lg);
+    background: var(--control-selected-bg);
+    color: var(--control-selected-fg);
+}
+.ecv-feature-copy {
+    display: grid;
+    gap: var(--space-1);
+    min-width: 0;
+}
+.ecv-feature-copy small {
+    color: var(--user-ink-soft);
+    font-size: var(--fs-label, 11px);
+}
+.ecv-feature-copy strong {
+    font-size: var(--fs-heading, 16px);
+    font-weight: 600;
+    line-height: var(--lh-heading);
+}
+.ecv-feature-copy span {
+    overflow: hidden;
+    color: var(--user-ink-muted);
+    font-size: var(--fs-caption);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.ecv-feature-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    height: 24px;
+    padding: 0 var(--space-2);
+    border-radius: var(--r-md);
+    color: var(--user-ink-muted);
+    font-size: var(--fs-caption);
+    font-weight: 600;
+}
+.ecv-feature-switch svg {
+    transition: transform var(--ecs-motion);
+}
+.ecv-feature-switch svg.is-open {
+    transform: rotate(180deg);
+}
+.ecv-feature-menu {
+    position: absolute;
+    z-index: var(--z-dropdown);
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    display: grid;
+    gap: var(--space-1);
+    padding: var(--space-2);
+    border: 1px solid var(--user-border);
+    border-radius: var(--r-lg);
+    background: var(--user-surface);
+    box-shadow: var(--elevation-overlay);
+}
+.ecv-feature-menu > button {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2);
+    border: 1px solid transparent;
+    border-radius: var(--r-md);
+    background: transparent;
+    color: var(--user-ink);
+    text-align: left;
+    cursor: pointer;
+}
+.ecv-feature-menu > button:hover {
+    background: var(--user-surface-muted);
+}
+.ecv-feature-menu > button.is-selected {
+    border-color: var(--control-selected-border);
+    background: var(--control-selected-bg);
+}
+.ecv-feature-menu .ecv-feature-icon {
+    width: 40px;
+    height: 40px;
+    background: var(--user-surface-muted);
+    color: var(--user-ink);
+}
+.ecv-feature-menu .is-selected .ecv-feature-icon {
+    background: var(--user-surface);
+    color: var(--control-selected-fg);
+}
+.ecv-feature-menu .ecv-feature-copy strong {
+    font-size: var(--fs-ui);
+}
+.ecv-feature-menu .ecv-feature-copy span {
+    white-space: normal;
+}
+.ecv-feature-check {
+    color: var(--control-selected-fg);
+}
+
+/* ---------- 区块 ---------- */
+.ecv-block-head {
+    display: flex !important;
+    align-items: flex-start !important;
+    justify-content: space-between;
+}
+.ecv-block-head > div {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+}
+.ecv-block-head h3 {
+    margin: 0;
+    font-size: var(--fs-ui);
+    font-weight: 650;
+}
+.ecv-block-head p {
+    margin: 0;
+    color: var(--user-ink-soft);
+    font-size: var(--fs-caption);
+    line-height: 1.45;
+}
+.ecv-picked {
+    color: var(--user-ink-muted);
+}
+.ecv-hint {
+    margin: 0;
+    color: var(--user-ink-soft);
+    font-size: var(--fs-caption);
+}
+
+/* ---------- 替换类型 ---------- */
+.ecv-kinds {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: var(--space-2);
+}
+.ecv-kinds button {
+    height: 32px;
+    padding: 0 4px;
+    border: 1px solid var(--user-border);
+    border-radius: var(--r-md);
+    background: var(--user-surface-muted);
+    color: var(--user-ink);
+    font-size: var(--fs-caption);
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+        background-color var(--ecs-motion),
+        border-color var(--ecs-motion);
+}
+.ecv-kinds button:hover {
+    background: var(--user-surface-hover);
+}
+.ecv-kinds button[aria-pressed="true"] {
+    border-color: var(--control-selected-border);
+    background: var(--control-selected-bg);
+    color: var(--control-selected-fg);
+}
+
+/* ---------- 素材上传位 ---------- */
+.ecv-slots {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+}
+.ecv-slot {
+    display: grid;
+    gap: 4px;
+    justify-items: start;
+}
+.ecv-slot-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+.ecv-tip-anchor {
+    display: inline-flex;
+}
+.ecv-slot-add,
+.ecv-video-add {
+    position: relative;
+    display: grid;
+    place-items: center;
+    align-content: center;
+    gap: 4px;
+    width: 80px;
+    height: 92px;
+    border: 1px dashed var(--user-border-strong, var(--user-border));
+    border-radius: var(--r-lg);
+    background: var(--user-surface-muted);
+    color: var(--user-ink-muted);
+    cursor: pointer;
+    transition:
+        border-color var(--ecs-motion),
+        background-color var(--ecs-motion);
+}
+.ecv-slot-add:hover:not(:disabled),
+.ecv-video-add:hover,
+.ecv-slot-add.is-dragging,
+.ecv-video-add.is-dragging {
+    border-color: var(--control-selected-border);
+    background: var(--control-selected-bg);
+    color: var(--control-selected-fg);
+}
+.ecv-slot-add:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+.ecv-slot-add strong,
+.ecv-video-add strong {
+    color: var(--user-ink);
+    font-size: var(--fs-caption);
+    font-weight: 600;
+}
+.ecv-badge {
+    position: absolute;
+    top: 5px;
+    left: 5px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: var(--user-surface);
+    color: var(--user-ink-soft);
+    font-size: 10px;
+    line-height: 16px;
+}
+.ecv-thumb {
+    position: relative;
+    width: 80px;
+    height: 92px;
+    margin: 0;
+    overflow: hidden;
+    border-radius: var(--r-lg);
+    background: var(--user-surface-muted);
+}
+.ecv-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.ecv-thumb.is-error img {
+    opacity: 0.4;
+}
+.ecv-thumb > button {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: rgb(0 0 0 / 55%);
+    color: #fff;
+    cursor: pointer;
+}
+.ecv-thumb-progress {
+    position: absolute;
+    inset: auto 0 0;
+    padding: 2px 0;
+    background: rgb(0 0 0 / 50%);
+    color: #fff;
+    font-size: 11px;
+    text-align: center;
+}
+.ecv-slot-note {
+    margin: 0;
+    color: var(--user-ink-soft);
+    font-size: 11px;
+}
+.ecv-library {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 26px;
+    padding: 0 var(--space-2);
+    border: 0;
+    border-radius: var(--r-md);
+    background: var(--user-ink);
+    color: var(--user-surface);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.ecv-library:disabled {
+    cursor: not-allowed;
+    opacity: 0.35;
+}
+.ecv-subject {
+    display: grid;
+    gap: 4px;
+    max-width: 240px;
+}
+.ecv-subject > span {
+    font-size: var(--fs-caption);
+    font-weight: 600;
+}
+.ecv-subject small {
+    color: var(--user-ink-soft);
+    font-weight: 400;
+}
+.ecv-check {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    color: var(--user-ink);
+    font-size: var(--fs-caption);
+    line-height: 1.5;
+    cursor: pointer;
+}
+.ecv-check input {
+    width: 15px;
+    height: 15px;
+    margin-top: 2px;
+    accent-color: var(--control-selected-fg);
+}
+
+/* ---------- 颜色对照卡 ---------- */
+.ecv-compare {
+    border: 1px dashed var(--user-border-strong, var(--user-border));
+    border-radius: var(--r-lg);
+    background: color-mix(in srgb, var(--control-selected-bg) 45%, transparent);
+}
+.ecv-compare-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    border: 0;
+    background: transparent;
+    color: var(--user-ink);
+    font-size: var(--fs-caption);
+    cursor: pointer;
+}
+.ecv-compare-head strong {
+    flex: 1;
+    text-align: left;
+}
+.ecv-compare-icon {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border-radius: var(--r-md);
+    background: #fcd34d;
+    color: #78350f;
+    font-size: 12px;
+}
+.ecv-compare-chevron {
+    transition: transform var(--ecs-motion);
+}
+.ecv-compare[data-open="true"] .ecv-compare-chevron {
+    transform: rotate(180deg);
+}
+.ecv-compare-body {
+    display: grid;
+    gap: var(--space-2);
+    padding: 0 var(--space-3) var(--space-3);
+}
+.ecv-compare-row {
+    display: grid;
+    gap: 6px;
+    padding: var(--space-2);
+    border: 1px solid color-mix(in srgb, var(--ecv-good) 35%, transparent);
+    border-radius: var(--r-md);
+    background: color-mix(in srgb, var(--ecv-good) 6%, var(--user-surface));
+}
+.ecv-compare-row.is-bad {
+    border-color: color-mix(in srgb, var(--ecv-bad) 35%, transparent);
+    background: color-mix(in srgb, var(--ecv-bad) 6%, var(--user-surface));
+}
+.ecv-compare-row p {
+    margin: 0;
+    color: var(--user-ink-muted);
+    font-size: 11px;
+}
+.ecv-chip {
+    display: inline-block;
+    margin-right: 4px;
+    padding: 0 6px;
+    border-radius: 999px;
+    font-weight: 600;
+    line-height: 18px;
+}
+.ecv-chip.is-good {
+    background: color-mix(in srgb, var(--ecv-good) 15%, transparent);
+    color: var(--ecv-good);
+}
+.ecv-chip.is-bad {
+    background: color-mix(in srgb, var(--ecv-bad) 15%, transparent);
+    color: var(--ecv-bad);
+}
+.ecv-compare-tiles {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr auto 1fr;
+    align-items: center;
+    gap: 4px;
+}
+.ecv-compare-tiles > i {
+    color: var(--user-ink-soft);
+    font-style: normal;
+    font-weight: 700;
+}
+.ecv-compare-tile {
+    position: relative;
+    overflow: hidden;
+    border-radius: var(--r-md);
+    background: var(--ecv-illus-bg);
+}
+.ecv-compare-tile small {
+    position: absolute;
+    top: 2px;
+    left: 4px;
+    color: var(--user-ink-soft);
+    font-size: 9px;
+}
+.ecv-compare-tile svg {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
+/* ---------- 参考视频 ---------- */
+.ecv-video-box {
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr);
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    border: 1px solid var(--user-border);
+    border-radius: var(--r-lg);
+}
+.ecv-video-upload {
+    display: grid;
+    gap: 4px;
+    justify-items: start;
+}
+.ecv-video-add {
+    width: 104px;
+    height: 112px;
+}
+.ecv-video-add small {
+    color: var(--user-ink-soft);
+    font-size: 10px;
+}
+.ecv-or {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--user-surface-muted);
+    color: var(--user-ink-soft);
+    font-size: 11px;
+}
+.ecv-link {
+    display: grid;
+    gap: var(--space-2);
+    min-width: 0;
+}
+.ecv-link .ant-input {
+    font-size: var(--fs-caption);
+}
+.ecv-link-actions {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-2);
+}
+.ecv-link-progress {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+    font-size: var(--fs-caption);
+    color: var(--user-ink-soft);
+}
+.ecv-link-progress-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+}
+.ecv-link-platform,
+.ecv-video-source {
+    flex: none;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: var(--user-surface-muted);
+    color: var(--user-ink);
+    font-size: 11px;
+    line-height: 18px;
+}
+.ecv-link-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.ecv-link-progress-bar {
+    height: 4px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--user-surface-muted);
+}
+.ecv-link-progress-bar > span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--ant-color-primary, #1677ff);
+    transition: width 0.3s ease;
+}
+.ecv-link-error {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-2);
+    font-size: var(--fs-caption);
+    color: var(--ant-color-error, #ff4d4f);
+}
+.ecv-link-error .ant-btn {
+    flex: none;
+    height: auto;
+    padding: 0;
+}
+.ecv-video-thumb {
+    position: relative;
+    width: 104px;
+    height: 112px;
+    margin: 0;
+    overflow: hidden;
+    border-radius: var(--r-lg);
+    background: #000;
+}
+.ecv-video-thumb .ecv-hover-anchor,
+.ecv-video-thumb > :first-child {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+.ecv-video-thumb video {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.ecv-badge.is-filled {
+    background: var(--ecv-good, var(--control-selected-bg));
+    color: #fff;
+    font-weight: 600;
+}
+.ecv-video-thumb-remove {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: rgb(0 0 0 / 55%);
+    color: #fff;
+    cursor: pointer;
+}
+.ecv-video-thumb-remove:hover {
+    background: var(--ecv-bad, rgb(0 0 0 / 75%));
+}
+.ecv-video-thumb-play {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: rgb(0 0 0 / 45%);
+    color: #fff;
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+}
+.ecv-video-thumb-trim,
+.ecv-video-thumb-progress {
+    position: absolute;
+    right: 5px;
+    bottom: 22px;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0 6px;
+    border: 0;
+    border-radius: 999px;
+    background: rgb(0 0 0 / 60%);
+    color: #fff;
+    font-size: 10px;
+    line-height: 18px;
+}
+.ecv-video-thumb-trim {
+    cursor: pointer;
+}
+.ecv-video-thumb-trim.is-trimmed,
+.ecv-video-thumb-trim:hover:not(:disabled) {
+    background: var(--ecv-good, rgb(0 0 0 / 75%));
+}
+.ecv-video-thumb-progress {
+    left: 5px;
+    justify-content: center;
+}
+.ecv-video-thumb figcaption {
+    position: absolute;
+    inset: auto 0 0;
+    padding: 10px 6px 3px;
+    overflow: hidden;
+    background: linear-gradient(transparent, rgb(0 0 0 / 65%));
+    color: #fff;
+    font-size: 10px;
+    text-align: center;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    pointer-events: none;
+}
+.ecv-link-hint {
+    color: var(--user-ink-soft);
+    font-size: 11px;
+}
+
+/* ---------- 声音 ---------- */
+.ecv-audio {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-2);
+}
+.ecv-audio button {
+    display: grid;
+    gap: 2px;
+    padding: var(--space-2);
+    border: 1px solid var(--user-border);
+    border-radius: var(--r-md);
+    background: var(--user-surface-muted);
+    color: var(--user-ink);
+    text-align: left;
+    cursor: pointer;
+}
+.ecv-audio button strong {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: var(--fs-caption);
+}
+.ecv-audio button small {
+    color: var(--user-ink-soft);
+    font-size: 11px;
+    line-height: 1.35;
+}
+.ecv-audio button[aria-checked="true"] {
+    border-color: var(--control-selected-border);
+    background: var(--control-selected-bg);
+}
+.ecv-audio button[aria-checked="true"] strong {
+    color: var(--control-selected-fg);
+}
+.ecv-audio button:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+/* 替换音频：参考音色上传位放在声音选项下方。 */
+.ecv-voice {
+    display: grid;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+}
+.ecv-voice-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-2);
+}
+.ecv-voice-head strong {
+    font-size: var(--fs-caption);
+}
+.ecv-voice-head small {
+    color: var(--user-ink-soft);
+    font-size: 11px;
+}
+.ecv-badge.is-required {
+    background: var(--user-ink);
+    color: var(--user-surface);
+}
+
+/* ---------- 模型与参数 ---------- */
+.ecv-params {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    gap: var(--space-2);
+}
+.ecv-param {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+}
+.ecv-param > small {
+    color: var(--user-ink-soft);
+    font-size: 11px;
+}
+.ecv-param .ant-select {
+    width: 100%;
+    height: 40px;
+}
+.ecs-composer .ecv-model-picker.creation-model-picker {
+    width: 100%;
+    height: 40px;
+}
+.ecv-count {
+    justify-self: end;
+    margin-top: -6px;
+    color: var(--user-ink-soft);
+    font-size: 11px;
+}
+.ecv-count.is-over {
+    color: var(--ecv-bad);
+}
+
+/* ---------- 上传注意事项（悬浮卡） ---------- */
+.ecv-tip-popover .ant-popover-inner {
+    padding: 0;
+    border-radius: var(--r-xl, 16px);
+    overflow: hidden;
+}
+.ecv-tip {
+    position: relative;
+    width: min(520px, calc(100vw - 32px));
+    padding: var(--space-4);
+}
+.ecv-tip-actions {
+    position: absolute;
+    top: var(--space-2);
+    right: var(--space-2);
+    display: flex;
+    gap: 2px;
+}
+.ecv-tip-actions button {
+    height: 24px;
+    padding: 0 8px;
+    border: 0;
+    border-radius: var(--r-md);
+    background: var(--user-surface-muted, rgb(0 0 0 / 5%));
+    color: var(--user-ink-muted, inherit);
+    font-size: 11px;
+    cursor: pointer;
+}
+.ecv-tip-title {
+    margin: 0 0 var(--space-3);
+    font-size: 18px;
+    font-weight: 750;
+    text-align: center;
+}
+.ecv-tip-title::before,
+.ecv-tip-title::after {
+    content: "";
+    display: inline-block;
+    width: 36px;
+    height: 1px;
+    margin: 0 10px;
+    vertical-align: middle;
+    background: linear-gradient(90deg, transparent, #60a5fa);
+}
+.ecv-tip-title::after {
+    background: linear-gradient(90deg, #60a5fa, transparent);
+}
+.ecv-tip-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: var(--space-2) 0;
+    font-size: 13px;
+    font-weight: 700;
+}
+.ecv-tip-group.is-good svg {
+    color: var(--ecv-good, #16a34a);
+}
+.ecv-tip-group.is-bad svg {
+    color: var(--ecv-bad, #dc2626);
+}
+.ecv-tip-grid {
+    display: grid;
+    grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr));
+    gap: var(--space-2);
+}
+.ecv-tip-grid[data-count="4"] {
+    --cols: 4;
+}
+.ecv-tip-grid[data-count="2"] {
+    --cols: 2;
+}
+.ecv-tip-grid figure {
+    display: grid;
+    gap: 4px;
+    margin: 0;
+}
+.ecv-illus {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: var(--r-md);
+}
+.ecv-tip-grid figcaption {
+    display: grid;
+    gap: 2px;
+}
+.ecv-tip-grid figcaption strong {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+}
+.ecv-tip-grid figcaption small {
+    color: var(--user-ink-soft, #888);
+    font-size: 10px;
+    line-height: 1.35;
+}
+.ecv-tip-grid i {
+    display: inline-grid;
+    place-items: center;
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    color: #fff;
+    font-size: 10px;
+    font-style: normal;
+}
+.ecv-tip-grid i.is-good {
+    background: var(--ecv-good, #16a34a);
+}
+.ecv-tip-grid i.is-bad {
+    background: var(--ecv-bad, #dc2626);
+}
+
+/* ---------- 右侧视频作品 ---------- */
+.ecv-results {
+    overflow: hidden;
+    border-radius: var(--r-2xl);
+}
+.ecv-results-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-1);
+}
+.ecv-results-head h2 {
+    margin: 0;
+    font-size: var(--fs-heading, 16px);
+    font-weight: 650;
+}
+.ecv-results-head small {
+    margin-left: 6px;
+    color: var(--user-ink-soft);
+    font-size: var(--fs-caption);
+    font-weight: 400;
+}
+.ecv-filter {
+    display: inline-flex;
+    gap: 2px;
+    padding: var(--space-1);
+    border-radius: var(--r-lg);
+    background: var(--user-surface-muted);
+}
+.ecv-filter button {
+    height: 26px;
+    padding: 0 var(--space-3);
+    border: 0;
+    border-radius: var(--r-md);
+    background: transparent;
+    color: var(--user-ink-muted);
+    font-size: var(--fs-caption);
+    cursor: pointer;
+}
+.ecv-filter button[aria-pressed="true"] {
+    background: var(--user-surface);
+    color: var(--user-ink);
+    box-shadow: 0 1px 2px color-mix(in srgb, var(--user-ink) 10%, transparent);
+}
+.ecv-results-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--space-1) var(--space-1) var(--space-4);
+    container-type: inline-size;
+}
+.ecv-results-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: 4px;
+    grid-auto-flow: dense;
+    align-items: start;
+    gap: var(--space-4);
+}
+.ecv-result-cell {
+    min-width: 0;
+}
+.ecv-result {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    border-radius: var(--r-xl, 14px);
+    background: var(--user-surface);
+}
+.ecv-result-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    font-size: var(--fs-caption);
+}
+.ecv-result-kind {
+    padding: 0 8px;
+    border-radius: 999px;
+    background: var(--control-selected-bg);
+    color: var(--control-selected-fg);
+    font-weight: 600;
+    line-height: 22px;
+}
+.ecv-result-cost {
+    color: var(--user-ink-muted);
+}
+.ecv-result-head time {
+    margin-left: auto;
+    color: var(--user-ink-soft);
+}
+.ecv-result-media {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 100%;
+    min-height: 320px;
+    max-height: 640px;
+    overflow: hidden;
+    border-radius: var(--r-lg);
+    background: #0b0b0f;
+    color: rgb(255 255 255 / 50%);
+}
+/* 瀑布流以竖屏为一格、宽屏为两格：大屏最多四张竖屏或两张横屏。 */
+@container (min-width: 600px) {
+    .ecv-results-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .ecv-result-cell:has([data-landscape="true"]) {
+        grid-column: span 2;
+    }
+}
+@container (min-width: 1180px) {
+    .ecv-results-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+}
+@media (max-width: 520px) {
+    .ecv-result-media {
+        min-height: 260px;
+    }
+}
+.ecv-result-media video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+.ecv-result-media video.is-reference {
+    opacity: 0.35;
+    filter: blur(1px);
+}
+/* 作品卡片沿用画布的紧凑播放器。绝对定位铺满媒体框：放在 grid 里会被视频原始宽度撑开。 */
+.ecv-result-media > .ecv-result-player {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+}
+/* 卡片比画布节点窄，进度条改为按钮行上方的独立一行，避免被时间和音量挤没。 */
+.ecv-result-media .canvas-video-player[data-player-variant="compact"]:not([data-fullscreen]) .vds-video-layout[data-sm] .vds-controls-group:has(.vds-time-slider) {
+    left: 8px;
+    right: 8px;
+    bottom: calc(var(--canvas-video-control-size) + 12px);
+    height: 24px;
+    min-height: 24px;
+}
+/* 未开始播放时只显示居中的播放键和时长角标；开始播放后播放键回到底栏。 */
+.ecv-result-media .canvas-video-player[data-player-variant="compact"]:not([data-started], [data-fullscreen]) .vds-video-layout[data-sm] .vds-controls-group:has(> .vds-play-button) {
+    --canvas-video-control-size: 52px;
+    left: 50%;
+    bottom: 50%;
+    transform: translate(-50%, 50%);
+}
+.ecv-result-overlay {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: var(--space-2);
+    padding: var(--space-4);
+    background: rgb(0 0 0 / 45%);
+    color: #fff;
+    font-size: var(--fs-caption);
+    text-align: center;
+}
+.ecv-result-overlay.is-failed {
+    background: rgb(60 0 0 / 55%);
+}
+/* 失败 / 待开始：顶部横条，不遮挡视频自带的播放控件。 */
+.ecv-result-banner {
+    position: absolute;
+    inset: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    background: rgb(0 0 0 / 62%);
+    color: #fff;
+    font-size: var(--fs-caption);
+    line-height: 1.5;
+}
+.ecv-result-banner > span {
+    display: -webkit-box;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+.ecv-result-banner > svg,
+.ecv-result-banner > .ant-btn {
+    flex: none;
+}
+.ecv-result-banner.is-failed {
+    background: rgb(60 0 0 / 70%);
+}
+.ecv-result-overlay span {
+    max-width: 220px;
+    opacity: 0.85;
+}
+.ecv-progress {
+    width: 160px;
+    height: 4px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgb(255 255 255 / 25%);
+}
+.ecv-progress i {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: #fff;
+    transition: width 0.6s ease;
+}
+.ecv-result-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+.ecv-result-spacer {
+    flex: 1;
+}
+.ecv-icon-link {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--r-md);
+    color: var(--user-ink-muted);
+}
+.ecv-icon-link:hover {
+    background: var(--user-surface-muted);
+    color: var(--user-ink);
+}
+.ecv-empty {
+    display: grid;
+    place-items: center;
+    gap: var(--space-2);
+    max-width: 420px;
+    margin: 12vh auto 0;
+    color: var(--user-ink-soft);
+    font-size: var(--fs-caption);
+    text-align: center;
+}
+.ecv-empty strong {
+    color: var(--user-ink);
+    font-size: var(--fs-ui);
+}
+.ecv-end {
+    margin: var(--space-4) 0 0;
+    color: var(--user-ink-soft);
+    font-size: var(--fs-caption);
+    text-align: center;
+}
+
+@media (max-width: 520px) {
+    .ecv-kinds {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+    .ecv-video-box {
+        grid-template-columns: minmax(0, 1fr);
+        justify-items: start;
+    }
+    .ecv-link {
+        width: 100%;
+    }
+    .ecv-tip-grid[data-count="4"] {
+        --cols: 2;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ecv-progress i,
+    .ecv-feature-switch svg,
+    .ecv-compare-chevron {
+        transition: none;
+    }
+}
+
+.ecv-slot-note.is-blocked {
+    color: var(--user-ink-soft);
+}
+.ecv-thumb-audio {
+    display: grid;
+    place-items: center;
+    align-content: center;
+    gap: 4px;
+    width: 100%;
+    height: 100%;
+    padding: 6px;
+    color: var(--control-selected-fg);
+}
+.ecv-thumb-audio small {
+    display: -webkit-box;
+    overflow: hidden;
+    color: var(--user-ink-muted);
+    font-size: 10px;
+    text-align: center;
+    word-break: break-all;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}

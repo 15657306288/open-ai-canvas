@@ -94,6 +94,8 @@ type providerAnalyticsContext struct {
 	ProviderRequestID     string
 	ConcurrencyLimit      int
 	GenerationContentJSON string
+	// CostRecorder 非空时接管这次请求的日志与成本记账（只有平台承担成本的调用会设置）。
+	CostRecorder func(model.ApiCallLog)
 }
 
 func withProviderAnalytics(ctx context.Context, service *Service, task model.Task) context.Context {
