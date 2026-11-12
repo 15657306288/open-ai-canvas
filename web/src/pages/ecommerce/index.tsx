@@ -9,7 +9,7 @@ import { AppModal } from "@/components/ui/product/app-modal/app-modal";
 import { promptHasPhrase, togglePromptPhrase } from "@/lib/prompt-phrases";
 import { CreditStar } from "@/components/ui/credit-star";
 import { RollingCreditAmount } from "@/components/rolling-credit-text";
-import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { ApiError } from "@/services/api/request";
 import { archiveCommercePlan, commerceCanvasImages, continueCommercePlan, updateCommerceCanvasImage } from "./continuation";
@@ -103,6 +103,9 @@ import { importCommerceImageTransfer, mightContainCommerceImage, readCommerceIma
 import { directCommercePlan } from "./direct-plan";
 import { activeCommerceReferences, commercePlanningReferenceCount } from "./model-context";
 import { EcommerceOutputGallery } from "./output-gallery";
+
+const EcommerceVideoStudio = lazy(() => import("./video/ecommerce-video-studio"));
+const CREATION_KIND_STORAGE = "ecs-creation-kind";
 import { inspectCommerceImageAsset } from "./quality";
 import { assertCommerceBatchHealthy, CommerceBatchPausedError, submitCommerceTaskWhenSlotAvailable } from "./generation-slot";
 import { ecommerceTypeConfig, typeValidation } from "./type-config";
@@ -162,7 +165,43 @@ function EcommerceWorkspace({ scope }: { scope: string }) {
     const videoWorkbenchEnabled = useUserStore((state) => state.features.videoWorkbenchEnabled);
     const nickname = useUserStore((state) => state.user?.displayName?.trim() || state.user?.username?.trim() || "创作者");
     const navigate = useNavigate();
-    const [searchParams] = useSearchParams();
+    const [searchParams, setSearchParams] = useSearchParams();
+    const productVideoAvailable = ecommerceVideoEnabled && videoWorkbenchEnabled;
+    // 商品图片 / 商品视频：记在地址栏 ?kind= 与本标签页的 sessionStorage，刷新后停在原来的页面。
+    const [creationKind, setCreationKindState] = useState<"image" | "video">(() => {
+        const fromUrl = searchParams.get("kind");
+        if (fromUrl === "video" || fromUrl === "image") return fromUrl;
+        try {
+            return window.sessionStorage.getItem(CREATION_KIND_STORAGE) === "video" ? "video" : "image";
+        } catch {
+            return "image";
+        }
+    });
+    const setCreationKind = useCallback(
+        (kind: "image" | "video") => {
+            setCreationKindState(kind);
+            try {
+                window.sessionStorage.setItem(CREATION_KIND_STORAGE, kind);
+            } catch {
+                // 存储不可用时只靠地址栏参数。
+            }
+            setSearchParams(
+                (current) => {
+                    const next = new URLSearchParams(current);
+                    if (kind === "video") next.set("kind", "video");
+                    else next.delete("kind");
+                    return next;
+                },
+                { replace: true },
+            );
+        },
+        [setSearchParams],
+    );
+    // 商品视频面板进入过一次后保持挂载：切到商品图片时只隐藏，正在上传的素材和填好的内容都不中断。
+    const [videoMounted, setVideoMounted] = useState(false);
+    useEffect(() => {
+        if (creationKind === "video" && productVideoAvailable) setVideoMounted(true);
+    }, [creationKind, productVideoAvailable]);
     const requestedProjectId = searchParams.get("project");
     const requestedFocusId = searchParams.get("focus");
     const sourceCanvasId = searchParams.get("canvas");
@@ -2120,7 +2159,6 @@ function EcommerceWorkspace({ scope }: { scope: string }) {
           : commerceFlowNextStep(flowSteps);
     const roundDelivered = Boolean(plan && submitted > 0 && completed === total);
     // 商品视频交给视频生成页：带上一张已完成的作品做首帧。两个开关都开着才出现入口。
-    const productVideoAvailable = ecommerceVideoEnabled && videoWorkbenchEnabled;
     const makeProductVideo = (resourceId?: string) => navigate(resourceId ? `/toolbox/video?ref=${encodeURIComponent(resourceId)}` : "/toolbox/video");
     const firstDeliveredResource = exportItems.find((item) => item.resourceId)?.resourceId;
     const stageActive = Boolean(
@@ -2361,9 +2399,37 @@ function EcommerceWorkspace({ scope }: { scope: string }) {
         </>
     );
 
+    const kindSwitch = (
+        <nav className="ecs-kind-switch" aria-label="创作类型">
+            <button type="button" className={creationKind === "image" ? "is-active" : undefined} aria-pressed={creationKind === "image"} onClick={() => setCreationKind("image")}>
+                <ImageIcon size={15} />
+                商品图片
+            </button>
+            {productVideoAvailable ? (
+                <button type="button" className={creationKind === "video" ? "is-active" : undefined} aria-pressed={creationKind === "video"} onClick={() => setCreationKind("video")}>
+                    <Clapperboard size={15} />
+                    商品视频
+                </button>
+            ) : (
+                <AntTooltip title={ecommerceVideoEnabled ? "视频生成暂未开放" : "电商视频暂未开放"}>
+                    <button type="button" disabled aria-disabled="true">
+                        <Clapperboard size={15} />
+                        商品视频
+                    </button>
+                </AntTooltip>
+            )}
+        </nav>
+    );
+    const videoActive = creationKind === "video" && productVideoAvailable;
+
     return (
         <WorkspacePage fluid scroll={false} className="ecs-page ecommerce-page">
-            <div className="ecs-shell" data-mobile-view={mobileView}>
+            {videoMounted ? (
+                <Suspense fallback={null}>
+                    <EcommerceVideoStudio kindSwitch={kindSwitch} hidden={!videoActive} />
+                </Suspense>
+            ) : null}
+            <div className="ecs-shell" data-mobile-view={mobileView} style={videoActive ? { display: "none" } : undefined}>
                 <div className="ecs-mobile-tabs">
                     <SegmentedControl<"create" | "works">
                         block
@@ -2414,21 +2480,7 @@ function EcommerceWorkspace({ scope }: { scope: string }) {
                 />
                 <aside className="ecs-composer" aria-label="电商创作面板">
                     <header className="ecs-composer-head">
-                        <nav className="ecs-kind-switch" aria-label="创作类型">
-                            <button type="button" className="is-active" aria-pressed="true">
-                                <ImageIcon size={15} />
-                                商品图片
-                            </button>
-                            {/* 没开放商品视频时不放一个永远点不了的按钮；开放后带着已完成的作品去视频生成。 */}
-                            {productVideoAvailable ? (
-                                <AntTooltip title={firstDeliveredResource ? "用本轮第一张作品做首帧，去视频生成制作商品视频" : "去视频生成制作商品视频；出图后可在作品上点「做成视频」"}>
-                                    <button type="button" aria-pressed="false" onClick={() => makeProductVideo(firstDeliveredResource)}>
-                                        <Clapperboard size={15} />
-                                        商品视频
-                                    </button>
-                                </AntTooltip>
-                            ) : null}
-                        </nav>
+                        {kindSwitch}
                         <div className="ecs-head-actions">
                             <AntTooltip title="保存草稿">
                                 <button type="button" className="ecs-icon-button" disabled={busy || uploading || restoring || !hydrated.current} onClick={() => void saveDraft()}>

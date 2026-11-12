@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 101
+const CurrentSchemaVersion int64 = 102
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -347,6 +347,10 @@ var schemaMigrations = []migration{
 	{version: 100, name: "agent_mcp_connections", checksum: "sha256:agent-mcp-connections-v100", apply: migrateAgentMCP},
 	{version: 101, name: "creation_conversation_history", checksum: "sha256:creation-conversation-history-v101", apply: func(tx *gorm.DB) error {
 		return tx.AutoMigrate(&model.CreationConversation{}, &model.CreationConversationMessage{}, &model.CreationConversationResource{})
+	}},
+	{version: 102, name: "ecommerce_video_replication", checksum: "sha256:ecommerce-video-replication-v102-20261112", apply: func(tx *gorm.DB) error {
+		// 电商 Agent「商品视频」（模特/商品替换复刻）：只新增四张 video_replication_* 表。
+		return tx.AutoMigrate(&model.VideoReplicationProject{}, &model.VideoReplicationAsset{}, &model.VideoReplicationShotRun{}, &model.VideoReplicationOutput{})
 	}},
 }
 

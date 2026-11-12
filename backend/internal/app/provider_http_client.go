@@ -459,6 +459,11 @@ func recordProviderRequest(req *http.Request, startedAt time.Time, statusCode in
 	}
 	metadata.Service.EnrichAPICallLog(&callLog, responseBody)
 	callLog.Error = withUserVisibleLogError(requestErr, callLog.Error)
+	// 平台承担成本的调用由计量器自己记账与写日志，记账不依赖日志能否写入。
+	if metadata.CostRecorder != nil {
+		metadata.CostRecorder(callLog)
+		return
+	}
 	if err := metadata.Service.LogAPICall(callLog); err != nil {
 		if !channelSlotFailure && metadata.Billing != nil {
 			if uncertainErr := metadata.Billing.MarkBillingUncertain(metadata.BillingOrderID, "上游调用日志写入失败，费用状态待核对"); uncertainErr != nil {

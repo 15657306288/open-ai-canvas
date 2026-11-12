@@ -125,6 +125,13 @@ func (s *Service) CreateWorkbenchTask(userID string, req WorkbenchTaskInput, tra
 	if projectID != "" {
 		resolved.Input["metadata"].(map[string]any)["ecommerceProjectId"] = projectID
 	}
+	if len(req.ProviderOptions) > 0 {
+		options := make(map[string]any, len(req.ProviderOptions))
+		for namespace, values := range req.ProviderOptions {
+			options[namespace] = values
+		}
+		resolved.Input["metadata"].(map[string]any)["providerOptions"] = options
+	}
 	modelName, ok := providerConfig["model"].(string)
 	if !ok || strings.TrimSpace(modelName) == "" {
 		return nil, BadAuthRequest("所选系统模型不可用")

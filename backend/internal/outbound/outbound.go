@@ -402,6 +402,12 @@ func configuredProxyHost(host string) bool {
 	return false
 }
 
+// ResolveOutboundHost 按默认出站策略解析主机，只返回允许访问的地址。
+// 供需要自行拨号的出口（例如视频解析器给 yt-dlp 用的本地代理）复用同一套 SSRF 规则，并直接拨号到校验过的 IP，避免 DNS 重绑定。
+func ResolveOutboundHost(ctx context.Context, host string) ([]net.IP, error) {
+	return resolveOutboundHost(ctx, host)
+}
+
 func ValidateOutboundHost(host string) error {
 	_, err := resolveOutboundHost(context.Background(), host)
 	return err

@@ -1,0 +1,278 @@
+/* 作品卡片「生成中」：光晕缓慢漂移 + 一条扫过的光带 + 胶片帧呼吸，阶段文案切换时淡入。 */
+.ecv-gen {
+    --ecv-gen-accent: #34d399;
+    --ecv-gen-accent-2: #38bdf8;
+    --ecv-gen-ink: #f8fafc;
+    --ecv-gen-muted: rgb(248 250 252 / 62%);
+    position: absolute;
+    inset: 0;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    overflow: hidden;
+    isolation: isolate;
+    background: #0b0f14;
+    color: var(--ecv-gen-ink);
+}
+.ecv-gen[data-step="1"] {
+    --ecv-gen-accent: #38bdf8;
+    --ecv-gen-accent-2: #a78bfa;
+}
+.ecv-gen[data-step="2"] {
+    --ecv-gen-accent: #a78bfa;
+    --ecv-gen-accent-2: #f472b6;
+}
+
+.ecv-gen-surface {
+    position: absolute;
+    z-index: -1;
+    inset: 0;
+    overflow: hidden;
+}
+.ecv-gen-surface i {
+    position: absolute;
+    width: 90%;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    filter: blur(38px);
+    opacity: 0.55;
+    transition: background 800ms ease;
+}
+.ecv-gen-surface i:nth-child(1) {
+    top: -30%;
+    left: -30%;
+    background: radial-gradient(circle, color-mix(in srgb, var(--ecv-gen-accent) 70%, transparent), transparent 65%);
+    animation: ecv-gen-drift-a 9s ease-in-out infinite alternate;
+}
+.ecv-gen-surface i:nth-child(2) {
+    right: -35%;
+    bottom: -25%;
+    background: radial-gradient(circle, color-mix(in srgb, var(--ecv-gen-accent-2) 65%, transparent), transparent 65%);
+    animation: ecv-gen-drift-b 11s ease-in-out infinite alternate;
+}
+.ecv-gen-surface i:nth-child(3) {
+    top: 30%;
+    left: 20%;
+    width: 60%;
+    background: radial-gradient(circle, rgb(255 255 255 / 10%), transparent 70%);
+    animation: ecv-gen-drift-a 13s ease-in-out infinite alternate-reverse;
+}
+.ecv-gen-surface::after {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(105deg, transparent 34%, rgb(255 255 255 / 9%) 50%, transparent 66%);
+    content: "";
+    transform: translateX(-100%);
+    animation: ecv-gen-sheen 3.6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+.ecv-gen-spec {
+    display: inline-flex;
+    min-width: 0;
+    max-width: 100%;
+    align-items: center;
+    justify-self: start;
+    gap: 6px;
+    overflow: hidden;
+    padding: 3px 9px 3px 7px;
+    border: 1px solid rgb(255 255 255 / 10%);
+    border-radius: 999px;
+    background: rgb(15 23 42 / 55%);
+    backdrop-filter: blur(8px);
+    color: var(--ecv-gen-muted);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.ecv-gen-spec svg {
+    width: 12px;
+    height: 12px;
+    flex: none;
+}
+
+.ecv-gen-body {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: var(--space-2);
+    text-align: center;
+}
+/* 三帧胶片：依次亮起，像在逐帧生成。 */
+.ecv-gen-reel {
+    display: flex;
+    gap: 5px;
+    margin-bottom: 6px;
+}
+.ecv-gen-reel span {
+    width: 18px;
+    height: 26px;
+    border: 1.5px solid rgb(255 255 255 / 35%);
+    border-radius: 4px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--ecv-gen-accent) 45%, transparent), color-mix(in srgb, var(--ecv-gen-accent-2) 35%, transparent));
+    opacity: 0.35;
+    transform: translateY(0) scale(0.92);
+    animation: ecv-gen-frame 1.8s ease-in-out infinite;
+}
+.ecv-gen-reel span:nth-child(2) {
+    animation-delay: 0.3s;
+}
+.ecv-gen-reel span:nth-child(3) {
+    animation-delay: 0.6s;
+}
+.ecv-gen-title {
+    display: inline-flex;
+    max-width: 100%;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 650;
+    line-height: 1.4;
+    animation: ecv-gen-in 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.ecv-gen-title::before {
+    width: 7px;
+    height: 7px;
+    flex: none;
+    border-radius: 999px;
+    background: var(--ecv-gen-accent);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--ecv-gen-accent) 22%, transparent);
+    content: "";
+    animation: ecv-gen-pulse 1.4s ease-in-out infinite;
+}
+.ecv-gen-meta {
+    min-height: 1.5em;
+    color: var(--ecv-gen-muted);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+}
+.ecv-gen-hint {
+    max-width: 240px;
+    color: var(--ecv-gen-muted);
+    font-size: 11px;
+    line-height: 1.5;
+    opacity: 0.85;
+    animation: ecv-gen-in 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.ecv-gen-steps {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    width: min(240px, 100%);
+    margin: 0 auto;
+    padding: 0;
+    list-style: none;
+}
+.ecv-gen-steps li {
+    display: grid;
+    gap: 4px;
+    justify-items: center;
+}
+.ecv-gen-steps li > span {
+    position: relative;
+    width: 100%;
+    height: 3px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgb(255 255 255 / 14%);
+}
+.ecv-gen-steps li > span i {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--ecv-gen-accent), var(--ecv-gen-accent-2));
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform 600ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.ecv-gen-steps li[data-state="done"] > span i {
+    transform: scaleX(1);
+}
+.ecv-gen-steps li[data-state="active"] > span i {
+    width: 45%;
+    transform: none;
+    animation: ecv-gen-flow 1.6s ease-in-out infinite;
+}
+.ecv-gen-steps small {
+    color: var(--ecv-gen-muted);
+    font-size: 10px;
+}
+.ecv-gen-steps li[data-state="active"] small {
+    color: var(--ecv-gen-ink);
+    font-weight: 600;
+}
+
+@keyframes ecv-gen-drift-a {
+    to {
+        transform: translate(22%, 16%) scale(1.15);
+    }
+}
+@keyframes ecv-gen-drift-b {
+    to {
+        transform: translate(-18%, -20%) scale(1.1);
+    }
+}
+@keyframes ecv-gen-sheen {
+    0% {
+        transform: translateX(-100%);
+    }
+    60%,
+    100% {
+        transform: translateX(100%);
+    }
+}
+@keyframes ecv-gen-frame {
+    0%,
+    100% {
+        opacity: 0.35;
+        transform: translateY(0) scale(0.92);
+    }
+    40% {
+        opacity: 1;
+        transform: translateY(-4px) scale(1);
+        box-shadow: 0 6px 14px color-mix(in srgb, var(--ecv-gen-accent) 35%, transparent);
+    }
+}
+@keyframes ecv-gen-pulse {
+    50% {
+        box-shadow: 0 0 0 7px color-mix(in srgb, var(--ecv-gen-accent) 0%, transparent);
+    }
+}
+@keyframes ecv-gen-flow {
+    from {
+        transform: translateX(-100%);
+    }
+    to {
+        transform: translateX(230%);
+    }
+}
+@keyframes ecv-gen-in {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ecv-gen-surface i,
+    .ecv-gen-surface::after,
+    .ecv-gen-reel span,
+    .ecv-gen-title,
+    .ecv-gen-title::before,
+    .ecv-gen-hint,
+    .ecv-gen-steps li[data-state="active"] > span i {
+        animation: none;
+    }
+    .ecv-gen-reel span {
+        opacity: 0.8;
+    }
+}

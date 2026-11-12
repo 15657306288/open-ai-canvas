@@ -174,7 +174,7 @@ export async function refreshSystemChannels() {
 }
 
 // 目录仅接受系统渠道模型，避免畸形响应被当成空目录写入配置。
-function modelCatalogChannels(catalog: ModelCatalogResponse): ModelChannel[] {
+export function modelCatalogChannels(catalog: ModelCatalogResponse): ModelChannel[] {
     if (catalog.source === "system") {
         if (!Array.isArray(catalog.channels)) throw new Error("模型目录响应缺少系统渠道列表");
         return systemChannelModelChannels(catalog.channels);

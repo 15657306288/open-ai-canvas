@@ -25,6 +25,7 @@ import (
 	"yingce/backend/internal/skills"
 	"yingce/backend/internal/sms"
 	"yingce/backend/internal/tools"
+	"yingce/backend/internal/videoparser"
 	"yingce/backend/internal/workbench"
 )
 
@@ -88,6 +89,8 @@ type Service struct {
 	canvas                   *canvas.Service
 	canvasRealtime           *canvas.RealtimeHub
 	workbench                *workbench.Service
+	videoLinkParserOnce      sync.Once
+	videoLinkParserSvc       *videoparser.Service // 参考视频多平台链接解析，首次使用时按环境变量初始化；测试可预先注入
 	poseLibrary              *poselibrary.Service
 	inspirationFeed          *inspirations.Service
 	piRunnerMu               sync.Mutex
@@ -212,6 +215,8 @@ func (s *Service) StartWorker() {
 	s.startEcommerceSkillSyncWorker(ctx)
 	s.startPaymentWorker(ctx)
 	s.startBillingAutoRefundWorker()
+	s.startVideoReplicationCostRecovery(ctx)
+	s.startVideoReplicationSyncWorker()
 	s.startArkPortraitWorker()
 	s.startDramaScheduler()
 	s.startInspirationFeedWorker()

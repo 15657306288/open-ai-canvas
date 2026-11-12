@@ -35,6 +35,8 @@ import {
     PersonStanding,
     PlugZap,
     RadioTower,
+    Clapperboard,
+    ListChecks,
     RefreshCw,
     Rows3,
     Settings2,
@@ -139,6 +141,18 @@ const adminNavigation: AdminNavigationGroup[] = [
         items: [
             { path: "/admin/ecommerce/agent", keywords: "电商 Agent 模型 配置", label: "电商 Agent 配置", shortLabel: "配置", icon: <Bot className="size-4" /> },
             { path: "/admin/ecommerce/library", keywords: "电商 知识 技能 品类", label: "知识与技能", shortLabel: "知识", icon: <Database className="size-4" /> },
+        ],
+    },
+    {
+        key: "ecommerce-video-agent",
+        label: "电商视频 Agent",
+        items: [
+            { path: "/admin/video-agent/overview", label: "运行总览", shortLabel: "总览", icon: <BarChart3 className="size-4" /> },
+            { path: "/admin/video-agent/features", label: "功能开放", shortLabel: "功能", icon: <ToggleLeft className="size-4" /> },
+            { path: "/admin/video-agent/models", label: "分析与声音模型", shortLabel: "模型", icon: <RadioTower className="size-4" /> },
+            { path: "/admin/video-agent/video-models", label: "视频生成模型", shortLabel: "视频", icon: <Clapperboard className="size-4" /> },
+            { path: "/admin/video-agent/knowledge", label: "模型知识库", shortLabel: "知识", icon: <Database className="size-4" /> },
+            { path: "/admin/video-agent/tasks", label: "任务管理", shortLabel: "任务", icon: <ListChecks className="size-4" /> },
         ],
     },
     {
