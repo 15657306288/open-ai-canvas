@@ -49,12 +49,12 @@ func TestArkPrivateAssetBindingMigration(t *testing.T) {
 						AppliedAt time.Time
 					}
 					var history []migrationRecord
-					if err := db.Table("schema_migrations").Where("version < ?", 95).Order("version").Find(&history).Error; err != nil {
+					if err := db.Table("schema_migrations").Where("version < ?", 96).Order("version").Find(&history).Error; err != nil {
 						t.Fatal(err)
 					}
 					if scenario != "fresh" {
-						// Recreate a v94 database whose baseline has already been recorded.
-						if err := db.Exec("DELETE FROM schema_migrations WHERE version = ?", 95).Error; err != nil {
+						// Recreate a v95 database whose baseline has already been recorded.
+						if err := db.Exec("DELETE FROM schema_migrations WHERE version = ?", 96).Error; err != nil {
 							t.Fatal(err)
 						}
 						if scenario == "missing-table" {
@@ -114,7 +114,7 @@ func TestArkPrivateAssetBindingMigration(t *testing.T) {
 							t.Fatal("failed migration changed existing bindings")
 						}
 						var recorded int64
-						if err := db.Table("schema_migrations").Where("version = ?", 95).Count(&recorded).Error; err != nil || recorded != 0 {
+						if err := db.Table("schema_migrations").Where("version = ?", 96).Count(&recorded).Error; err != nil || recorded != 0 {
 							t.Fatalf("failed migration was recorded: count=%d err=%v", recorded, err)
 						}
 						if exists := db.Migrator().HasIndex(&model.ArkPrivateAssetBinding{}, arkBindingIdentityIndex); exists != (indexSQL != "") {
@@ -131,7 +131,7 @@ func TestArkPrivateAssetBindingMigration(t *testing.T) {
 						}
 					}
 					var afterHistory []migrationRecord
-					if err := db.Table("schema_migrations").Where("version < ?", 95).Order("version").Find(&afterHistory).Error; err != nil {
+					if err := db.Table("schema_migrations").Where("version < ?", 96).Order("version").Find(&afterHistory).Error; err != nil {
 						t.Fatal(err)
 					}
 					if !reflect.DeepEqual(history, afterHistory) {

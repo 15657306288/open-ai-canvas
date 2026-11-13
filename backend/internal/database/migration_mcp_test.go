@@ -16,12 +16,12 @@ func agentMCPMigrationFixture(t *testing.T) (*gorm.DB, migration, []schemaMigrat
 	t.Helper()
 	var target migration
 	for _, item := range schemaMigrations {
-		if item.version == 100 {
+		if item.version == 101 {
 			target = item
 			break
 		}
 	}
-	if CurrentSchemaVersion < 100 || target.name != "agent_mcp_connections" || target.checksum != "sha256:agent-mcp-connections-v100" || target.apply == nil {
+	if CurrentSchemaVersion < 101 || target.name != "agent_mcp_connections" || target.checksum != "sha256:agent-mcp-connections-v101" || target.apply == nil {
 		t.Fatalf("missing or changed MCP migration: version=%d migration=%+v", CurrentSchemaVersion, target)
 	}
 	db, err := Open(Config{Driver: "sqlite", DSN: filepath.Join(t.TempDir(), "mcp-migration.db")})
@@ -53,7 +53,7 @@ func agentMCPMigrationFixture(t *testing.T) (*gorm.DB, migration, []schemaMigrat
 		t.Fatal(err)
 	}
 	status, err := ReadSchemaStatus(db)
-	if err != nil || status.Current != 99 || status.Ready {
+	if err != nil || status.Current != 100 || status.Ready {
 		t.Fatalf("expected v99 fixture, got %+v err=%v", status, err)
 	}
 	for _, entity := range []any{&model.MCPServerTemplate{}, &model.MCPConnection{}, &model.MCPToolExecution{}} {

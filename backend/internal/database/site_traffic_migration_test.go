@@ -14,12 +14,12 @@ import (
 )
 
 func TestSiteTrafficMigration99IsAdditiveAndPreservesPublishedLedger(t *testing.T) {
-	if CurrentSchemaVersion < 99 {
+	if CurrentSchemaVersion < 100 {
 		t.Fatalf("schema version/plan = %d/%d", CurrentSchemaVersion, len(schemaMigrations))
 	}
 	trafficIndex := -1
 	for i, item := range schemaMigrations {
-		if item.version == 99 {
+		if item.version == 100 {
 			trafficIndex = i
 			break
 		}
@@ -28,7 +28,7 @@ func TestSiteTrafficMigration99IsAdditiveAndPreservesPublishedLedger(t *testing.
 		t.Fatal("missing traffic migration")
 	}
 	migration := schemaMigrations[trafficIndex]
-	if migration.version != 99 || migration.name != "site_traffic_events" || migration.checksum != "sha256:site-traffic-events-v99-20261111" || migration.apply == nil {
+	if migration.version != 100 || migration.name != "site_traffic_events" || migration.checksum != "sha256:site-traffic-events-v100-20261111" || migration.apply == nil {
 		t.Fatalf("unexpected traffic migration: %+v", migration)
 	}
 	db, err := gorm.Open(sqlite.Dialector{DriverName: "sqlite", DSN: ":memory:"}, &gorm.Config{})

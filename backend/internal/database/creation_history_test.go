@@ -20,12 +20,12 @@ func TestCreationHistoryMigration(t *testing.T) {
 	}
 	var migration60 migration
 	for _, step := range schemaMigrations {
-		if step.version == 101 {
+		if step.version == 102 {
 			migration60 = step
 		}
 	}
 	if migration60.apply == nil {
-		t.Fatal("missing migration 101")
+		t.Fatal("missing migration 102")
 	}
 	for i := 0; i < 2; i++ {
 		if err := migration60.apply(db); err != nil {

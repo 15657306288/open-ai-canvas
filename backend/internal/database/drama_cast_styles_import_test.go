@@ -23,7 +23,7 @@ func TestMigrateDramaCastStylesImport(t *testing.T) {
 	}
 	found := false
 	for _, migration := range schemaMigrations {
-		if migration.version != 94 {
+		if migration.version != 95 {
 			continue
 		}
 		found = true
@@ -33,7 +33,7 @@ func TestMigrateDramaCastStylesImport(t *testing.T) {
 			}
 		}
 	}
-	if !found || CurrentSchemaVersion < 94 {
+	if !found || CurrentSchemaVersion < 95 {
 		t.Fatal("migration must be registered")
 	}
 	var cast model.DramaCast
