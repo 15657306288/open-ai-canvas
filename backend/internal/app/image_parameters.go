@@ -254,6 +254,14 @@ func singleImageSizeTier(image *ImageCapabilityConfig) (string, bool) {
 			return fmt.Sprint(field.Default), true
 		}
 	}
+	if image.Resolution.Default != "" && image.Resolution.Default != "auto" {
+		return image.Resolution.Default, true
+	}
+	if image.Quality.Default != "" {
+		if tier := imageResolutionTier(image.Quality.Default); tier != "" {
+			return tier, true
+		}
+	}
 	for _, preset := range image.Size.Presets {
 		if preset.Size == image.Size.Default {
 			return preset.Tier, true
@@ -271,13 +279,41 @@ func singleImageSizeTier(image *ImageCapabilityConfig) (string, bool) {
 	return tier, true
 }
 
+// A pixel outbound contract must not leave a ratio unresolved merely because
+// its independent resolution switch is disabled. Prefer declared defaults, then
+// use a stable 1K tier so 16:9 becomes the configured 1824x1024 preset.
+func pixelOutboundImageSizeTier(image *ImageCapabilityConfig) string {
+	if tier, ok := singleImageSizeTier(image); ok {
+		return tier
+	}
+	tiers := make([]string, 0, len(image.Size.Presets))
+	seen := map[string]bool{}
+	for _, preset := range image.Size.Presets {
+		tier := strings.TrimSpace(preset.Tier)
+		if tier == "" || seen[tier] {
+			continue
+		}
+		seen[tier] = true
+		tiers = append(tiers, tier)
+	}
+	if seen["1k"] {
+		return "1k"
+	}
+	if len(tiers) > 0 {
+		return tiers[0]
+	}
+	return ""
+}
+
 func activeImageSizePresets(image *ImageCapabilityConfig) []ImageSizePreset {
 	if image.Parameters == nil || image.Resolution.Supported {
 		return image.Size.Presets
 	}
 	declaresResolution := false
+	pixelOutbound := false
 	for _, field := range image.Parameters {
 		declaresResolution = declaresResolution || field.Name == "imageResolution"
+		pixelOutbound = pixelOutbound || field.Name == "size" && field.IsEnabled() && field.Encoding == "pixels"
 	}
 	// A model with only exact pixel sizes has no independent resolution switch.
 	// Preserve every configured pixel group; only an explicitly disabled field
@@ -285,9 +321,16 @@ func activeImageSizePresets(image *ImageCapabilityConfig) []ImageSizePreset {
 	if !declaresResolution && image.Size.Parameter == "size" {
 		return image.Size.Presets
 	}
-	tier, ok := singleImageSizeTier(image)
-	if !ok {
+	var tier string
+	if pixelOutbound {
+		tier = pixelOutboundImageSizeTier(image)
+	} else if selected, ok := singleImageSizeTier(image); ok {
+		tier = selected
+	} else {
 		return nil
+	}
+	if tier == "" {
+		return image.Size.Presets
 	}
 	result := make([]ImageSizePreset, 0, len(image.Size.Presets))
 	for _, preset := range image.Size.Presets {

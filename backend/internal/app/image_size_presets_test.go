@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"yingce/backend/internal/model"
+	protocolcontract "yingce/backend/internal/protocol"
 )
 
 func TestImageSizePresetsValidationAndRoundTrip(t *testing.T) {
@@ -308,5 +309,77 @@ func TestValidateImageTaskAcceptsResolvedPresetPixelSize(t *testing.T) {
 	wrongTier.Config.Size = "2304x1728"
 	if err := validateImageTask(profile, wrongTier); err == nil || !strings.Contains(err.Error(), "图片尺寸") {
 		t.Fatalf("other-tier pixel size should stay rejected, got %v", err)
+	}
+}
+
+func cloudPixelImageCapability() *ImageCapabilityConfig {
+	return &ImageCapabilityConfig{
+		Parameters: []protocolcontract.ImageParameter{
+			{Name: "size", Label: "画幅 / 尺寸", Type: "string", Values: []any{"1:1", "16:9"}, Default: "1:1", Binding: "aspectRatio", Encoding: "pixels", Enabled: nil},
+			{Name: "imageResolution", Label: "分辨率", Type: "string", Enabled: imageSizeTestBool(false)},
+		},
+		Size: ImageSizeConfig{
+			Parameter: "aspect_ratio",
+			Values:    []string{"1:1", "16:9"},
+			Default:   "1:1",
+			Presets: []ImageSizePreset{
+				{Tier: "1k", Ratio: "1:1", Size: "1024x1024", Width: 1024, Height: 1024},
+				{Tier: "1k", Ratio: "16:9", Size: "1824x1024", Width: 1824, Height: 1024},
+				{Tier: "2k", Ratio: "1:1", Size: "2048x2048", Width: 2048, Height: 2048},
+				{Tier: "2k", Ratio: "16:9", Size: "2752x1536", Width: 2752, Height: 1536},
+				{Tier: "4k", Ratio: "1:1", Size: "2880x2880", Width: 2880, Height: 2880},
+				{Tier: "4k", Ratio: "16:9", Size: "3840x2160", Width: 3840, Height: 2160},
+			},
+		},
+		Resolution: ImageResolutionConfig{Supported: false, Default: "auto"},
+		Quality:    ImageQualityConfig{Supported: true, Values: []string{"auto", "low", "medium", "high"}, Default: "auto"},
+	}
+}
+
+func imageSizeTestBool(value bool) *bool { return &value }
+
+func TestCloudPixelImageCapabilityUsesDefaultTierFallback(t *testing.T) {
+	profile := cloudPixelImageCapability()
+	if got := resolveImageTaskSize(profile, "", "16:9", ""); got != "1824x1024" {
+		t.Fatalf("resolved size = %q; want 1824x1024", got)
+	}
+	config := providerConfig{InterfaceType: string(model.ChannelInterfaceOpenAIImage), Size: "16:9", Count: "1"}
+	if err := applyImageParameterValues(&config, profile); err != nil {
+		t.Fatalf("applyImageParameterValues() error = %v", err)
+	}
+	if config.Size != "1824x1024" {
+		t.Fatalf("config.Size = %q; want 1824x1024", config.Size)
+	}
+}
+
+func TestCloudPixelImageCapabilityPrefersDeclaredTier(t *testing.T) {
+	profile := cloudPixelImageCapability()
+	profile.Size.DefaultTier = "2k"
+	if got := resolveImageTaskSize(profile, "", "16:9", ""); got != "2752x1536" {
+		t.Fatalf("defaultTier 2k resolved size = %q; want 2752x1536", got)
+	}
+	profile = cloudPixelImageCapability()
+	profile.Parameters[1].Default = "4k"
+	if got := resolveImageTaskSize(profile, "", "16:9", ""); got != "3840x2160" {
+		t.Fatalf("imageResolution default 4k resolved size = %q; want 3840x2160", got)
+	}
+}
+
+func TestRatioProtocolsKeepRatioAndAuto(t *testing.T) {
+	gemini := &ImageCapabilityConfig{
+		Parameters: []protocolcontract.ImageParameter{
+			{Name: "size", Label: "画幅比例", Type: "string", Values: []any{"1:1", "16:9"}, Binding: "aspectRatio", Encoding: "ratio"},
+			{Name: "imageResolution", Label: "分辨率", Type: "string", Default: "1k"},
+		},
+		Size:       ImageSizeConfig{Parameter: "aspect_ratio", Values: []string{"1:1", "16:9"}, Default: "1:1"},
+		Resolution: ImageResolutionConfig{Supported: false},
+		Quality:    ImageQualityConfig{Supported: true, Default: "auto"},
+	}
+	if got := resolveImageTaskSize(gemini, string(model.ChannelInterfaceGeminiImage), "16:9", "1k"); got != "16:9" {
+		t.Fatalf("gemini size = %q; want 16:9", got)
+	}
+	profile := cloudPixelImageCapability()
+	if got := resolveImageTaskSize(profile, "", "auto", ""); got != "auto" {
+		t.Fatalf("auto size = %q; want auto", got)
 	}
 }

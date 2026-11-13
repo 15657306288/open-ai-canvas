@@ -403,7 +403,7 @@ func TestImageParametersDisabledResolutionUsesDefaultAndPreservesGroups(t *testi
 	}
 }
 
-func TestImageParametersDisabledResolutionRejectsAmbiguousPixels(t *testing.T) {
+func TestImageParametersDisabledResolutionUsesStablePixelFallback(t *testing.T) {
 	profile := DefaultModelCapabilityConfigForModel("opaque-provider", "opaque-model")
 	profile.Image.Parameters = []protocol.ImageParameter{{Name: "size", Label: "Frame", Type: "string", Values: []any{"1:1"}, Default: "1:1", Binding: "aspectRatio", Encoding: "pixels"}}
 	profile.Image.Size.Presets = []ImageSizePreset{{Tier: "1k", Ratio: "1:1", Width: 1024, Height: 1024, Size: "1024x1024"}, {Tier: "2k", Ratio: "1:1", Width: 2048, Height: 2048, Size: "2048x2048"}}
@@ -411,10 +411,13 @@ func TestImageParametersDisabledResolutionRejectsAmbiguousPixels(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := validateImageSizePresetRequirement("image", "opaque-provider", profile); err == nil {
-		t.Fatal("ambiguous pixels accepted")
+		t.Fatal("ambiguous pixels accepted without a default tier")
 	}
 	config := providerConfig{InterfaceType: "opaque-provider", Size: "1:1"}
-	if err := applyImageParameterValues(&config, profile.Image); err == nil {
-		t.Fatal("runtime selected first preset")
+	if err := applyImageParameterValues(&config, profile.Image); err != nil {
+		t.Fatalf("runtime fallback error = %v", err)
+	}
+	if config.Size != "1024x1024" {
+		t.Fatalf("runtime fallback size = %q; want 1024x1024", config.Size)
 	}
 }
