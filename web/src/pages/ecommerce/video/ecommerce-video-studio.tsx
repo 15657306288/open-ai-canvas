@@ -9,7 +9,7 @@ import { EcommerceVideoComposer } from "./video-composer";
 import { EcommerceVideoResults } from "./video-results";
 import "./ecommerce-video.css";
 
-/** 电商 Agent「商品视频」：左侧参数面板，右侧视频作品；顶部的「商品图片 / 商品视频」切换由页面传入。 */
+/** 电商 Agent「商品视频」：左侧视频作品，右侧创作面板（与「商品图片」同一两栏顺序）；顶部的「商品图片 / 商品视频」切换由页面传入。 */
 export default function EcommerceVideoStudio({ kindSwitch, hidden = false }: { kindSwitch: ReactNode; hidden?: boolean }) {
     const { t } = useTranslation();
     const state = useEcommerceVideo();
@@ -37,11 +37,11 @@ export default function EcommerceVideoStudio({ kindSwitch, hidden = false }: { k
                     ]}
                 />
             </div>
+            <EcommerceVideoResults state={state} />
             <aside className="ecs-composer" aria-label={t("ecommerceVideo.studio.composerLabel")}>
                 <header className="ecs-composer-head">{kindSwitch}</header>
                 <EcommerceVideoComposer state={state} />
             </aside>
-            <EcommerceVideoResults state={state} />
         </div>
     );
 }

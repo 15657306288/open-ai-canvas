@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 103
+const CurrentSchemaVersion int64 = 104
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -359,6 +359,20 @@ var schemaMigrations = []migration{
 	{version: 103, name: "ecommerce_video_replication", checksum: "sha256:ecommerce-video-replication-v103-20261112", apply: func(tx *gorm.DB) error {
 		// 电商 Agent「商品视频」（模特/商品替换复刻）：只新增四张 video_replication_* 表。
 		return tx.AutoMigrate(&model.VideoReplicationProject{}, &model.VideoReplicationAsset{}, &model.VideoReplicationShotRun{}, &model.VideoReplicationOutput{})
+	}},
+	// 上游 8e45663 新增的微信登录（原 102）：生产库 102/103 已被占用，顺延为 104。
+	{version: 104, name: "wechat_oauth", checksum: "sha256:wechat-oauth-v104-20261113", apply: func(tx *gorm.DB) error {
+		if !tx.Migrator().HasTable(&model.OAuthState{}) {
+			return nil
+		}
+		for _, field := range []string{"Purpose", "ClientID", "ProfileJSON"} {
+			if !tx.Migrator().HasColumn(&model.OAuthState{}, field) {
+				if err := tx.Migrator().AddColumn(&model.OAuthState{}, field); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
 	}},
 }
 
