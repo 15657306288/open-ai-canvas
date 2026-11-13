@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 102
+const CurrentSchemaVersion int64 = 103
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -328,7 +328,13 @@ var schemaMigrations = []migration{
 		}
 		return nil
 	}},
-	{version: 93, name: "ecommerce_round_history", checksum: "sha256:ecommerce-round-history-v93-20261109", apply: func(tx *gorm.DB) error {
+	// 影策自研：电商 Agent「商品视频」旧版迁移固定在 93，生产库已按此号落库，必须原样保留。
+	{version: 93, name: "ecommerce_video_replication", checksum: "sha256:ecommerce-video-replication-v93-20261108", apply: func(tx *gorm.DB) error {
+		// 只新增四张 video_replication_* 表；对已有库是幂等的。
+		return tx.AutoMigrate(&model.VideoReplicationProject{}, &model.VideoReplicationAsset{}, &model.VideoReplicationShotRun{}, &model.VideoReplicationOutput{})
+	}},
+	// 上游 v1.8.4 的 93–98 顺延为 94–99，避免与已落库的自研 93 冲突。
+	{version: 94, name: "ecommerce_round_history", checksum: "sha256:ecommerce-round-history-v94-20261109", apply: func(tx *gorm.DB) error {
 		// Additive only: a new table plus a nullable pointer column. Existing
 		// projects stay readable and are converted lazily on their next save.
 		if err := tx.AutoMigrate(&model.EcommerceProject{}, &model.EcommerceRound{}); err != nil {
@@ -336,19 +342,21 @@ var schemaMigrations = []migration{
 		}
 		return nil
 	}},
-	{version: 94, name: "drama_cast_styles_import", checksum: "sha256:drama-cast-styles-import-v94", apply: migrateDramaCastStylesImport},
-	{version: 95, name: "ark_private_asset_binding_identity", checksum: "sha256:ark-private-asset-binding-identity-v95", apply: migrateArkPrivateAssetBindingIdentity},
-	{version: 96, name: "canvas_unified_text_nodes", checksum: canvasNodeModelChecksum, apply: migrateCanvasNodeModel},
-	{version: 97, name: "channel_websites", checksum: "sha256:channel-websites-v97-20261110", apply: migrateChannelWebsites},
-	{version: 98, name: "api_log_generation_content", checksum: "sha256:api-log-generation-content-v98", apply: migrateAPILogGenerationContent},
-	{version: 99, name: "site_traffic_events", checksum: "sha256:site-traffic-events-v99-20261111", apply: func(tx *gorm.DB) error {
+	{version: 95, name: "drama_cast_styles_import", checksum: "sha256:drama-cast-styles-import-v95", apply: migrateDramaCastStylesImport},
+	{version: 96, name: "ark_private_asset_binding_identity", checksum: "sha256:ark-private-asset-binding-identity-v96", apply: migrateArkPrivateAssetBindingIdentity},
+	{version: 97, name: "canvas_unified_text_nodes", checksum: canvasNodeModelChecksum, apply: migrateCanvasNodeModel},
+	{version: 98, name: "channel_websites", checksum: "sha256:channel-websites-v98-20261110", apply: migrateChannelWebsites},
+	{version: 99, name: "api_log_generation_content", checksum: "sha256:api-log-generation-content-v99", apply: migrateAPILogGenerationContent},
+	// 上游 v1.8.5 之后新增，继续顺延。
+	{version: 100, name: "site_traffic_events", checksum: "sha256:site-traffic-events-v100-20261111", apply: func(tx *gorm.DB) error {
 		return tx.AutoMigrate(&model.SiteTrafficEvent{})
 	}},
-	{version: 100, name: "agent_mcp_connections", checksum: "sha256:agent-mcp-connections-v100", apply: migrateAgentMCP},
-	{version: 101, name: "creation_conversation_history", checksum: "sha256:creation-conversation-history-v101", apply: func(tx *gorm.DB) error {
+	{version: 101, name: "agent_mcp_connections", checksum: "sha256:agent-mcp-connections-v101", apply: migrateAgentMCP},
+	{version: 102, name: "creation_conversation_history", checksum: "sha256:creation-conversation-history-v102", apply: func(tx *gorm.DB) error {
 		return tx.AutoMigrate(&model.CreationConversation{}, &model.CreationConversationMessage{}, &model.CreationConversationResource{})
 	}},
-	{version: 102, name: "ecommerce_video_replication", checksum: "sha256:ecommerce-video-replication-v102-20261112", apply: func(tx *gorm.DB) error {
+	// 商品视频新版（模特/商品替换）：接在旧版 93 之后。
+	{version: 103, name: "ecommerce_video_replication", checksum: "sha256:ecommerce-video-replication-v103-20261112", apply: func(tx *gorm.DB) error {
 		// 电商 Agent「商品视频」（模特/商品替换复刻）：只新增四张 video_replication_* 表。
 		return tx.AutoMigrate(&model.VideoReplicationProject{}, &model.VideoReplicationAsset{}, &model.VideoReplicationShotRun{}, &model.VideoReplicationOutput{})
 	}},
