@@ -273,6 +273,11 @@ export async function uploadResourceFile(file: Blob, kind: "image" | "video" | "
     // 分片与 multipart 两条路径的失败都要归一成 ResourceUploadError，
     // 否则调用方只能靠文案猜测该重试还是该报错。
     try {
+        // 直传域名与页面域名不同：先访问主站会话接口，让后端补发上传专用 Cookie，
+        // 避免旧会话/刷新后上传请求因缺少 Cookie 被判定为「请先登录」。
+        if (uploadBaseURL !== apiBaseURL) {
+            await http.get("/auth/session", { baseURL: apiBaseURL, timeout: 10_000 }).catch(() => undefined);
+        }
         if (file.size > CHUNK_UPLOAD_THRESHOLD) {
             const resource = await uploadFileInChunks(file, name, kind, meta, onProgress);
             resourceCache.set(resourceCacheKey(resource.id), resource);

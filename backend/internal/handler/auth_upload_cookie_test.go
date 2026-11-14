@@ -49,3 +49,26 @@ func TestSessionCookieFallsBackToUploadCookie(t *testing.T) {
 		t.Fatalf("sessionCookie() = %q; want upload-token", got)
 	}
 }
+
+func TestEnsureUploadSessionCookieRefreshesFromMainCookie(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("CANVAS_UPLOAD_COOKIE_DOMAIN", "yingce.cc.cd")
+
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	context.Request = httptest.NewRequest(http.MethodGet, "https://yingce.cc.cd/api/auth/session", nil)
+	context.Request.Header.Set("X-Forwarded-Proto", "https")
+	context.Request.AddCookie(&http.Cookie{Name: service.SessionCookieName, Value: "existing-token"})
+
+	ensureUploadSessionCookie(context)
+
+	response := &http.Response{Header: context.Writer.Header()}
+	var uploadCookie *http.Cookie
+	for _, cookie := range response.Cookies() {
+		if cookie.Name == uploadSessionCookieName {
+			uploadCookie = cookie
+		}
+	}
+	if uploadCookie == nil || uploadCookie.Value != "existing-token" || uploadCookie.Domain != "yingce.cc.cd" || uploadCookie.Path != "/api/resources" || uploadCookie.MaxAge != uploadSessionCookieMaxAge || !uploadCookie.HttpOnly || !uploadCookie.Secure {
+		t.Fatalf("refreshed upload cookie = %+v", uploadCookie)
+	}
+}

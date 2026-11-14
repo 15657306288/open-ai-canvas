@@ -21,9 +21,32 @@ import (
 )
 
 const uploadSessionCookieName = "open_ai_canvas_upload_session"
+const uploadSessionCookieMaxAge = 30 * 24 * 60 * 60
 
 func uploadSessionCookieDomain() string {
 	return strings.TrimSpace(os.Getenv("CANVAS_UPLOAD_COOKIE_DOMAIN"))
+}
+
+func ensureUploadSessionCookie(c *gin.Context) {
+	domain := uploadSessionCookieDomain()
+	if domain == "" {
+		return
+	}
+	value, err := c.Cookie(service.SessionCookieName)
+	if err != nil || value == "" {
+		return
+	}
+	secure := c.Request.TLS != nil || strings.EqualFold(strings.TrimSpace(c.GetHeader("X-Forwarded-Proto")), "https")
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     uploadSessionCookieName,
+		Value:    value,
+		Path:     "/api/resources",
+		Domain:   domain,
+		MaxAge:   uploadSessionCookieMaxAge,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   secure,
+	})
 }
 
 func RegisterAuthRoutes(r *gin.RouterGroup, svc *service.Service) {
@@ -180,6 +203,7 @@ func RegisterAuthRoutes(r *gin.RouterGroup, svc *service.Service) {
 			ok(c, gin.H{"user": nil})
 			return
 		}
+		ensureUploadSessionCookie(c)
 		publicUser, err := svc.PublicAuthUser(user)
 		if err != nil {
 			failService(c, err)
