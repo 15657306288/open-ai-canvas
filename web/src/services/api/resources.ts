@@ -1,6 +1,6 @@
 import { getActiveUserScope } from "@/lib/user-scope";
 import { localForageStorageForScope } from "@/lib/localforage-storage";
-import { http, apiBaseURL, ApiError } from "@/services/api/request";
+import { http, apiBaseURL, uploadBaseURL, ApiError } from "@/services/api/request";
 import type { OSSConnectionTestInput, OSSConnectionTestResult, OSSProvider, S3Preset } from "@/lib/oss-settings";
 
 export type RemoteResource = {
@@ -285,6 +285,7 @@ export async function uploadResourceFile(file: Blob, kind: "image" | "video" | "
         if (meta?.height) formData.append("height", String(Math.round(meta.height)));
         if (meta?.durationMs) formData.append("durationMs", String(Math.round(meta.durationMs)));
         const data = await http.post<{ resource: RemoteResource }>("/resources", formData, {
+            baseURL: uploadBaseURL,
             ...scopedUploadConfig(meta, uploadRequestConfig(meta?.idempotencyKey, file.size)),
             onUploadProgress: onProgress
                 ? ({ loaded, total }) => {
@@ -318,7 +319,7 @@ async function runChunkedUpload(file: Blob, name: string, kind: "image" | "video
     const session = await http.post<{ uploadId: string; chunkSize: number; chunkCount: number }>(
         "/resources/uploads",
         { fileName: name, kind, size: file.size, width: meta?.width, height: meta?.height, durationMs: meta?.durationMs },
-        scopedUploadConfig(meta, uploadRequestConfig(meta?.idempotencyKey)),
+        { baseURL: uploadBaseURL, ...scopedUploadConfig(meta, uploadRequestConfig(meta?.idempotencyKey)) },
     );
     for (let index = 0; index < session.chunkCount; index++) {
         const start = index * session.chunkSize;
@@ -326,6 +327,7 @@ async function runChunkedUpload(file: Blob, name: string, kind: "image" | "video
         const blob = file.slice(start, end);
         // raw 二进制直传，与后端按裸 body 逐片落盘对齐。
         await http.put<{ index: number }>(`/resources/uploads/${encodeURIComponent(session.uploadId)}/chunks/${index}`, blob, {
+            baseURL: uploadBaseURL,
             ...scopedUploadConfig(meta),
             timeout: uploadTimeoutMs(blob.size),
             headers: { ...scopedUploadConfig(meta).headers, "Content-Type": "application/octet-stream" },
@@ -334,7 +336,7 @@ async function runChunkedUpload(file: Blob, name: string, kind: "image" | "video
         onProgress?.(Math.min(end, file.size), file.size);
     }
     // 合并时后端要把整份文件写入存储（对象存储为同步上传），超时按整份大小计算。
-    const complete = await http.post<{ resource: RemoteResource }>(`/resources/uploads/${encodeURIComponent(session.uploadId)}/complete`, undefined, { ...scopedUploadConfig(meta), timeout: uploadTimeoutMs(file.size) });
+    const complete = await http.post<{ resource: RemoteResource }>(`/resources/uploads/${encodeURIComponent(session.uploadId)}/complete`, undefined, { baseURL: uploadBaseURL, ...scopedUploadConfig(meta), timeout: uploadTimeoutMs(file.size) });
     return complete.resource;
 }
 

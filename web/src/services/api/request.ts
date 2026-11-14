@@ -42,6 +42,7 @@ export class ApiError extends Error {
 
 // 所有后端 JSON 请求共用同一实例，避免认证、Base URL 和错误语义在模块间漂移。
 export const apiBaseURL = import.meta.env.VITE_CANVAS_BACKEND_URL || "/api";
+export const uploadBaseURL = (import.meta.env.VITE_CANVAS_UPLOAD_URL || apiBaseURL).replace(/\/+$/, "");
 export const apiClient = axios.create({ baseURL: apiBaseURL, withCredentials: true });
 
 /**
@@ -127,7 +128,7 @@ function retryAfterMilliseconds(headers: unknown) {
     return Math.max(0, retryAt - Date.now());
 }
 
-export type HttpRequestConfig = Omit<AxiosRequestConfig, "method" | "url" | "data" | "baseURL"> & {
+export type HttpRequestConfig = Omit<AxiosRequestConfig, "method" | "url" | "data"> & {
     allowNotModified?: boolean;
 };
 

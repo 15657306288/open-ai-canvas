@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -18,6 +19,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+const uploadSessionCookieName = "open_ai_canvas_upload_session"
+
+func uploadSessionCookieDomain() string {
+	return strings.TrimSpace(os.Getenv("CANVAS_UPLOAD_COOKIE_DOMAIN"))
+}
 
 func RegisterAuthRoutes(r *gin.RouterGroup, svc *service.Service) {
 	registerChannelOrderRoutes(r, svc)
@@ -655,7 +662,10 @@ func currentUser(c *gin.Context, svc *service.Service) (*model.User, error) {
 }
 
 func sessionCookie(c *gin.Context) string {
-	value, _ := c.Cookie(service.SessionCookieName)
+	if value, _ := c.Cookie(service.SessionCookieName); value != "" {
+		return value
+	}
+	value, _ := c.Cookie(uploadSessionCookieName)
 	return value
 }
 
@@ -675,6 +685,18 @@ func setSessionCookie(c *gin.Context, value string, maxAge int) {
 		SameSite: http.SameSiteLaxMode,
 		Secure:   secure,
 	})
+	if domain := uploadSessionCookieDomain(); domain != "" {
+		http.SetCookie(c.Writer, &http.Cookie{
+			Name:     uploadSessionCookieName,
+			Value:    value,
+			Path:     "/api/resources",
+			Domain:   domain,
+			MaxAge:   maxAge,
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+			Secure:   secure,
+		})
+	}
 }
 
 func clearSessionCookie(c *gin.Context) {
@@ -688,4 +710,16 @@ func clearSessionCookie(c *gin.Context) {
 		SameSite: http.SameSiteLaxMode,
 		Secure:   secure,
 	})
+	if domain := uploadSessionCookieDomain(); domain != "" {
+		http.SetCookie(c.Writer, &http.Cookie{
+			Name:     uploadSessionCookieName,
+			Value:    "",
+			Path:     "/api/resources",
+			Domain:   domain,
+			MaxAge:   -1,
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+			Secure:   secure,
+		})
+	}
 }
