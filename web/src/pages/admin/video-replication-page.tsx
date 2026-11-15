@@ -512,7 +512,7 @@ function ModelsSection({ state }: { state: SettingState }) {
         <div className="vr-admin-column">
             <Card size="small" title="分析模型" extra={<Typography.Text type="secondary">推荐按模型声明的能力与近 24 小时可用率计算</Typography.Text>}>
                 <div className="vr-admin-grid vr-admin-analysis-grid">
-                    {analysisModelPicker("视频理解模型", setting.vision, (vision) => patch({ vision }), "读取关键帧与台词，拆解镜头、运镜、口播、说话人与商品/模特档案（需支持图片输入）", options.vision, "未指定：沿用电商 Agent 识图模型")}
+                    {analysisModelPicker("视频理解模型", setting.vision, (vision) => patch({ vision }), "拆解镜头、运镜、口播、说话人与商品/模特档案；支持视频输入的模型读完整视频，支持图片输入的模型读按时间抽取的画面，不限制 Gemini 协议", options.vision, "未指定：沿用电商 Agent 识图模型")}
                     {analysisModelPicker("分镜策划模型", setting.planning, (planning) => patch({ planning }), "重构原创分镜、改写口播台词、推荐说话人音色", options.planning, "未指定：沿用电商 Agent 策划模型")}
                 </div>
             </Card>

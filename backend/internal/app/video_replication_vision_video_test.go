@@ -59,11 +59,54 @@ func TestVideoReplicationOpenAIGeminiMultimodalUsesInlineMedia(t *testing.T) {
 	}
 }
 
-func TestVideoReplicationRejectsImageOnlyProtocol(t *testing.T) {
-	for _, wire := range []string{"chat-completion", "apimart-gemini-vision", "claude-api"} {
-		if validateVideoReplicationVisionProtocol(ecommerceProviderConfig{TextProvider: &providerConfig{InterfaceType: wire}}) == nil {
-			t.Fatalf("accepted image-only protocol %s", wire)
-		}
+// 视频理解渠道不再按 Gemini 协议名放行：只按模型声明的多模态能力判断是否可用，
+// 并按能力选择素材形态（完整视频 / 内嵌画面+音轨 / 抽帧画面）。
+func TestVideoReplicationVisionFollowsModelCapability(t *testing.T) {
+	profile := func(images, videos int) *ModelCapabilityConfig {
+		return &ModelCapabilityConfig{Text: &TextCapabilityConfig{References: TextReferenceConfig{MaxImages: images, MaxVideos: videos}}}
+	}
+	cases := []struct {
+		name     string
+		wire     string
+		profile  *ModelCapabilityConfig
+		wantMode string
+		wantErr  bool
+	}{
+		{"智能路由组多模态", "magpie-chat", profile(8, 0), "frames", false},
+		{"通用chat多模态", "chat-completion", profile(3, 0), "frames", false},
+		{"声明支持视频输入", "chat-completion", profile(8, 1), "video", false},
+		{"原生Gemini", "gemini-multimodal-text", profile(0, 0), "video", false},
+		{"内联Gemini兼容", "openai-gemini-multimodal", profile(8, 0), "inline", false},
+		{"旧渠道未声明能力", "chat-completion", nil, "frames", false},
+		{"纯文本模型", "chat-completion", profile(0, 0), "", true},
+		{"未配置模型", "chat-completion", nil, "", true},
+	}
+	for _, item := range cases {
+		t.Run(item.name, func(t *testing.T) {
+			cfg := ecommerceProviderConfig{}
+			if item.name != "未配置模型" {
+				cfg.TextProvider = &providerConfig{InterfaceType: item.wire, CapabilityConfig: item.profile}
+			}
+			err := validateVideoReplicationVisionProtocol(cfg)
+			if (err != nil) != item.wantErr {
+				t.Fatalf("validate error=%v wantErr=%v", err, item.wantErr)
+			}
+			if err == nil {
+				if got := videoReplicationVisionInputMode(cfg); got != item.wantMode {
+					t.Fatalf("mode=%s want=%s", got, item.wantMode)
+				}
+			}
+		})
+	}
+}
+
+func TestVideoReplicationVisionFrameBudgetRespectsImageLimit(t *testing.T) {
+	cfg := ecommerceProviderConfig{TextProvider: &providerConfig{InterfaceType: "magpie-chat", CapabilityConfig: &ModelCapabilityConfig{
+		Text: &TextCapabilityConfig{References: TextReferenceConfig{MaxImages: 8}},
+	}}}
+	perVideo, total := videoReplicationVisionFrameBudget(cfg, 2)
+	if perVideo != 4 || total != 8 {
+		t.Fatalf("perVideo=%d total=%d want 4/8", perVideo, total)
 	}
 }
 

@@ -260,6 +260,8 @@ func (s *Service) analyzeVideoReplicationBase(ctx context.Context, userID, proje
 	if err := validateVideoReplicationVisionProtocol(visionCfg); err != nil {
 		return nil, nil, err
 	}
+	// 按模型能力选素材形态：能读视频就传完整视频，只读图的多模态模型（含智能路由组）传抽帧画面。
+	visionMode := videoReplicationVisionInputMode(visionCfg)
 	visionCfg.TextTimeout = 5 * time.Minute
 
 	// 第二步：ffprobe/ffmpeg 解析每个参考视频。
@@ -271,7 +273,9 @@ func (s *Service) analyzeVideoReplicationBase(ctx context.Context, userID, proje
 	frames := []videoReplicationFrame{}
 	fullVideos := make([]string, 0, len(videos))
 	inlineMedia := make([]videoReplicationInlineMedia, 0, len(videos))
+	sampledFrames := make([]videoReplicationInlineFrame, 0)
 	identity := lease.Format("20060102150405")
+	framesPerVideo, frameTotal := videoReplicationVisionFrameBudget(visionCfg, len(videos))
 	for videoIndex, video := range videos {
 		progress(fmt.Sprintf("解析参考视频 %d/%d：镜头检测与关键帧", videoIndex+1, len(videos)), 8+videoIndex*20/len(videos))
 		item := VideoReplicationVideoAnalysis{AssetID: video.ID, Name: video.Label, Primary: video.IsPrimary}
@@ -328,19 +332,27 @@ func (s *Service) analyzeVideoReplicationBase(ctx context.Context, userID, proje
 			}
 			item.DurationMs, item.Width, item.Height, item.FPS, item.HasAudio = probe.DurationMs, probe.Width, probe.Height, probe.FPS, probe.HasAudio
 			progress(fmt.Sprintf("准备完整视频与音轨 %d/%d", videoIndex+1, len(videos)), 10+videoIndex*20/len(videos))
-			if videoReplicationUsesInlineMedia(visionCfg) {
+			switch visionMode {
+			case "inline":
 				// 只收公网视频链接的渠道：境外回源下载国内存储会超时，改为内嵌画面与音轨。
 				media, err := prepareVideoReplicationInlineMedia(ctx, ffmpegBin, path, probe, videoReplicationInlineMaxFrames/len(videos))
 				if err != nil {
 					return err
 				}
 				inlineMedia = append(inlineMedia, media)
-			} else {
+			case "video":
 				fullVideo, err := prepareVideoReplicationVisionVideo(ctx, ffmpegBin, path, probe, videoReplicationVisionTotalBytes/int64(len(videos)))
 				if err != nil {
 					return err
 				}
 				fullVideos = append(fullVideos, fullVideo)
+			default:
+				// 通用多模态文字模型：只传按时间抽取的画面，不使用兼容性不稳定的 video_url 内容块。
+				media, err := prepareVideoReplicationInlineMedia(ctx, ffmpegBin, path, probe, framesPerVideo)
+				if err != nil {
+					return err
+				}
+				sampledFrames = append(sampledFrames, media.Frames...)
 			}
 			cuts, err := detectVideoReplicationCuts(ctx, ffmpegBin, path)
 			if err != nil {
@@ -397,11 +409,14 @@ func (s *Service) analyzeVideoReplicationBase(ctx context.Context, userID, proje
 	if len(frames) > videoReplicationVisionFrameLimit {
 		frames = frames[:videoReplicationVisionFrameLimit]
 	}
+	if len(sampledFrames) > frameTotal {
+		sampledFrames = sampledFrames[:frameTotal]
+	}
 
-	// 第三步：将完整视频（包含原有音轨）交给视频理解模型；关键帧继续用于界面预览。
+	// 第三步：将完整视频或按时间抽取的画面交给视频理解模型；关键帧继续用于界面预览。
 	progress("AI 理解完整视频、动作、声音与字幕", 35)
 	analysis.VisionModel = visionCfg.TextModel
-	if err := s.understandVideoReplicationShots(ctx, visionCfg, projectID, analysis, frames, inlineMedia, fullVideos); err != nil {
+	if err := s.understandVideoReplicationShots(ctx, visionCfg, projectID, analysis, frames, inlineMedia, fullVideos, sampledFrames); err != nil {
 		return nil, nil, fmt.Errorf("视频理解失败：%w", err)
 	}
 	// 第四步：商品与模特档案。
@@ -433,7 +448,7 @@ func (s *Service) analyzeVideoReplicationBase(ctx context.Context, userID, proje
 	return analysis, storyboard, nil
 }
 
-func (s *Service) understandVideoReplicationShots(ctx context.Context, cfg ecommerceProviderConfig, projectID string, analysis *VideoReplicationAnalysis, frames []videoReplicationFrame, inlineMedia []videoReplicationInlineMedia, fullVideos []string) error {
+func (s *Service) understandVideoReplicationShots(ctx context.Context, cfg ecommerceProviderConfig, projectID string, analysis *VideoReplicationAnalysis, frames []videoReplicationFrame, inlineMedia []videoReplicationInlineMedia, fullVideos []string, sampledFrames []videoReplicationInlineFrame) error {
 	type timing struct {
 		Ref      string  `json:"ref"`
 		Video    string  `json:"video"`
@@ -490,15 +505,27 @@ shots 必须包含所有镜头，按视频时间线实际观察动作、运镜�
 		Recommendation VideoReplicationRecommendation
 	}
 	var raw map[string]any
-	if len(fullVideos) == 0 && len(inlineMedia) == 0 {
+	if len(fullVideos) == 0 && len(inlineMedia) == 0 && len(sampledFrames) == 0 {
 		return fmt.Errorf("完整视频未传入，无法执行视频理解")
 	}
 	call := func() error {
-		if len(inlineMedia) > 0 {
+		switch {
+		case len(inlineMedia) > 0:
 			inlinePrompt := "附件不是视频文件，而是每个参考视频按时间顺序均匀抽取的画面（每张标注了所在秒数，约 1 帧/秒）和该视频的完整音轨；请把它们当作完整视频来理解动作、运镜、节奏与声音。\n" + prompt
 			return s.videoReplicationInlineChatJSON(ctx, cfg, "vision", system, inlinePrompt, inlineMedia, &raw)
+		case len(sampledFrames) > 0:
+			// 通用多模态模型（含超级智能路由组）：只发图片内容块，不依赖上游是否认识 video_url / input_audio。
+			frameImages := make([]string, 0, len(sampledFrames))
+			labels := make([]string, 0, len(sampledFrames))
+			for index, frame := range sampledFrames {
+				frameImages = append(frameImages, frame.DataURL)
+				labels = append(labels, fmt.Sprintf("第%d张@%.1fs", index+1, frame.AtSec))
+			}
+			framesPrompt := fmt.Sprintf("附件共 %d 张按时间顺序从参考视频均匀抽取的画面，依次对应 %s；本渠道不接收视频文件与音轨，请把这些画面当作完整视频的时间线来理解动作、运镜、节奏与镜头切换，声音信息以语音识别结果为准，不要从静态画面臆造台词。\n", len(frameImages), strings.Join(labels, "、")) + prompt
+			return s.videoReplicationChatJSON(ctx, cfg, "vision", projectID, system, framesPrompt, frameImages, nil, &raw)
+		default:
+			return s.videoReplicationChatJSON(ctx, cfg, "vision", projectID, system, prompt, nil, fullVideos, &raw)
 		}
-		return s.videoReplicationChatJSON(ctx, cfg, "vision", projectID, system, prompt, nil, fullVideos, &raw)
 	}
 	err := call()
 	// 上游超时、繁忙、抓取失败这类偶发错误自动重试一次（失败的那次没有用量，不计成本）。

@@ -39,7 +39,7 @@ func TestVideoReplicationDeliveryReadsActualVisionResult(t *testing.T) {
 	cfg := f.cfg("vision-test")
 	cfg.TextProvider.InterfaceType = "apimart-gemini-video-text"
 	analysis := &VideoReplicationAnalysis{Voice: &VideoReplicationVoice{HasAudio: true}, Videos: []VideoReplicationVideoAnalysis{{Primary: true, HasAudio: true, Shots: []VideoReplicationSourceShot{{Index: 0, EndMs: 5000}}}}}
-	if err := f.svc.understandVideoReplicationShots(context.Background(), cfg, "project", analysis, nil, nil, []string{"https://media.example/reference.mp4"}); err != nil {
+	if err := f.svc.understandVideoReplicationShots(context.Background(), cfg, "project", analysis, nil, nil, []string{"https://media.example/reference.mp4"}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if analysis.Summary.Delivery == nil || analysis.Summary.Delivery.Mode != "livestream" || analysis.Videos[0].Shots[0].SpeechDelivery != "快速介绍后举起商品停顿" {

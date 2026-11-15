@@ -15,7 +15,7 @@ import (
 
 // 语音识别「视频理解模型听写」方式（ASR mode=vision）：平台没有接入 /audio/transcriptions 转写模型、服务器也没有 whisper 时，
 // 直接用已配置的视频理解渠道（OpenAI 兼容 chat + input_audio）听写参考视频音轨，输出带时间戳的整句台词。
-// 只支持「内嵌画面 + 音轨」类型的视频理解渠道（apimart-gemini-video-text、openai-gemini-multimodal），其他渠道的音频输入格式不同，明确报错而不是静默失败。
+// 只支持「内嵌画面 + 音轨」类型的视频理解渠道（声明式 Gemini 兼容协议），其他渠道的音频输入格式不同，明确报错而不是静默失败。
 
 const videoReplicationASRModeVision = "vision"
 
@@ -30,7 +30,7 @@ func (s *Service) videoReplicationVisionTranscriber(userID, language string) (vi
 		return nil, "视频理解模型不可用，无法听写台词：" + err.Error()
 	}
 	if !videoReplicationUsesInlineMedia(cfg) {
-		return nil, "当前视频理解渠道不支持音频听写（需要 OpenAI 兼容 Gemini 多模态视频理解渠道），请改用语音识别模型或 whisper 服务"
+		return nil, "当前视频理解渠道不支持音频听写（需要支持 input_audio 内容块的视频理解渠道），请改用语音识别模型或 whisper 服务"
 	}
 	cfg.TextTimeout = 4 * time.Minute
 	return func(ctx context.Context, wavPath string) ([]timelineTranscriptionSegment, string, error) {

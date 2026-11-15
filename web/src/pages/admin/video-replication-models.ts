@@ -21,7 +21,7 @@ function availability(model: PublicChannelModel) {
     return typeof rate === "number" ? rate : 0.8;
 }
 
-/** 视频理解：必须能读图；能读视频的优先，其次可读图片多、上下文长、近期可用率高。 */
+/** 视频理解：能读图或读视频即可，不限制 Gemini 协议。声明支持视频的走完整视频，其它多模态模型走抽帧画面。 */
 export function visionModelOptions(catalog: ModelCatalogResponse): ReplicationTextModelOption[] {
     return channelModels(catalog)
         .filter(({ model }) => model.capability === "text")
@@ -31,8 +31,9 @@ export function visionModelOptions(catalog: ModelCatalogResponse): ReplicationTe
             const videos = Number(refs.maxVideos) || 0;
             const context = Number(model.capabilityConfig?.text?.contextWindowTokens) || 0;
             const score = (videos > 0 ? 1000 : 0) + Math.min(images, 20) * 20 + context / 20000 + availability(model) * 100;
-            const reason = [videos > 0 ? "支持视频输入" : "", images ? `图片 ≤${images} 张` : "", context ? `上下文 ${Math.round(context / 1000)}k` : ""].filter(Boolean).join(" · ");
-            return { value: `channel:${model.id}`, pickerValue: encodeChannelModel(channelId, model.modelKey), label: `${label(model, channel)} · ${reason || "未配置图片输入"}`, disabled: images < 1, score, reason: reason || "未配置图片输入" };
+            const reason = [videos > 0 ? "完整视频理解" : "", images ? `抽帧图片 ≤${images} 张` : "", context ? `上下文 ${Math.round(context / 1000)}k` : ""].filter(Boolean).join(" · ");
+            const multimodal = images > 0 || videos > 0;
+            return { value: `channel:${model.id}`, pickerValue: encodeChannelModel(channelId, model.modelKey), label: `${label(model, channel)} · ${reason || "未配置多模态输入"}`, disabled: !multimodal, score, reason: reason || "未配置多模态输入" };
         })
         .sort((a, b) => Number(a.disabled) - Number(b.disabled) || b.score - a.score);
 }
