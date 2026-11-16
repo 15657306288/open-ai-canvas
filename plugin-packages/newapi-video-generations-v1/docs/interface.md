@@ -28,7 +28,7 @@
 | `duration` | integer | 否 | `duration/seconds` | 时长秒数。 |
 | `aspectRatio` | string | 否 | `ratio/aspect_ratio/size` | 画幅比例或尺寸。 |
 | `resolution` | string | 否 | `resolution` | 分辨率档位。 |
-| `generateAudio` | boolean | 否 | `generate_audio` | 是否生成音频。 |
+| `generateAudio` | boolean | 否 | `generate_audio` | 是否生成音频；只有 true 时才发送该字段，false 时整个字段省略。上游（如影策 Seedance）收到 `generate_audio` 会直接拒绝请求。 |
 | `watermark` | boolean | 否 | `watermark` | 水印开关。 |
 | `providerOptions` | object | 否 | `provider-specific fields` | 插件命名空间内的厂商扩展字段。 |
 
@@ -46,7 +46,7 @@
 | `create.body.seconds` | `{"$toString":{"$ref":"request.duration"}}` |
 | `create.body.aspect_ratio` | `{"$coalesce":[{"$ref":"request.aspectRatio"},"16:9"]}` |
 | `create.body.resolution` | `{"$omitEmpty":{"$ref":"request.resolution"}}` |
-| `create.body.generate_audio` | `{"$ref":"request.generateAudio"}` |
+| `create.body.generate_audio` | `{"$if":{"condition":{"$ref":"request.generateAudio"},"then":true,"else":null}}` |
 | `create.body.image_urls` | `{"$omitEmpty":{"$map":{"from":{"$sortByOrder":{"$ref":"request.images"}},"as":"media","in":{"$ref":"media.value"}}}}` |
 | `create.body.video_urls` | `{"$omitEmpty":{"$map":{"from":{"$sortByOrder":{"$ref":"request.videos"}},"as":"media","in":{"$ref":"media.value"}}}}` |
 | `create.body.audio_urls` | `{"$omitEmpty":{"$map":{"from":{"$sortByOrder":{"$ref":"request.audios"}},"as":"media","in":{"$ref":"media.value"}}}}` |
@@ -237,7 +237,13 @@
               }
             },
             "generate_audio": {
-              "$ref": "request.generateAudio"
+              "$if": {
+                "condition": {
+                  "$ref": "request.generateAudio"
+                },
+                "then": true,
+                "else": null
+              }
             },
             "image_urls": {
               "$omitEmpty": {
