@@ -2,3 +2,4 @@ plugin-packages/*.sh text eol=lf
 deploy/yingce-state/** text eol=lf
 deploy/yingce-state/sql/*.gz binary
 plugin-packages/*.yingce-plugin binary
+deploy/faceguard/** text eol=lf
