@@ -1,0 +1,69 @@
+# 2026-10-22 brain.apizz.cc.cd（PUBLIC_DOMAIN，旧云端看板+control-plane）已下线：看板数据 10-01 后未更新，无真实访问
+# ---- ledger.apizz.cc.cd (报单台账；app 自己发 CSP/HSTS，这里不要重复加安全头) ----
+ledger.apizz.cc.cd {
+    # 老域名统一跳到新域名（308 保留方法与请求体，POST 不会被改成 GET）
+    redir https://jz.a8hub.com{uri} 308
+}
+
+# ---- jz.a8hub.com（订货本正式域名；app 自己发 CSP/HSTS，这里不要重复加安全头） ----
+jz.a8hub.com {
+    encode gzip
+    reverse_proxy 172.23.0.1:8787
+}
+
+# 2026-10-22 39-109-62-227.sslip.io 已移除：DSH 桥接改走 Cloudflare 隧道 dsh.a8hub.com
+
+
+
+
+# ---- relay.39-109-62-227.sslip.io : DSH 手机中转（纯转发） ----
+# 中转要同时扛长连接 WebSocket（宿主隧道 /tunnel）和 SSE（手机端事件流），
+# 所以这里刻意不写 encode：任何压缩都会把帧攒住，手机上看到的就是卡住不动。
+# flush_interval -1 关掉响应缓冲，帧到就走。
+# WebSocket 的 101 升级由 Caddy 的 reverse_proxy 原生处理，不用手写
+# Upgrade / Connection 头 —— 那是 nginx 才需要的写法。
+# 上游走 docker 网关：dsh-relay 只绑 127.0.0.1，容器里的 Caddy 够不到回环，
+# 中间由 dsh-relay-bridge.service (socat) 从网关 18788 透传到回环 18788。
+#
+# 为什么不用自有域名：*.cc.cd 在客户端侧被 SNI 重置（同 IP 下 kiro.a8hub.com
+# 能过、relay.yingce.cc.cd 被 RST），sslip.io 解析与 TLS 均正常，故采用。
+relay.39-109-62-227.sslip.io {
+	reverse_proxy 172.23.0.1:18788 {
+		flush_interval -1
+		transport http {
+			dial_timeout 10s
+			response_header_timeout 300s
+			keepalive 120s
+			keepalive_idle_conns 32
+		}
+	}
+}
+
+# ---- upload.yingce.cc.cd（大文件直传；DNS-only，不经过 Cloudflare 代理）----
+upload.yingce.cc.cd {
+	@canvasUpload path /api/resources /api/resources/* /api/health/ready
+	handle @canvasUpload {
+		reverse_proxy 172.23.0.1:18080
+	}
+	respond "Not Found" 404
+}
+
+# ---- upload.39-109-63-227.sslip.io : direct-origin mirror of the canvas ----
+# 为什么存在：用户链路对 *.cc.cd 做 SNI 重置，主域名只能走 Cloudflare 隧道；
+# 而大文件上传经 CF + 海外代理出口时吞吐会塌到 0.7MB/s 甚至卡死。
+# sslip.io 域名解析到源站 IP、SNI 不被重置，直连实测 3.3MB/s，故整站反代做直连镜像。
+# 整站反代（不是只放行 /api）是为了让页面与上传同源：跨站上传会丢 SameSite Cookie。
+# 不加 encode：避免压缩缓冲 SSE 流式输出与大文件请求体。
+upload.39-109-63-227.sslip.io, yingce.39-109-63-227.sslip.io {
+	@static path /assets/* *.js *.css *.svg *.woff2 *.woff *.png *.jpg *.webp
+	encode @static gzip zstd
+	reverse_proxy 172.23.0.1:18080 {
+		flush_interval -1
+		transport http {
+			dial_timeout 10s
+			response_header_timeout 600s
+			keepalive 120s
+			keepalive_idle_conns 32
+		}
+	}
+}

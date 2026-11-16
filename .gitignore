@@ -101,3 +101,4 @@ backend/tmp_*
 .zocde/
 # Generated locally by scripts/export-theme-skins.ts.
 /web/theme-skins-install.js
+web/dist-test/

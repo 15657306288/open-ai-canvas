@@ -1,0 +1,14 @@
+{
+ "generated_at": "2026-11-16T09:33:36Z",
+ "schema_version": 104,
+ "containers": "open-ai-canvas-web=open-ai-canvas-web:server\nopen-ai-canvas-backend=open-ai-canvas-backend:server\nopen-ai-canvas-postgres=postgres:17-alpine\nopen-ai-canvas-redis=redis:7.4-alpine",
+ "counts": {
+  "channel_websites": 10,
+  "model_channels": 32,
+  "channel_models": 432,
+  "channel_model_price_tiers": 322,
+  "logical_models": 0,
+  "system_settings": 17
+ },
+ "notes": "api_key 已替换为 REDACTED；恢复后需在后台或 SQL 重新写入。"
+}

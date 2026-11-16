@@ -1,0 +1,1073 @@
+[
+ {
+  "enabled": null,
+  "id": "a6api",
+  "packagePath": "eeb3c786d16c567ff4940912e1546ce6873c1380dc8fea0c51c86a897cb1cc5f.yingce-plugin",
+  "packageSha256": "eeb3c786d16c567ff4940912e1546ce6873c1380dc8fea0c51c86a897cb1cc5f",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:43.947169314Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "adobe-firefly",
+  "packagePath": "7211e42b008c3ffe3dd8deb90d43a43d502f22a497bff63b935140a5b20dfc59.yingce-plugin",
+  "packageSha256": "7211e42b008c3ffe3dd8deb90d43a43d502f22a497bff63b935140a5b20dfc59",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:43.960654715Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "agnes-image",
+  "packagePath": "cce30ab7f9ffcd86304074952b18ce53e07e2cd3be45d78bb6afaacf3f04fe6c.yingce-plugin",
+  "packageSha256": "cce30ab7f9ffcd86304074952b18ce53e07e2cd3be45d78bb6afaacf3f04fe6c",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:43.982063905Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "agnes-video-25",
+  "packagePath": "82037923967013d9b294065f1f34f4a8e2f1837d4e69bcd146aa2badd88906cd.yingce-plugin",
+  "packageSha256": "82037923967013d9b294065f1f34f4a8e2f1837d4e69bcd146aa2badd88906cd",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.013087372Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "agnes-video-v20",
+  "packagePath": "22fdbbab937397b1c416ee14e4255bd7208c7eccf27a45eae404356821ed9024.yingce-plugin",
+  "packageSha256": "22fdbbab937397b1c416ee14e4255bd7208c7eccf27a45eae404356821ed9024",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.030376239Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "anthropic-messages",
+  "packagePath": "27a9a8ea9dcbd97d03fe12000096be08e255761ed46c5be3fa5221dbfb51f624.yingce-plugin",
+  "packageSha256": "27a9a8ea9dcbd97d03fe12000096be08e255761ed46c5be3fa5221dbfb51f624",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.038400351Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "antigravity-proxy",
+  "packagePath": "6e58606d0f5957dc58c887945f3f24fa28d40d7fc721afb33dfe6a468d6ec312.yingce-plugin",
+  "packageSha256": "6e58606d0f5957dc58c887945f3f24fa28d40d7fc721afb33dfe6a468d6ec312",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.041131804Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "apimart-gemini-video-text",
+  "packagePath": "9506b1d484ba5aaaaa7cd391251196ee6a7a73ab5c64ca667b5c146d81aa91da.yingce-plugin",
+  "packageSha256": "9506b1d484ba5aaaaa7cd391251196ee6a7a73ab5c64ca667b5c146d81aa91da",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.054483562Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "async-audio",
+  "packagePath": "c2bd3e856305caa8546f671c634eefa54a147b31e546868314e44803912b389e.yingce-plugin",
+  "packageSha256": "c2bd3e856305caa8546f671c634eefa54a147b31e546868314e44803912b389e",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.068680485Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "atlascloud-chat",
+  "packagePath": "c236e991a9a35658dcc6e8be3ef872251e55cfa28cd0abebcb6062ac93d8a0b9.yingce-plugin",
+  "packageSha256": "c236e991a9a35658dcc6e8be3ef872251e55cfa28cd0abebcb6062ac93d8a0b9",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.079927364Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "autodl-comfyui",
+  "packagePath": "600c4deb1fdada3f1d5484d78323adb8c89f704e2a6677e4dff90d70549815c1.yingce-plugin",
+  "packageSha256": "600c4deb1fdada3f1d5484d78323adb8c89f704e2a6677e4dff90d70549815c1",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.096149597Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "aws-bedrock-converse",
+  "packagePath": "3f521b847117646901e2a230ba95c553c08de327b0acc6e64cb8264f96e7dbac.yingce-plugin",
+  "packageSha256": "3f521b847117646901e2a230ba95c553c08de327b0acc6e64cb8264f96e7dbac",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.104705507Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "aws-bedrock-invoke-model",
+  "packagePath": "040657e322e2637463866a87325dbaccee1e652ddf08b261f818fa326bfc210a.yingce-plugin",
+  "packageSha256": "040657e322e2637463866a87325dbaccee1e652ddf08b261f818fa326bfc210a",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.109108814Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "azure-openai",
+  "packagePath": "6ff894f9bdde4d96fb7d61e6c58ecb7bc11248792a99695b2c236e525bf8a73a.yingce-plugin",
+  "packageSha256": "6ff894f9bdde4d96fb7d61e6c58ecb7bc11248792a99695b2c236e525bf8a73a",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.120402692Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "baichuan-chat",
+  "packagePath": "e6aa4d3234e2bdf2dffb2ba5bc360916ba13de77de1c73cfdc911b351aace5ca.yingce-plugin",
+  "packageSha256": "e6aa4d3234e2bdf2dffb2ba5bc360916ba13de77de1c73cfdc911b351aace5ca",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.122538085Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "baidu-qianfan-image",
+  "packagePath": "a7d24b6d5f56bc87b946eadeccf78d19234f1597ebf2c65e189c2ff5fb5c8e52.yingce-plugin",
+  "packageSha256": "a7d24b6d5f56bc87b946eadeccf78d19234f1597ebf2c65e189c2ff5fb5c8e52",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.134213422Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "baidu-video",
+  "packagePath": "75261aacadddb1db59bb3fe18129a225a364deedaa6b9976e9cd01287048cb65.yingce-plugin",
+  "packageSha256": "75261aacadddb1db59bb3fe18129a225a364deedaa6b9976e9cd01287048cb65",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.136623461Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "bfl-flux",
+  "packagePath": "ae596bfacce2c6877634fc903ffd8c465f1bb0ef6df134e419894282d3e79f5c.yingce-plugin",
+  "packageSha256": "ae596bfacce2c6877634fc903ffd8c465f1bb0ef6df134e419894282d3e79f5c",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.138469361Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "cangyuan-midjourney",
+  "packagePath": "3e670c2b1d8761b6471714a46d61ed7ba5454dfac4a738bd5d677891753d4ef4.yingce-plugin",
+  "packageSha256": "3e670c2b1d8761b6471714a46d61ed7ba5454dfac4a738bd5d677891753d4ef4",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.145087955Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "cheaperinference-chat",
+  "packagePath": "8530956775ad98d5f2a136b7a4eefb3b57a910ba2a05366efaa8da7ee93cafc1.yingce-plugin",
+  "packageSha256": "8530956775ad98d5f2a136b7a4eefb3b57a910ba2a05366efaa8da7ee93cafc1",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.172008568Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "cohere-chat-v2",
+  "packagePath": "652d080346a06c0ccdc434a66e227601df14cf82aa148d8c6b8e77c7a93cd89c.yingce-plugin",
+  "packageSha256": "652d080346a06c0ccdc434a66e227601df14cf82aa148d8c6b8e77c7a93cd89c",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.178764034Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "coolhs-wan3-relay",
+  "packagePath": "629eee0a38edc063be3b244e70725629f14b6b15d539a99c04261d995e16ea90.yingce-plugin",
+  "packageSha256": "629eee0a38edc063be3b244e70725629f14b6b15d539a99c04261d995e16ea90",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.185610221Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "dacheng-relay",
+  "packagePath": "555b0242c559696aa8cd92406e76a1595165137b34d528a4bf2deabfec0df613.yingce-plugin",
+  "packageSha256": "555b0242c559696aa8cd92406e76a1595165137b34d528a4bf2deabfec0df613",
+  "source": "uploaded",
+  "updatedAt": "2026-11-06T08:57:28.894126099Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "dashscope-minimax-video",
+  "packagePath": "fab068fe2209e4de844e8cf9e27fc8fe4eb51c389bb35afc2fb96b90bfd7aabd.yingce-plugin",
+  "packageSha256": "fab068fe2209e4de844e8cf9e27fc8fe4eb51c389bb35afc2fb96b90bfd7aabd",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.202235031Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "dashscope-qwen-image",
+  "packagePath": "9d78a52cc7345addd2caf8da72e5c041f1e7cbbe36f9d7f005919a0ab6a8089c.yingce-plugin",
+  "packageSha256": "9d78a52cc7345addd2caf8da72e5c041f1e7cbbe36f9d7f005919a0ab6a8089c",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.215477978Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "dashscope-qwen-native",
+  "packagePath": "5fdd693234bea55518ba23f165a3e2fa4403c768277b6c863e65001b343504d9.yingce-plugin",
+  "packageSha256": "5fdd693234bea55518ba23f165a3e2fa4403c768277b6c863e65001b343504d9",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.231820678Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "dashscope-wan-video",
+  "packagePath": "35a6c86230a69aeb4445ae2ca4cc886b516f445e868b71ab28e84fdf8b29d700.yingce-plugin",
+  "packageSha256": "35a6c86230a69aeb4445ae2ca4cc886b516f445e868b71ab28e84fdf8b29d700",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.24641063Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "dashscope-wan3-video",
+  "packagePath": "c1d5ded69e333f97de3fbfec68052b8640f9776bf407e613940729addaa2aaca.yingce-plugin",
+  "packageSha256": "c1d5ded69e333f97de3fbfec68052b8640f9776bf407e613940729addaa2aaca",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.250500952Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "dashscope-wanx-image",
+  "packagePath": "2001009b5a630cc4a0fb7204aa74bb854c2186db983a52b164d585f021b8b879.yingce-plugin",
+  "packageSha256": "2001009b5a630cc4a0fb7204aa74bb854c2186db983a52b164d585f021b8b879",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.253203072Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "deepseek-chat",
+  "packagePath": "e6d1eebef8fc5799dd92ab912fe1285bafbd09fe37e07507885f03613c1f5a60.yingce-plugin",
+  "packageSha256": "e6d1eebef8fc5799dd92ab912fe1285bafbd09fe37e07507885f03613c1f5a60",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.255170907Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "dola-pool",
+  "packagePath": "3e75f0e20b1b4a3ef709cad42ffc4c3197f93162a2a7f2c03ba530bb6dd04078.yingce-plugin",
+  "packageSha256": "3e75f0e20b1b4a3ef709cad42ffc4c3197f93162a2a7f2c03ba530bb6dd04078",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.257027701Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "doubao-streaming-tts",
+  "packagePath": "6947a092a1be6e3a527772abadb2ec74e7e0bf1522600bb8c15839499d62d2d6.yingce-plugin",
+  "packageSha256": "6947a092a1be6e3a527772abadb2ec74e7e0bf1522600bb8c15839499d62d2d6",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.266215698Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "fal-queue-image",
+  "packagePath": "b430578391e157162719289c752883e23288eb9eba3edacdb512a6e87c3eb13b.yingce-plugin",
+  "packageSha256": "b430578391e157162719289c752883e23288eb9eba3edacdb512a6e87c3eb13b",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.274641199Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "fal-queue-video",
+  "packagePath": "b9bc909f1d6d10ca8f81d34b4fe63de168c26f51ba4ee3696b0befbc1f483466.yingce-plugin",
+  "packageSha256": "b9bc909f1d6d10ca8f81d34b4fe63de168c26f51ba4ee3696b0befbc1f483466",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.290423882Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "fireworks-chat",
+  "packagePath": "60c6e3f1c981cdd2091cdc9804ccf8eff515e79d069737d517a9257e14e6e4c8.yingce-plugin",
+  "packageSha256": "60c6e3f1c981cdd2091cdc9804ccf8eff515e79d069737d517a9257e14e6e4c8",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.294949054Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "gemini-multimodal-text",
+  "packagePath": "92b8aa2e90705da47f45fe048d89af655b4a588ff94c21764ff3ebd0f3879543.yingce-plugin",
+  "packageSha256": "92b8aa2e90705da47f45fe048d89af655b4a588ff94c21764ff3ebd0f3879543",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.346340492Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "google-gemini-generate-content",
+  "packagePath": "a9ff77d7bbfc118b2321c0e9c2db61c656fd4a281f551744e5cfba83453f160b.yingce-plugin",
+  "packageSha256": "a9ff77d7bbfc118b2321c0e9c2db61c656fd4a281f551744e5cfba83453f160b",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.450044021Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "google-gemini-image",
+  "packagePath": "6ac976904ebf5c89b82561b64e720c169bd865e9a4eb42204529e6fa21f06a1c.yingce-plugin",
+  "packageSha256": "6ac976904ebf5c89b82561b64e720c169bd865e9a4eb42204529e6fa21f06a1c",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.505367117Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "google-gemini-veo",
+  "packagePath": "293099f68bac83546ec2186d84e89f4b9ae784e738b19c49c9b800d7315f5e20.yingce-plugin",
+  "packageSha256": "293099f68bac83546ec2186d84e89f4b9ae784e738b19c49c9b800d7315f5e20",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.532241345Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "groq-chat",
+  "packagePath": "7319534b3e79ee83fcda0c69843a408779b62621678fa69abe557332615b0b70.yingce-plugin",
+  "packageSha256": "7319534b3e79ee83fcda0c69843a408779b62621678fa69abe557332615b0b70",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.551456443Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "ideogram-image",
+  "packagePath": "29668fd3690e7c83b725daac7c971255842b09449cdb87cd508a575baef6267c.yingce-plugin",
+  "packageSha256": "29668fd3690e7c83b725daac7c971255842b09449cdb87cd508a575baef6267c",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.554408017Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "image-tools",
+  "packagePath": "1f814d0309ece09dca8b5fbe3caf6495ebe7522bbc7c390a3a394228ce4c228c.yingce-plugin",
+  "packageSha256": "1f814d0309ece09dca8b5fbe3caf6495ebe7522bbc7c390a3a394228ce4c228c",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.556243364Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "kacang-midjourney",
+  "packagePath": "807506ae2545092064333e7da3ef66460b6029d6a4ab0fb45ebe4135e7bfd9de.yingce-plugin",
+  "packageSha256": "807506ae2545092064333e7da3ef66460b6029d6a4ab0fb45ebe4135e7bfd9de",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.568936864Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "kimi-chat",
+  "packagePath": "423af45f19aa27bc4501d8add167f5db67bd7fede45045f8c5cbfa40750be924.yingce-plugin",
+  "packageSha256": "423af45f19aa27bc4501d8add167f5db67bd7fede45045f8c5cbfa40750be924",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.572041085Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "kling-image",
+  "packagePath": "794e19e8b30d8cbdc716c942293c67f36690bb0ac1db491321bfa7e7b67c7f07.yingce-plugin",
+  "packageSha256": "794e19e8b30d8cbdc716c942293c67f36690bb0ac1db491321bfa7e7b67c7f07",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.584001705Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "kling-video",
+  "packagePath": "13802d4004ad58ff7cc4c8a4b81cd50ff13431d77d4570f35c066fae91cf5719.yingce-plugin",
+  "packageSha256": "13802d4004ad58ff7cc4c8a4b81cd50ff13431d77d4570f35c066fae91cf5719",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.589267829Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "km-kemei-seedream",
+  "packagePath": "c0f36a7b87295844c0afeb18881431b5611da8306da177001d132ef138cf92c2.yingce-plugin",
+  "packageSha256": "c0f36a7b87295844c0afeb18881431b5611da8306da177001d132ef138cf92c2",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.614659282Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "km-kemei-video",
+  "packagePath": "0c1c959f2172ceea011d0bd8bea07549f4c6ea2c041826292aada751cf863c4d.yingce-plugin",
+  "packageSha256": "0c1c959f2172ceea011d0bd8bea07549f4c6ea2c041826292aada751cf863c4d",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.628315981Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "litellm-proxy-chat",
+  "packagePath": "eee0f747a37ea5130000e53626d58e00fdc76ec00c2656971415b497a9ac9d00.yingce-plugin",
+  "packageSha256": "eee0f747a37ea5130000e53626d58e00fdc76ec00c2656971415b497a9ac9d00",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.750916385Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "localai-chat",
+  "packagePath": "5d12de39739910395c162efc85adfdd8e99e50966ecccd1e701a338a6378e9f9.yingce-plugin",
+  "packageSha256": "5d12de39739910395c162efc85adfdd8e99e50966ecccd1e701a338a6378e9f9",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.753477537Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "luma-dream-machine",
+  "packagePath": "fcd6dc1d7a59757259196e9ea21cd82412b288fb7d7226c3973d158ae96ac8d4.yingce-plugin",
+  "packageSha256": "fcd6dc1d7a59757259196e9ea21cd82412b288fb7d7226c3973d158ae96ac8d4",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.755580158Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "lxmone-video-suite",
+  "packagePath": "fa80ef9668834f866459df3c79ad181c948bfef6468605000f232114a486ca25.yingce-plugin",
+  "packageSha256": "fa80ef9668834f866459df3c79ad181c948bfef6468605000f232114a486ca25",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.773583351Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "magpie-gateway",
+  "packagePath": "f3eff8669b5961c7f7c5128940b774b990a99f358a9c151c69e3da337a1a2cf5.yingce-plugin",
+  "packageSha256": "f3eff8669b5961c7f7c5128940b774b990a99f358a9c151c69e3da337a1a2cf5",
+  "source": "uploaded",
+  "updatedAt": "2026-11-06T08:35:28.286592336Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "maxforai-video",
+  "packagePath": "e4307d70e49daa05eb1c28bc462fb041d0de144a2802323c374fef6084e3c243.yingce-plugin",
+  "packageSha256": "e4307d70e49daa05eb1c28bc462fb041d0de144a2802323c374fef6084e3c243",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.77992174Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "metaso-h3",
+  "packagePath": "e4a52aeb1cfc174c4dfbc40d6bb82474f104f822250668ae808f1875248ab9c0.yingce-plugin",
+  "packageSha256": "e4a52aeb1cfc174c4dfbc40d6bb82474f104f822250668ae808f1875248ab9c0",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.787745514Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "minimax-hailuo-video-v2",
+  "packagePath": "70887b4a5b30c9de4e68097ef65b5cddf5a4ba7a2a2a6dfdda492ddace1386db.yingce-plugin",
+  "packageSha256": "70887b4a5b30c9de4e68097ef65b5cddf5a4ba7a2a2a6dfdda492ddace1386db",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.817443747Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "minimax-image",
+  "packagePath": "60b4d8b058522c9681f959677628ed9e1eeebfb600f005c79c55e3651b81844b.yingce-plugin",
+  "packageSha256": "60b4d8b058522c9681f959677628ed9e1eeebfb600f005c79c55e3651b81844b",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.823937459Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "minimax-text-native",
+  "packagePath": "268bb8a79a94700580dfb95e739ad97acf0ee78717c7dfe51f2399e95f8e6778.yingce-plugin",
+  "packageSha256": "268bb8a79a94700580dfb95e739ad97acf0ee78717c7dfe51f2399e95f8e6778",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.878978363Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "mistral-chat",
+  "packagePath": "302f5dd8acf594ab96869b392e205bfe09cefce6c47e6d7bb13f882fa872212d.yingce-plugin",
+  "packageSha256": "302f5dd8acf594ab96869b392e205bfe09cefce6c47e6d7bb13f882fa872212d",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.887888331Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "muse2api-video",
+  "packagePath": "8466f2135ae4d2a04665eae800906fc675587608d317c869d2917c81210f54ca.yingce-plugin",
+  "packageSha256": "8466f2135ae4d2a04665eae800906fc675587608d317c869d2917c81210f54ca",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.904492725Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "newapi-chat",
+  "packagePath": "e48c0bafc56a1ee9161c819733988cbebe61f50ceacc8449883f0217dc3072c9.yingce-plugin",
+  "packageSha256": "e48c0bafc56a1ee9161c819733988cbebe61f50ceacc8449883f0217dc3072c9",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.915610788Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "newapi-media-task-v1",
+  "packagePath": "0744d00b82175e94b9a7067e8f49c366d2152a9dbd3b66cccd14eccdbd62619f.yingce-plugin",
+  "packageSha256": "0744d00b82175e94b9a7067e8f49c366d2152a9dbd3b66cccd14eccdbd62619f",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.919456973Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "newapi-video-generations-v1",
+  "packagePath": "182e3b4b17a915edc6ab391de1ddc0b8abfce697231c1b0672b06e158d80c04d.yingce-plugin",
+  "packageSha256": "182e3b4b17a915edc6ab391de1ddc0b8abfce697231c1b0672b06e158d80c04d",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.922282508Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "novita-video",
+  "packagePath": "6209885f0e86f9026ccf4d859537cecf30320a66cc4da5f237fb8a6c8d0498e4.yingce-plugin",
+  "packageSha256": "6209885f0e86f9026ccf4d859537cecf30320a66cc4da5f237fb8a6c8d0498e4",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.928642736Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "nvidia-nim-chat",
+  "packagePath": "30eceb9062486b18c1ad0f985e5234b7660f025f81dfcc4cdfec2fb978b92f17.yingce-plugin",
+  "packageSha256": "30eceb9062486b18c1ad0f985e5234b7660f025f81dfcc4cdfec2fb978b92f17",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:44.930851383Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "official-payment-alipay-page",
+  "packagePath": "a7e3d292c77c45658c1a0901b6dc58b17d83fce700da7db18c9966ff699edb91.yingce-plugin",
+  "packageSha256": "a7e3d292c77c45658c1a0901b6dc58b17d83fce700da7db18c9966ff699edb91",
+  "source": "system",
+  "updatedAt": "2026-11-16T08:06:45.023941312Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "official-payment-epay",
+  "packagePath": "bba81bbc9d41315d69482c7c297cb6b4211ab11d72b119ae6f775c682db7a4dd.yingce-plugin",
+  "packageSha256": "bba81bbc9d41315d69482c7c297cb6b4211ab11d72b119ae6f775c682db7a4dd",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:45.207850519Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "official-payment-wechat-native",
+  "packagePath": "ddcf11bb26272a9e028d012e183e2f3ff7feac59d714946ca8d03ecd6be8011a.yingce-plugin",
+  "packageSha256": "ddcf11bb26272a9e028d012e183e2f3ff7feac59d714946ca8d03ecd6be8011a",
+  "source": "system",
+  "updatedAt": "2026-11-16T08:06:45.350632252Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "official-payment-xunhupay",
+  "packagePath": "d1bb5874ae140f806c86ed0d241bf17e93ed7ac4ac3088707d2cb246d061bb23.yingce-plugin",
+  "packageSha256": "d1bb5874ae140f806c86ed0d241bf17e93ed7ac4ac3088707d2cb246d061bb23",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:45.879693232Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "official-payment-zhifufm",
+  "packagePath": "87324e01695c5c30265fc340acff82691345335e15dcfd931b929253e74a9c47.yingce-plugin",
+  "packageSha256": "87324e01695c5c30265fc340acff82691345335e15dcfd931b929253e74a9c47",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:46.672449876Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "official-sms-aliyun",
+  "packagePath": null,
+  "packageSha256": null,
+  "source": "system",
+  "updatedAt": "2026-11-16T08:06:47.360907593Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "official-sms-tencent",
+  "packagePath": null,
+  "packageSha256": null,
+  "source": "system",
+  "updatedAt": "2026-11-16T08:06:47.361018792Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "ollama-chat",
+  "packagePath": "a8e7a9f5c9602edd9000b88f526e25946b553d374463a2f630eed18702145c96.yingce-plugin",
+  "packageSha256": "a8e7a9f5c9602edd9000b88f526e25946b553d374463a2f630eed18702145c96",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:46.675959631Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "openai-audio",
+  "packagePath": "b101840af9ad635914671b32e71a1475c6433d0383b28be0e55610658d690eef.yingce-plugin",
+  "packageSha256": "b101840af9ad635914671b32e71a1475c6433d0383b28be0e55610658d690eef",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:46.677957Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "openai-chat-completions",
+  "packagePath": "499b0df9dce9966e43dfd892441bb4204f2d0e68c6b8e0dbdf8d89d83c62733a.yingce-plugin",
+  "packageSha256": "499b0df9dce9966e43dfd892441bb4204f2d0e68c6b8e0dbdf8d89d83c62733a",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:46.681124949Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "openai-images",
+  "packagePath": "a5096193b23c4d8a5854c21806d7567b1db1c2e705ec0fa0b7ba917c56e2abb6.yingce-plugin",
+  "packageSha256": "a5096193b23c4d8a5854c21806d7567b1db1c2e705ec0fa0b7ba917c56e2abb6",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:46.751590679Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "openai-responses",
+  "packagePath": "1fe749a2c926fa1b5b86aba1f326760a16dc113bfc998f1252733983b2805234.yingce-plugin",
+  "packageSha256": "1fe749a2c926fa1b5b86aba1f326760a16dc113bfc998f1252733983b2805234",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:46.762592205Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "openai-videos",
+  "packagePath": "e8790397d1365806ebf26bbbd1d9ab9ecca940d41fd471dca415c46e6fb08723.yingce-plugin",
+  "packageSha256": "e8790397d1365806ebf26bbbd1d9ab9ecca940d41fd471dca415c46e6fb08723",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:46.770217528Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "openrouter-chat",
+  "packagePath": "04c72cc815df5c487531523b3f0adbbc3ac631c50085c28b3f6f89b62b16e171.yingce-plugin",
+  "packageSha256": "04c72cc815df5c487531523b3f0adbbc3ac631c50085c28b3f6f89b62b16e171",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:46.786868976Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "pika-via-fal",
+  "packagePath": "0b6416059e5eda9e100e860c79fe8ddd15b0f377a5c3ca056274c5f7887a93a9.yingce-plugin",
+  "packageSha256": "0b6416059e5eda9e100e860c79fe8ddd15b0f377a5c3ca056274c5f7887a93a9",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:46.790633057Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "pixverse-video",
+  "packagePath": "2910b5ec78f25eb96172994c8c15cb45ca1ec2c6d43b5f7ff7b0b3a8244cb0b4.yingce-plugin",
+  "packageSha256": "2910b5ec78f25eb96172994c8c15cb45ca1ec2c6d43b5f7ff7b0b3a8244cb0b4",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:46.795377023Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "qianwenai-maas-image",
+  "packagePath": "423bcc04d76ba233f8f03e29f802aaaf8d48645052917eac97aee2429cbaa5c7.yingce-plugin",
+  "packageSha256": "423bcc04d76ba233f8f03e29f802aaaf8d48645052917eac97aee2429cbaa5c7",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:46.879445028Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "recraft-image",
+  "packagePath": "282fb3ac43e47a75d491e440d6a61b4114f4323da2f8414c79445dc24ce3447e.yingce-plugin",
+  "packageSha256": "282fb3ac43e47a75d491e440d6a61b4114f4323da2f8414c79445dc24ce3447e",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:46.928076676Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "replicate-prediction-image",
+  "packagePath": "b135bbc62591c299a2ff18c2ce2aef68fbf12e449549994da7ebfe86e0bb213e.yingce-plugin",
+  "packageSha256": "b135bbc62591c299a2ff18c2ce2aef68fbf12e449549994da7ebfe86e0bb213e",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:46.948581203Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "replicate-prediction-video",
+  "packagePath": "d62240ae6a33f9847a3bb90b90743fb25b5a5648fc46fefe9d46ab24aa5bc727.yingce-plugin",
+  "packageSha256": "d62240ae6a33f9847a3bb90b90743fb25b5a5648fc46fefe9d46ab24aa5bc727",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:46.98668559Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "rolldek-wan-video",
+  "packagePath": "c41bbc0ff561abea2a5adbdd41b895c9ef58b2875a08265b4758e43a03cd45c1.yingce-plugin",
+  "packageSha256": "c41bbc0ff561abea2a5adbdd41b895c9ef58b2875a08265b4758e43a03cd45c1",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.013936341Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "runcrate-chat",
+  "packagePath": "11720da44ff040d6f16130298d5589a3adba6a685d24acfd7a9c16b7bde17e4d.yingce-plugin",
+  "packageSha256": "11720da44ff040d6f16130298d5589a3adba6a685d24acfd7a9c16b7bde17e4d",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.019141878Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "runninghub-workflow",
+  "packagePath": "72a5fd3e87f69e44d2351a8a8962c50bdc9ee4ff942ad4fd4186e1194df016a7.yingce-plugin",
+  "packageSha256": "72a5fd3e87f69e44d2351a8a8962c50bdc9ee4ff942ad4fd4186e1194df016a7",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.043418782Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "runninghub-workflow-provider",
+  "packagePath": null,
+  "packageSha256": null,
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.360705167Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "runway-image",
+  "packagePath": "f0e3382bd8ae8df45636a214fe15d4d888a46d7c4381aad48f15ff834f2491ed.yingce-plugin",
+  "packageSha256": "f0e3382bd8ae8df45636a214fe15d4d888a46d7c4381aad48f15ff834f2491ed",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.07109093Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "runway-video",
+  "packagePath": "a3276797e83a784fe1292afbeb8b2da7a2f4f6b4aef2a2c0fe6a36c7d9a830ca.yingce-plugin",
+  "packageSha256": "a3276797e83a784fe1292afbeb8b2da7a2f4f6b4aef2a2c0fe6a36c7d9a830ca",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.085513051Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "seedance-mini1",
+  "packagePath": "c61d8b30bff817d926bcf2de5fed41b1b800f5f02915a3f89400b3d180fcc7af.yingce-plugin",
+  "packageSha256": "c61d8b30bff817d926bcf2de5fed41b1b800f5f02915a3f89400b3d180fcc7af",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.103327931Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "seedance-videos-compatible",
+  "packagePath": "956334ed443a4ec3f9ed867dcf75cef346d94306b4c8ffe958bd9a622bad9835.yingce-plugin",
+  "packageSha256": "956334ed443a4ec3f9ed867dcf75cef346d94306b4c8ffe958bd9a622bad9835",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.124710258Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "shanhai",
+  "packagePath": "1400b105ca64089d421236f83f29e1ff85c95bc6f032f7f1521533d2e25f8531.yingce-plugin",
+  "packageSha256": "1400b105ca64089d421236f83f29e1ff85c95bc6f032f7f1521533d2e25f8531",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.139309579Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "siliconflow-chat",
+  "packagePath": "3e4dd14850a18ae9eb929b0176c503797ec1f3844e49465059c642060ae38dff.yingce-plugin",
+  "packageSha256": "3e4dd14850a18ae9eb929b0176c503797ec1f3844e49465059c642060ae38dff",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.163751033Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "stability-image",
+  "packagePath": "d147de56eed78a90f1faef7954243b39a8f76ab056ba0628150ca72965ce8b24.yingce-plugin",
+  "packageSha256": "d147de56eed78a90f1faef7954243b39a8f76ab056ba0628150ca72965ce8b24",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.184440853Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "tencent-hunyuan-image",
+  "packagePath": "f3a4f7fc3cf2addf064b8135fafbcad441ef22c0c2520a1d01e364efc36c196b.yingce-plugin",
+  "packageSha256": "f3a4f7fc3cf2addf064b8135fafbcad441ef22c0c2520a1d01e364efc36c196b",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.197921648Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "tencent-hunyuan-video",
+  "packagePath": "879ee2a2d95384a948f1c4cbd288f8739f9665e5e2a02bcd316a9da3b81fa141.yingce-plugin",
+  "packageSha256": "879ee2a2d95384a948f1c4cbd288f8739f9665e5e2a02bcd316a9da3b81fa141",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.209228719Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "together-chat",
+  "packagePath": "ae457b8476379ca86e675539d51310b611251d967a799f96fd9be36a8b7a05d9.yingce-plugin",
+  "packageSha256": "ae457b8476379ca86e675539d51310b611251d967a799f96fd9be36a8b7a05d9",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.223836297Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "vertex-gemini",
+  "packagePath": "9c3c19ac0adef586f9dd2c45571f785142b0c0683f578f1b4a1a5a351303026d.yingce-plugin",
+  "packageSha256": "9c3c19ac0adef586f9dd2c45571f785142b0c0683f578f1b4a1a5a351303026d",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.250567936Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "vertex-imagen",
+  "packagePath": "6231328a6fa0b13b6f52a1414b0d1823e0fed409d0fe64e2655b458c1650ca38.yingce-plugin",
+  "packageSha256": "6231328a6fa0b13b6f52a1414b0d1823e0fed409d0fe64e2655b458c1650ca38",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.252444926Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "vertex-veo",
+  "packagePath": "1d9f34bc94b7d40daedeca7023c55ed6b07fcfd82c27a106a58e17341622d798.yingce-plugin",
+  "packageSha256": "1d9f34bc94b7d40daedeca7023c55ed6b07fcfd82c27a106a58e17341622d798",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.254707989Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "vidu-video",
+  "packagePath": "abd78a5e6332ca998fb8590d4488ec24da66052cd3d4200c78c48f658f177b0d.yingce-plugin",
+  "packageSha256": "abd78a5e6332ca998fb8590d4488ec24da66052cd3d4200c78c48f658f177b0d",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.256981894Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "vllm-chat",
+  "packagePath": "2bc9783dee9d4fc34754fd11a107c7318342249405f2ed75c5f6119731b00a30.yingce-plugin",
+  "packageSha256": "2bc9783dee9d4fc34754fd11a107c7318342249405f2ed75c5f6119731b00a30",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.259079945Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "volcengine-ark-agent-plan-seedance",
+  "packagePath": "36d8cf13a1e5e656419b59519b2499e10a0c75b4111e927385ef3bee494ec4c5.yingce-plugin",
+  "packageSha256": "36d8cf13a1e5e656419b59519b2499e10a0c75b4111e927385ef3bee494ec4c5",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.262679136Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "volcengine-ark-agent-plan-seedream",
+  "packagePath": "762e90b4db5b1be48f076ddab7e4dc3d5b14cfd4a1ec33c16c462127de5f9657.yingce-plugin",
+  "packageSha256": "762e90b4db5b1be48f076ddab7e4dc3d5b14cfd4a1ec33c16c462127de5f9657",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.265967075Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "volcengine-ark-seedance",
+  "packagePath": "42b4c992c54824ed5ac280ac4a750a92177ee795e2929232c31ca6b799302434.yingce-plugin",
+  "packageSha256": "42b4c992c54824ed5ac280ac4a750a92177ee795e2929232c31ca6b799302434",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.269043685Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "volcengine-ark-seedream",
+  "packagePath": "783a3c9bbd8e765da9a0569f64d7d86ffc7c13a9ef2f212428dd7209fb6bf4b1.yingce-plugin",
+  "packageSha256": "783a3c9bbd8e765da9a0569f64d7d86ffc7c13a9ef2f212428dd7209fb6bf4b1",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.276917259Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "volcengine-jimeng-image",
+  "packagePath": "f76a162953cd9d180990d13eea24b5759d689ce667ae67080c9b3fe5d0d741ff.yingce-plugin",
+  "packageSha256": "f76a162953cd9d180990d13eea24b5759d689ce667ae67080c9b3fe5d0d741ff",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.295580037Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "volcengine-jimeng-video",
+  "packagePath": "604a075621ccc69080a943ccd834e583383bd1123fccdf70238425138fdae951.yingce-plugin",
+  "packageSha256": "604a075621ccc69080a943ccd834e583383bd1123fccdf70238425138fdae951",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.310195732Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "volcengine-mediakit",
+  "packagePath": "23aeccac24b8e77bc982df93f1d87fa6460364a176984e068716816a550ea3af.yingce-plugin",
+  "packageSha256": "23aeccac24b8e77bc982df93f1d87fa6460364a176984e068716816a550ea3af",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.313401079Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "wavespeed-image-edit",
+  "packagePath": "e580eb97c3e9371e370c2117eff589521571ed96e6298cea10d6600a2582ebe0.yingce-plugin",
+  "packageSha256": "e580eb97c3e9371e370c2117eff589521571ed96e6298cea10d6600a2582ebe0",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.323711233Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "xai-grok-chat",
+  "packagePath": "a17564acf512508fce1a2b9203b112010a52915fecc4d67ec9ceb8e515f76dc9.yingce-plugin",
+  "packageSha256": "a17564acf512508fce1a2b9203b112010a52915fecc4d67ec9ceb8e515f76dc9",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.32664404Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "xai-grok-images",
+  "packagePath": "44f4e4c142e8de8b3a2650c0c84cfb452daa90307b389d044c56a9abb00dd3e1.yingce-plugin",
+  "packageSha256": "44f4e4c142e8de8b3a2650c0c84cfb452daa90307b389d044c56a9abb00dd3e1",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.33830455Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "xai-video",
+  "packagePath": "c2a1fd0bbc76b1e59d792e7fa57dcc8b33f9e5924da81795575350399cb3f2a8.yingce-plugin",
+  "packageSha256": "c2a1fd0bbc76b1e59d792e7fa57dcc8b33f9e5924da81795575350399cb3f2a8",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.341525325Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "yi-chat",
+  "packagePath": "2fedbc1012caf07d8e622be84d64e617c763a182ef5eac9df02e139f60d92258.yingce-plugin",
+  "packageSha256": "2fedbc1012caf07d8e622be84d64e617c763a182ef5eac9df02e139f60d92258",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.343559844Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "zhipu-cogvideox",
+  "packagePath": "343fd56cf040b9aca81d4e792f13cc7445e4f34400ae0f6c4fa16129694c16f3.yingce-plugin",
+  "packageSha256": "343fd56cf040b9aca81d4e792f13cc7445e4f34400ae0f6c4fa16129694c16f3",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.345399436Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "zhipu-cogview",
+  "packagePath": "6c0131d8ff67550a41b72bb24f3d2842904938f0ae4e441120440f441e03e537.yingce-plugin",
+  "packageSha256": "6c0131d8ff67550a41b72bb24f3d2842904938f0ae4e441120440f441e03e537",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.346942909Z",
+  "version": null
+ },
+ {
+  "enabled": null,
+  "id": "zhipu-glm-chat",
+  "packagePath": "53ed35a0858c32380b1d319c9fff6ee9cbcdcd4c6044415291f3c6d901e6c08b.yingce-plugin",
+  "packageSha256": "53ed35a0858c32380b1d319c9fff6ee9cbcdcd4c6044415291f3c6d901e6c08b",
+  "source": "official",
+  "updatedAt": "2026-11-16T08:06:47.34869729Z",
+  "version": null
+ }
+]
