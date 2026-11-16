@@ -461,6 +461,9 @@ func (s *Service) videoReplicationSourceClip(project *model.VideoReplicationProj
 	if source.DurationMs > 0 && absStart+lengthMs > source.DurationMs {
 		absStart = max(0, source.DurationMs-lengthMs)
 	}
+	// 换人任务先把原片里的人脸糊掉再做编辑底片：上游按真人换脸审核成片时会直接拒片，
+	// 打码后模型只能靠参考图重绘人脸，成片里不存在可识别的真实人物。打码失败则降级用原片段。
+	redacted := videoReplicationRedactsFace(project.VideoType, params) && s.faceGuardSettings().Enabled
 	identity := fmt.Sprintf("video-replication-clip:v%d:%s:%s:%s:%d:%d:audio=%t", videoReplicationEditClipVersion, project.ID, source.ResourceID, shotID, absStart, lengthMs, withAudio)
 	ffmpegBin, err := renderFfmpegBinary()
 	if err != nil {
@@ -482,9 +485,27 @@ func (s *Service) videoReplicationSourceClip(project *model.VideoReplicationProj
 				return err
 			}
 			if info.Size() <= videoReplicationEditMaxClipBytes {
-				saved, err := s.saveVideoReplicationFile(project.UserID, output, fmt.Sprintf("原视频片段-%s.mp4", shotID), "video", 0, 0, lengthMs, identity)
+				source := output
+				if redacted {
+					guarded, redactErr := s.redactReferenceVideo(ctx, output)
+					if redactErr == nil {
+						if guardedInfo, statErr := os.Stat(guarded); statErr == nil && guardedInfo.Size() <= videoReplicationEditMaxClipBytes {
+							source = guarded
+						}
+					}
+				}
+				// 幂等标识要区分「打了码」和「打码失败降级用原片段」，否则同一标识对应两种字节会撞冲突。
+				saveIdentity := identity + ":redact=off"
+				if source != output {
+					saveIdentity = identity + ":redact=on"
+				}
+				saved, err := s.saveVideoReplicationFile(project.UserID, source, fmt.Sprintf("原视频片段-%s.mp4", shotID), "video", 0, 0, lengthMs, saveIdentity)
 				if err != nil {
 					return err
+				}
+				if source != output {
+					// 打码产物只是上传前的临时文件，注册成资源后删掉，避免每次重试都堆一份。
+					_ = os.Remove(source)
 				}
 				clipID = saved.ID
 				return nil

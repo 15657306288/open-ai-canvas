@@ -1,0 +1,20 @@
+[Unit]
+Description=FaceGuard 参考视频人脸打码服务（画布后端调用）
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=FACEGUARD_BIND=172.19.0.1
+Environment=FACEGUARD_PORT=18091
+Environment=FACEGUARD_YUNET=/opt/faceguard/yunet.onnx
+Environment=FACEGUARD_FFMPEG=/usr/bin/ffmpeg
+WorkingDirectory=/opt/faceguard
+ExecStart=/opt/faceguard/venv/bin/python /opt/faceguard/faceguard_server.py
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/faceguard.log
+StandardError=append:/var/log/faceguard.log
+
+[Install]
+WantedBy=multi-user.target
