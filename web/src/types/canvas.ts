@@ -62,7 +62,7 @@ export type CanvasGenerationBatchStatus = "queued" | "running" | "partial_failed
 export type CanvasGenerationBatchItemStatus = "waiting" | "submitting" | "queued" | "running" | "succeeded" | "failed" | "cancelled";
 export type CanvasImageGenerationType = "generation" | "edit";
 export type CanvasWorkflowKind = "free" | "script" | "story_input" | "character" | "scene" | "storyboard" | "shot" | "final" | "styleboard" | "reference_set" | "reference_video" | "action_board";
-export type CanvasVideoEditOperation = "text_to_video" | "image_to_video" | "reference_to_video" | "extend" | "inpaint" | "replace_element" | "camera_motion" | "style_transfer" | "audio_to_video" | "compare_versions" | "concat" | "enhance";
+export type CanvasVideoEditOperation = "text_to_video" | "image_to_video" | "reference_to_video" | "extend" | "inpaint" | "replace_element" | "camera_motion" | "style_transfer" | "audio_to_video" | "compare_versions" | "concat" | "enhance" | "depth";
 export type CanvasSkillCategory = "writing" | "storyboard" | "image" | "video" | "utility";
 export type CanvasSkillOutputMode = "text" | "json" | "image_prompt" | "workflow";
 export type StoryboardColumn =
@@ -308,6 +308,7 @@ export type CanvasNodeMetadata = {
               sourceType?: string;
           };
     content?: string;
+    officialAssetId?: string;
     previewContent?: string;
     /** Original file and immutable pixel-corrected variants; references share the current content/storageKey. */
     imageRotation?: {
@@ -371,6 +372,8 @@ export type CanvasNodeMetadata = {
     generateAudio?: string;
     watermark?: string;
     audioVoice?: string;
+    audioMode?: string;
+    audioVoiceBindings?: Array<{ characterNodeId: string; audioNodeId: string }>;
     audioFormat?: string;
     audioSpeed?: string;
     audioLanguage?: string;
@@ -486,6 +489,11 @@ export type CanvasNodeMetadata = {
     characterVisualStatus?: string;
     characterVoiceStatus?: string;
     characterVoiceName?: string;
+    characterVoiceSampleResourceId?: string;
+    characterVoiceSampleUrl?: string;
+    sharedCharacter?: boolean;
+    selectedOutfitId?: string;
+    officialCharacterSnapshot?: import("@/services/api/official-assets").OfficialAssetReference["character"];
     characterVoiceProfile?: {
         name: string;
         provider: string;
@@ -541,6 +549,8 @@ export type CanvasNodeMetadata = {
         bitrateLevel?: "low" | "medium" | "high";
         bitrate?: number;
     };
+    /** 相对深度视频任务参数，供结果节点重试使用。 */
+    videoDepth?: { sourceNodeId: string; model: string };
     videoEditOperation?: CanvasVideoEditOperation;
     arkPrivateAssetUpload?: string;
     videoCameraMoveId?: string;

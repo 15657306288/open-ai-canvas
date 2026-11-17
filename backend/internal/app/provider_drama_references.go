@@ -18,6 +18,7 @@ const dramaReferenceBindingsKey = "dramaReferenceBindings"
 var dramaReferenceProtocolLayouts = map[string]string{
 	string(model.ChannelInterfaceVolcengineArkVideo):          "content",
 	string(model.ChannelInterfaceVolcengineArkAgentPlanVideo): "content",
+	"volcengine-ark-seedance-25":                              "content",
 	string(model.ChannelInterfaceMiniMaxVideo):                "content",
 	"metaso-h3":        "content",
 	"legacy-ark-video": "content",
@@ -41,6 +42,7 @@ var dramaReferenceProtocolLayouts = map[string]string{
 	"maxforai-videos":                                   "images",
 	"maxforai-video-generations":                        "images",
 	"km-kemei-video":                                    "role-images",
+	"wenew-h3-video":                                    "inputs-images",
 	"lxmone-h3-workflow":                                "input-reference",
 	string(model.ChannelInterfaceNewAPIVideo):           "openai-files",
 	"coolhs-wan3-relay":                                 "media-tokens",
@@ -308,6 +310,22 @@ func dramaReferenceRequestLayout(body map[string]any, files []protocol.RequestFi
 		layout.promptBody = input
 		if err := addArray(input["reference_images"], "reference_image"); err != nil {
 			return layout, err
+		}
+	case "inputs-images":
+		input, ok := body["inputs"].(map[string]any)
+		if !ok {
+			return layout, errors.New("H3 协议缺少 inputs，无法核对参考图编号")
+		}
+		params, ok := body["params"].(map[string]any)
+		if !ok {
+			return layout, errors.New("H3 协议缺少 params，无法核对提示词")
+		}
+		layout.promptBody, layout.promptKey = params, "prompt"
+		if err := addArray(input["images"], "reference_image"); err != nil {
+			return layout, err
+		}
+		for index := range layout.slots {
+			layout.slots[index].token = fmt.Sprintf("<Picture %d>", index+1)
 		}
 	case "input-reference":
 		if err := addArray(body["input_reference"], "reference_image"); err != nil {

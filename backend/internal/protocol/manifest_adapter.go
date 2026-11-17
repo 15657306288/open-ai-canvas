@@ -473,6 +473,18 @@ func mediaReferencesFromManifestValue(value any, kind string, ephemeral bool) []
 				Kind: defaultValue(manifestString(typed["kind"]), kind), Role: manifestString(typed["role"]), MIMEType: manifestString(typed["mimeType"]),
 				Name: manifestString(typed["name"]), Order: manifestInt(typed["order"]), Weight: manifestFloat(typed["weight"]), Ephemeral: ephemeral || manifestTruthy(typed["ephemeral"]),
 			}
+			reference.Metadata = make(map[string]any)
+			metadata, _ := typed["metadata"].(map[string]any)
+			for _, key := range []string{"size", "z_index", "bounding_box", "description", "text_recognition", "background", "output_format"} {
+				if value, exists := typed[key]; exists {
+					reference.Metadata[key] = value
+				} else if value, exists := metadata[key]; exists {
+					reference.Metadata[key] = value
+				}
+			}
+			if len(reference.Metadata) == 0 {
+				reference.Metadata = nil
+			}
 			if reference.URL == "" {
 				reference.URL = firstString(typed, "file_url", "fileUrl", "image_url", "imageUrl", "video_url", "videoUrl", "audio_url", "audioUrl", "uri")
 			}
@@ -493,6 +505,15 @@ func normalizeManifestInlineDataURL(value, kind, formatHint string) string {
 	value = strings.TrimSpace(value)
 	if value == "" || strings.HasPrefix(value, "data:") {
 		return value
+	}
+	// 某些 Images 网关不返回 output_format；按文件头识别，避免把 GIF 动画标为 PNG。
+	if kind == "image" {
+		prefix := value[:min(len(value), 48)]
+		if data, err := base64.StdEncoding.DecodeString(prefix); err == nil {
+			if detected := http.DetectContentType(data); strings.HasPrefix(detected, "image/") {
+				formatHint = detected
+			}
+		}
 	}
 	return "data:" + manifestInlineMediaMIME(kind, formatHint) + ";base64," + value
 }

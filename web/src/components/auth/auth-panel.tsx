@@ -1,5 +1,6 @@
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
+import { useSearchParams } from "react-router";
 
 import { useAuthSettings } from "@/hooks/use-auth-entry";
 import type { AuthView } from "@/lib/auth-entry";
@@ -26,10 +27,8 @@ export function AuthPanel({ view, onViewChange, next, onAuthenticated, variant }
     const titleId = useId();
     const brand = useAppearanceStore((state) => state.appearance.brandName) || t("auth.register.platform");
     const { settings, failed, reload } = useAuthSettings();
-    // 登录面板同时用于路由内的独立登录页与路由外的全局登录弹窗（AuthDialogHost 挂在 RouterProvider 之外），
-    // useSearchParams 在路由外会抛错，这里直接读地址栏。
-    const wechatRegistration =
-        typeof window !== "undefined" && new URLSearchParams(window.location.search).get("wechat_register") === "1";
+    const [params] = useSearchParams();
+    const wechatRegistration = params.get("wechat_register") === "1";
     // 登录与注册是同一个表单；/register 仍保留给推广链接，打开的也是一体表单。
     const themeLoginTitle = useThemePack()?.copy?.loginTitle;
     const title = wechatRegistration ? t("auth.wechat.completeTitle", { defaultValue: "完成微信注册" }) : view === "recovery" ? t("auth.panel.recoveryTitle") : themeLoginTitle || t("auth.panel.loginTitle", { brand });

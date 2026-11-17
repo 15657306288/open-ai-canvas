@@ -1,3 +1,4 @@
+import { useSkillLibraryAccess } from "@/lib/skill-access";
 // 画布 Agent 面板的展示组件：悬浮入口、标题栏、上下文用量环、历史会话、对话区、
 // 输入区控件与审批卡片。
 //
@@ -5,7 +6,8 @@
 
 import type { CanvasTheme } from "@/lib/canvas-theme";
 import { useAppearanceStore } from "@/stores/use-appearance-store";
-import { agentAvatarClipForState, agentAvatarStateForRunStatus, agentCopy, DEFAULT_CANVAS_APPEARANCE, isAgentAvatarBundleManifest, type AgentAvatarBundleManifest } from "@/lib/canvas/agent-appearance";
+import { useEffectiveCanvasAppearance } from "@/stores/use-appearance-preferences-store";
+import { agentAvatarClipForState, agentAvatarStateForRunStatus, agentCopy, isAgentAvatarBundleManifest, type AgentAvatarBundleManifest } from "@/lib/canvas/agent-appearance";
 import { type CSSProperties, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { usePopoverAnchorAlign } from "@/hooks/use-popover-anchor-align";
 import { useAgentLauncherPosition } from "./use-agent-launcher-position";
@@ -66,12 +68,13 @@ export const AgentLauncher = memo(function AgentLauncher({
     hidden?: boolean;
     onOpen: () => void;
 }) {
-    const appearance = useAppearanceStore((state) => state.appearance.canvas) || DEFAULT_CANVAS_APPEARANCE;
+    const appearance = useEffectiveCanvasAppearance();
     const appearanceResolved = useAppearanceStore((state) => state.resolved);
     const appearanceRevision = useAppearanceStore((state) => state.appearance.revision);
     const live = appearance.avatarType === "live2d" && Boolean(appearance.live2dResourceId && appearance.live2dEntry);
     const avatarState = agentAvatarStateForRunStatus(status);
-    const bundleManifestURL = appearance.avatarBundleResourceId ? agentAvatarBundleFileURL(appearance.avatarBundleResourceId, "avatar.json", false, appearanceRevision) : "/doll/avatar.json";
+    const assetScope = appearance.avatarAssetScope ?? "public";
+    const bundleManifestURL = appearance.avatarBundleResourceId ? agentAvatarBundleFileURL(appearance.avatarBundleResourceId, "avatar.json", assetScope, appearanceRevision) : "/doll/avatar.json";
     const [bundleManifestState, setBundleManifestState] = useState<{ url: string; manifest: AgentAvatarBundleManifest | null } | null>(null);
     useEffect(() => {
         if (appearance.avatarType !== "bundle") {
@@ -97,7 +100,8 @@ export const AgentLauncher = memo(function AgentLauncher({
     const bundleManifestLoading = appearance.avatarType === "bundle" && currentBundleManifestState === null;
     const clip = bundleManifest ? agentAvatarClipForState(appearance, avatarState, bundleManifest) : "";
     const clipFile = bundleManifest?.clips[clip] || "";
-    const mediaURL = appearance.avatarType === "bundle" && clipFile ? (appearance.avatarBundleResourceId ? agentAvatarBundleFileURL(appearance.avatarBundleResourceId, clipFile, false, appearanceRevision) : `/doll/${encodeURIComponent(clipFile)}`) : "";
+    const mediaURL =
+        appearance.avatarType === "bundle" && clipFile ? (appearance.avatarBundleResourceId ? agentAvatarBundleFileURL(appearance.avatarBundleResourceId, clipFile, assetScope, appearanceRevision) : `/doll/${encodeURIComponent(clipFile)}`) : "";
     const [mediaError, setMediaError] = useState(false);
     const [readyBundleURL, setReadyBundleURL] = useState("");
     useEffect(() => setMediaError(false), [mediaURL]);
@@ -173,7 +177,7 @@ export const AgentLauncher = memo(function AgentLauncher({
                     <AgentOrb state={agentOrbStateForAvatar(avatarState)} size={30} color="#7164f6" />
                 ) : !appearanceResolved ? null : live ? (
                     <Live2DAvatar
-                        url={live2DModelURL(appearance.live2dResourceId, appearance.live2dEntry)}
+                        url={live2DModelURL(appearance.live2dResourceId, appearance.live2dEntry, assetScope)}
                         width={width}
                         height={height}
                         reducedMotion={reducedMotion}
@@ -278,7 +282,7 @@ export function AgentHeader({
     onExport: () => void;
     exporting: boolean;
 }) {
-    const appearance = useAppearanceStore((state) => state.appearance.canvas) || DEFAULT_CANVAS_APPEARANCE;
+    const appearance = useEffectiveCanvasAppearance();
     const modifierJ = agentModifierShortcut("J");
     const modifierEnter = agentModifierShortcut("Enter");
     const title = hasMessages ? conversationTitle || agentCopy(appearance.panelTitle, appearance.agentName) : "新对话";
@@ -694,7 +698,7 @@ export function AgentConversation({
     onRetryRun?: () => void;
     retryingRun?: boolean;
 }) {
-    const appearance = useAppearanceStore((state) => state.appearance.canvas) || DEFAULT_CANVAS_APPEARANCE;
+    const appearance = useEffectiveCanvasAppearance();
     const reducedMotion = useReducedMotion();
     const scrollRef = useRef<HTMLDivElement>(null);
     const contentRef = useRef<HTMLDivElement>(null);
@@ -885,6 +889,7 @@ export function ComposerControls({
     reasoningMode: AgentReasoningMode;
     onReasoningModeChange: (value: AgentReasoningMode) => void;
 }) {
+    const canUseSkills = useSkillLibraryAccess();
     const [thinkingOpen, setThinkingOpen] = useState(false);
     const thinkingAnchor = usePopoverAnchorAlign(thinkingOpen);
     const thinking = modelCapabilityConfigFor(config, selectedModel).text?.thinking || LEGACY_TEXT_THINKING_CONFIG;
@@ -940,21 +945,23 @@ export function ComposerControls({
                     <span className="agent-permission-label">{agentPermissionShortLabel(permissionMode)}</span>
                 </button>
             </Dropdown>
-            <button
-                type="button"
-                className="flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-[var(--fs-label)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current/25"
-                style={{ color: selectedSkillCount ? theme.accent.primary : theme.node.muted, background: skillsOpen ? theme.node.fill : "transparent" }}
-                aria-label={`打开 Skills 技能库${selectedSkillCount ? `，本对话已固定 ${selectedSkillCount} 个` : ""}`}
-                aria-expanded={skillsOpen}
-                aria-haspopup="dialog"
-                title={selectedSkillCount ? `本对话已固定 ${selectedSkillCount} 个技能；其他已安装技能 Agent 会按任务自动查找` : "已安装的技能 Agent 会按任务自动查找"}
-                onClick={() => onSkillsOpenChange(true)}
-            >
-                <Blocks className="size-3.5" aria-hidden="true" />
-                {/* 面板窄时只留图标和数量，把位置让给模型名。 */}
-                <span className="agent-skills-label">技能</span>
-                {selectedSkillCount ? <span className="tabular-nums">{selectedSkillCount}</span> : null}
-            </button>
+            {canUseSkills && (
+                <button
+                    type="button"
+                    className="flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-[var(--fs-label)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current/25"
+                    style={{ color: selectedSkillCount ? theme.accent.primary : theme.node.muted, background: skillsOpen ? theme.node.fill : "transparent" }}
+                    aria-label={`打开 Skills 技能库${selectedSkillCount ? `，本对话已固定 ${selectedSkillCount} 个` : ""}`}
+                    aria-expanded={skillsOpen}
+                    aria-haspopup="dialog"
+                    title={selectedSkillCount ? `本对话已固定 ${selectedSkillCount} 个技能；其他已安装技能 Agent 会按任务自动查找` : "已安装的技能 Agent 会按任务自动查找"}
+                    onClick={() => onSkillsOpenChange(true)}
+                >
+                    <Blocks className="size-3.5" aria-hidden="true" />
+                    {/* 面板窄时只留图标和数量，把位置让给模型名。 */}
+                    <span className="agent-skills-label">技能</span>
+                    {selectedSkillCount ? <span className="tabular-nums">{selectedSkillCount}</span> : null}
+                </button>
+            )}
         </div>
     );
 }

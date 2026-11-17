@@ -57,7 +57,8 @@ import { CanvasMediaVersionModal } from "@/components/canvas/canvas-media-versio
 import { CanvasVideoFrameDialog } from "@/components/canvas/canvas-video-frame-dialog";
 import { CanvasVideoSegmentDialog } from "@/components/canvas/canvas-video-segment-dialog";
 import { CanvasVideoEnhanceDialog } from "@/components/canvas/canvas-video-enhance-dialog";
-import { listVideoEnhanceModels } from "@/lib/canvas/canvas-video-enhance";
+import { CanvasVideoDepthDialog } from "@/components/canvas/canvas-video-depth-dialog";
+import { listVideoProcessingModels } from "@/lib/canvas/canvas-video-processing";
 import { CanvasNodeAnglePanel } from "@/components/canvas/canvas-node-angle-dialog";
 import { CanvasNodeLightingPanel } from "@/components/canvas/canvas-node-lighting-dialog";
 import { CanvasNodeSearchModal } from "@/components/canvas/canvas-node-search-modal";
@@ -939,10 +940,10 @@ function CanvasViewportPage() {
         openVideoSegmentExtractor,
         upscaleImageNode,
         upscaleNodeId,
-        enhanceDialogNodeId,
-        setEnhanceDialogNodeId,
-        openVideoEnhance,
-        enhanceVideoNode,
+        videoProcessingDialog,
+        setVideoProcessingDialog,
+        openVideoProcessing,
+        processVideoNode,
     } = useCanvasMediaTools({
         projectId,
         domainProjectId: linkedProjectId,
@@ -980,7 +981,7 @@ function CanvasViewportPage() {
             setInfoNodeId(clearDeletedId);
             setFrameDialogNodeId(clearDeletedId);
             setSegmentDialogNodeId(clearDeletedId);
-            setEnhanceDialogNodeId(clearDeletedId);
+            setVideoProcessingDialog((current) => (current && removedIds.has(current.nodeId) ? null : current));
             setCropNodeId(clearDeletedId);
             setRegionEditNodeId(clearDeletedId);
             setAnnotationNodeId(clearDeletedId);
@@ -1016,7 +1017,7 @@ function CanvasViewportPage() {
             setLightingNodeId,
             setRegionEditNodeId,
             setSegmentDialogNodeId,
-            setEnhanceDialogNodeId,
+            setVideoProcessingDialog,
             setUpscaleNodeId,
             setRunningNodeId,
         ],
@@ -1190,7 +1191,7 @@ function CanvasViewportPage() {
                 setDrawingNodeId(node.id);
             } else if (node.type === CanvasNodeType.Script) {
                 setDialogNodeId(null);
-            } else if (node.type === CanvasNodeType.Text && node.metadata?.workflowKind === "character" && node.metadata.characterAssetId) {
+            } else if (node.type === CanvasNodeType.Text && node.metadata?.workflowKind === "character" && (node.metadata.characterAssetId || node.metadata.officialAssetId)) {
                 setDialogNodeId(null);
                 setCharacterReferenceNodeId(node.id);
             } else if (node.type === CanvasNodeType.Text) {
@@ -1232,7 +1233,7 @@ function CanvasViewportPage() {
                 node.type === CanvasNodeType.Drawing ||
                 node.type === CanvasNodeType.Panorama ||
                 node.type === ART_CRITIQUE_NODE_TYPE ||
-                (node.metadata?.workflowKind === "character" && node.metadata.characterAssetId)
+                (node.metadata?.workflowKind === "character" && (node.metadata.characterAssetId || node.metadata.officialAssetId))
             ) {
                 setDialogNodeId(null);
                 return;
@@ -1557,8 +1558,8 @@ function CanvasViewportPage() {
     const mediaVersionNode = mediaVersionNodeId ? nodeById.get(mediaVersionNodeId) || null : null;
     const frameNode = frameDialogNodeId ? nodeById.get(frameDialogNodeId) || null : null;
     const segmentNode = segmentDialogNodeId ? nodeById.get(segmentDialogNodeId) || null : null;
-    const enhanceNode = enhanceDialogNodeId ? nodeById.get(enhanceDialogNodeId) || null : null;
-    const hasVideoEnhanceModels = useMemo(() => listVideoEnhanceModels(effectiveConfig).length > 0, [effectiveConfig]);
+    const videoProcessingNode = videoProcessingDialog ? nodeById.get(videoProcessingDialog.nodeId) || null : null;
+    const videoProcessingModels = useMemo(() => ({ enhance: listVideoProcessingModels(effectiveConfig, "enhance"), depth: listVideoProcessingModels(effectiveConfig, "depth") }), [effectiveConfig]);
     const textEditorNode = textEditorNodeId ? nodeById.get(textEditorNodeId) || null : null;
     const characterReferenceNode = characterReferenceNodeId ? nodeById.get(characterReferenceNodeId) || null : null;
     const drawingNode = drawingNodeId ? nodeById.get(drawingNodeId) || null : null;
@@ -1580,7 +1581,7 @@ function CanvasViewportPage() {
         setContextMenu(null);
         setDialogNodeId(null);
         setToolbarNodeId(null);
-        if (node.metadata?.workflowKind === "character" && node.metadata.characterAssetId) {
+        if (node.metadata?.workflowKind === "character" && (node.metadata.characterAssetId || node.metadata.officialAssetId)) {
             setCharacterReferenceNodeId(node.id);
             return;
         }
@@ -2342,7 +2343,7 @@ function CanvasViewportPage() {
 
     const renderCanvasNodeContent = useCallback(
         (contentNode: CanvasNodeData) => {
-            if (contentNode.metadata?.workflowKind === "character" && contentNode.metadata.characterAssetId) {
+            if (contentNode.metadata?.workflowKind === "character" && (contentNode.metadata.characterAssetId || contentNode.metadata.officialAssetId)) {
                 return <CanvasCharacterReferenceNodeContent node={contentNode} />;
             }
             if (contentNode.metadata?.workflowKind === "styleboard" && !contentNode.metadata.content) {
@@ -3233,7 +3234,7 @@ function CanvasViewportPage() {
                             dialogNode.type !== CanvasNodeType.BatchTable &&
                             dialogNode.type !== CanvasNodeType.Drawing &&
                             dialogNode.type !== CanvasNodeType.Panorama &&
-                            !(dialogNode.metadata?.workflowKind === "character" && dialogNode.metadata.characterAssetId) &&
+                            !(dialogNode.metadata?.workflowKind === "character" && (dialogNode.metadata.characterAssetId || dialogNode.metadata.officialAssetId)) &&
                             !dialogNode.metadata?.previsSceneId &&
                             !selectionBox &&
                             !isCanvasNodeMoving ? (
@@ -3317,7 +3318,7 @@ function CanvasViewportPage() {
                                 containerRef={containerRef}
                                 onKeep={keepNodeToolbar}
                                 onLeave={hideNodeToolbar}
-                                onInfo={(node) => (node.metadata?.workflowKind === "character" && node.metadata.characterAssetId ? openTextNodeEditor(node) : setInfoNodeId(node.id))}
+                                onInfo={(node) => (node.metadata?.workflowKind === "character" && (node.metadata.characterAssetId || node.metadata.officialAssetId) ? openTextNodeEditor(node) : setInfoNodeId(node.id))}
                                 onEditText={openTextNodeEditor}
                                 onDecreaseFont={(node) => handleFontSizeChange(node.id, Math.max(10, (node.metadata?.fontSize || 14) - 2))}
                                 onIncreaseFont={(node) => handleFontSizeChange(node.id, Math.min(32, (node.metadata?.fontSize || 14) + 2))}
@@ -3359,7 +3360,8 @@ function CanvasViewportPage() {
                                 onExtractVideoFrames={openVideoFrameExtractor}
                                 onExtractAudioFromVideo={(node) => void extractAudioFromVideo(node)}
                                 onTrimVideoSegments={openVideoSegmentExtractor}
-                                onEnhanceVideo={hasVideoEnhanceModels ? openVideoEnhance : undefined}
+                                onEnhanceVideo={videoProcessingModels.enhance.length ? (node) => openVideoProcessing(node, "enhance") : undefined}
+                                onDepthVideo={videoProcessingModels.depth.length ? (node) => openVideoProcessing(node, "depth") : undefined}
                                 onVersions={(node) => setMediaVersionNodeId(node.id)}
                                 onAdoptToDrama={drama.active ? drama.openAdopt : undefined}
                                 onRefreshFromDrama={toolbarNode && drama.staleNodeIds.has(toolbarNode.id) ? drama.refreshNode : undefined}
@@ -3485,8 +3487,23 @@ function CanvasViewportPage() {
                                 />
                             ) : null}
 
-                            {enhanceNode ? (
-                                <CanvasVideoEnhanceDialog node={enhanceNode} open={Boolean(enhanceNode)} config={effectiveConfig} onClose={() => setEnhanceDialogNodeId(null)} onConfirm={(params) => void enhanceVideoNode(enhanceNode, params)} />
+                            {videoProcessingNode && videoProcessingDialog?.operation === "enhance" ? (
+                                <CanvasVideoEnhanceDialog
+                                    node={videoProcessingNode}
+                                    open
+                                    config={effectiveConfig}
+                                    onClose={() => setVideoProcessingDialog(null)}
+                                    onConfirm={(params) => void processVideoNode(videoProcessingNode, { operation: "enhance", params })}
+                                />
+                            ) : null}
+                            {videoProcessingNode && videoProcessingDialog?.operation === "depth" ? (
+                                <CanvasVideoDepthDialog
+                                    node={videoProcessingNode}
+                                    open
+                                    config={effectiveConfig}
+                                    onClose={() => setVideoProcessingDialog(null)}
+                                    onConfirm={(params) => void processVideoNode(videoProcessingNode, { operation: "depth", params })}
+                                />
                             ) : null}
 
                             <CanvasCharacterReferenceModal
