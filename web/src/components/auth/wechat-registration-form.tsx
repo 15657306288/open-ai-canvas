@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button, Checkbox, Input, Skeleton } from "antd";
 import { Info, TriangleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router";
 import { authPageURL, clearReferralCode, readReferralCode, safeAuthNext } from "@/lib/auth-entry";
 import { applyUserSession } from "@/lib/user-session";
 import { getAuthSession, type AuthSettings } from "@/services/api/auth";
@@ -13,7 +12,12 @@ import { AuthAgreementDialog, AuthNotice, AuthTabs, useAuthAgreement } from "./a
 
 export function WechatRegistrationForm({ settings, settingsFailed, onReloadSettings, next }: { settings: AuthSettings | null; settingsFailed: boolean; onReloadSettings: () => void; next: string }) {
     const { t } = useTranslation();
-    const navigate = useNavigate();
+    // 该表单可能在路由外的全局登录弹窗中渲染，useNavigate 在路由外会抛错；
+    // 注册完成会重挂整棵应用，这里用整页跳转保持签名一致。
+    const navigate = (to: string, options?: { replace?: boolean }) => {
+        if (options?.replace) window.location.replace(to);
+        else window.location.assign(to);
+    };
     const agreement = useAuthAgreement(settings);
     const [info, setInfo] = useState<WechatRegistrationInfo | null>(null);
     const [loading, setLoading] = useState(true);
