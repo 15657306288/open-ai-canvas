@@ -11,9 +11,12 @@ import type { PublicUserGroup } from "@/services/api/user-groups";
 
 let authSessionRequest: Promise<AuthSessionPayload> | null = null;
 let authSessionCache: { payload: AuthSessionPayload; expiresAt: number } | null = null;
+let authSessionGeneration = 0;
 
 export function invalidateAuthSessionCache() {
+    authSessionGeneration += 1;
     authSessionCache = null;
+    authSessionRequest = null;
 }
 
 export type LocalUser = {
@@ -177,6 +180,10 @@ export type AdminUserDetail = {
         taskCount: number;
         taskBytes: number;
         apiCallCount: number;
+        agentBytes: number;
+        agentLimitBytes: number;
+        mcpBytes: number;
+        mcpLimitBytes: number;
     };
     storedFileBytes: number;
     dailyUploadBytes: number;
@@ -404,6 +411,8 @@ export type RuntimeTaskPolicy = {
     workerConcurrency: number;
     channelConcurrency: number;
     activeTaskLimit: number;
+    /** 单账号进行中的 Agent 轮次上限，包含排队与等待确认。 */
+    agentMaxRunsPerUser: number;
     imageTimeoutMinutes: number;
     textTimeoutMinutes: number;
     audioTimeoutMinutes: number;
@@ -471,10 +480,13 @@ export type AuthSettings = VerificationPolicy & {
     agreementTitle?: string;
     agreementContent?: string;
     loginMode: AuthLoginMode;
+    /** Cloudflare Turnstile only exposes the public site key to the browser. */
+    turnstileEnabled: boolean;
+    turnstileSiteKey: string;
 };
 
 export function getAuthSettings() {
-    return http.get<AuthSettings>("/auth/settings");
+    return http.get<AuthSettings>("/auth/settings", { session: "public" });
 }
 
 export function linuxDOLoginURL(next: string, acceptedTerms?: boolean) {
@@ -493,15 +505,18 @@ export function getAuthSession() {
     const now = Date.now();
     if (authSessionCache && authSessionCache.expiresAt > now) return Promise.resolve(authSessionCache.payload);
     if (authSessionRequest) return authSessionRequest;
-    authSessionRequest = http
-        .get<AuthSessionPayload>("/auth/session")
+    const generation = authSessionGeneration;
+    const pending = http
+        .get<AuthSessionPayload>("/auth/session", { session: "public" })
         .then((payload) => {
+            if (generation !== authSessionGeneration) throw new DOMException("认证会话已变化", "AbortError");
             authSessionCache = { payload, expiresAt: Date.now() + 5_000 };
             return payload;
         })
         .finally(() => {
-            authSessionRequest = null;
+            if (authSessionRequest === pending) authSessionRequest = null;
         });
+    authSessionRequest = pending;
     return authSessionRequest;
 }
 
@@ -541,27 +556,39 @@ export function updateAdminFeatureAvailability(
 }
 
 /** autoRegister：一体表单在账号不存在且允许注册时收到 reason=account_not_registered，而不是“密码不正确”。 */
-export async function login(input: { username: string; password: string; autoRegister?: boolean }) {
-    const result = await http.post<{ user: LocalUser }>("/auth/login", input);
+export async function login(input: { username: string; password: string; autoRegister?: boolean; turnstileToken?: string }) {
+    const result = await http.post<{ user: LocalUser }>("/auth/login", input, { session: "public" });
     // 登录会改变服务端会话身份，不能让登录前缓存的游客 session 污染后续恢复。
     invalidateAuthSessionCache();
     return result;
 }
 
 export function sendRegistrationEmailCode(email: string) {
-    return http.post<{ sent: boolean }>("/auth/email-code", { email });
+    return http.post<{ sent: boolean }>("/auth/email-code", { email }, { session: "public" });
 }
 
 export function sendPasswordResetEmailCode(email: string) {
-    return http.post<{ sent: boolean }>("/auth/password-reset-code", { email });
+    return http.post<{ sent: boolean }>("/auth/password-reset-code", { email }, { session: "public" });
 }
 
 export function resetPassword(input: { email: string; emailCode: string; password: string }) {
-    return http.post<{ reset: boolean }>("/auth/password-reset", input);
+    return http.post<{ reset: boolean }>("/auth/password-reset", input, { session: "public" });
 }
 
-export async function register(input: { username: string; email?: string; emailCode?: string; phone?: string; smsCode?: string; ticket?: string; displayName?: string; password: string; acceptedTerms: boolean; referralCode?: string }) {
-    const result = await http.post<{ user: LocalUser }>("/auth/register", input);
+export async function register(input: {
+    username: string;
+    email?: string;
+    emailCode?: string;
+    phone?: string;
+    smsCode?: string;
+    ticket?: string;
+    displayName?: string;
+    password: string;
+    acceptedTerms: boolean;
+    referralCode?: string;
+    turnstileToken?: string;
+}) {
+    const result = await http.post<{ user: LocalUser }>("/auth/register", input, { session: "public" });
     invalidateAuthSessionCache();
     return result;
 }

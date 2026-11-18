@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentEvent, CreateAgentRunInput } from "../src/services/api/agent";
+import { useUserStore } from "../src/stores/use-user-store";
 
 // Exercise the production protocol, isolating only transport/storage dependencies.
 // Temporary modules avoid mock.module leaking into unrelated Bun test suites.
@@ -15,6 +16,7 @@ writeFileSync(
     join(dir, "agent.ts"),
     readFileSync(new URL("services/api/agent.ts", root), "utf8")
         .replace('"@/services/api/request"', JSON.stringify(requestPath))
+        .replace('"@/lib/skill-access"', JSON.stringify(fileURLToPath(new URL("lib/skill-access.ts", root))))
         .replace('"@/lib/user-scope"', JSON.stringify(fileURLToPath(new URL("lib/user-scope.ts", root))))
         .replace('"@/services/api/task-text-stream"', JSON.stringify(fileURLToPath(new URL("services/api/task-text-stream.ts", root)))),
 );
@@ -37,7 +39,10 @@ const nativeFetch = globalThis.fetch;
 const nativeTimer = globalThis.setTimeout;
 let delays: number[] = [];
 let stops: Array<() => void> = [];
+let originalUser: ReturnType<typeof useUserStore.getState>;
 beforeEach(() => {
+    originalUser = useUserStore.getState();
+    useUserStore.setState({ hydrated: true, user: { id: "agent-reliability-user", username: "agent-reliability-user", displayName: "Agent 测试用户", role: "user", status: "active" } });
     delays = [];
     storage.data.clear();
     // Retain watchdog semantics; accelerate only retry waits, recording real delays.
@@ -47,6 +52,7 @@ beforeEach(() => {
     }) as typeof setTimeout;
 });
 afterEach(() => {
+    useUserStore.setState(originalUser);
     stops.forEach((stop) => stop());
     stops = [];
     globalThis.fetch = nativeFetch;
@@ -164,10 +170,27 @@ describe("Agent SSE recovery", () => {
         let requests = 0;
         globalThis.fetch = (async (_url, init) => {
             requests++;
-            return new Promise<Response>((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(new Error("timeout")), { once: true }));
+            return new Promise<Response>((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(new DOMException("The operation was aborted", "AbortError")), { once: true }));
         }) as typeof fetch;
-        expect(await observe({ timeoutMs: 10 }).done).toBeInstanceOf(Error);
+        const result = observe({ timeoutMs: 10 });
+        expect(await result.done).toMatchObject({ name: "AbortError" });
         expect(requests).toBe(5);
+        expect(result.statuses.at(-1)).toBe("disconnected");
+    });
+
+    it("reconnects after a watchdog AbortError and receives the terminal run state", async () => {
+        let requests = 0;
+        globalThis.fetch = (async (_url, init) => {
+            requests++;
+            if (requests === 1) return new Promise<Response>((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(new DOMException("The operation was aborted", "AbortError")), { once: true }));
+            return stream(snapshot("completed"));
+        }) as typeof fetch;
+        const result = observe({ timeoutMs: 10 });
+        await expect(result.done).resolves.toBeUndefined();
+        expect(requests).toBe(2);
+        expect(result.statuses).toContain("reconnecting");
+        expect(result.statuses.at(-1)).toBe("connected");
+        expect(result.events.filter((item) => item.type === "run_status").map((item) => item.payload.status)).toEqual(["completed"]);
     });
 
     it("unsubscribe aborts the live reader without reporting a run failure", async () => {
@@ -194,18 +217,21 @@ describe("Agent SSE recovery", () => {
 
 describe("Agent admission replay and durable pending records", () => {
     const input: CreateAgentRunInput = { canvasId: "canvas", prompt: "generate", model: "original", idempotencyKey: "stable-key-123" };
-    it("retries with a frozen original body/key and a bounded HTTP timeout", async () => {
+    it.each([false, true])("retries with a frozen original body/key and a bounded HTTP timeout (skills selected: %s)", async (withSkills) => {
         const bodies: unknown[] = [];
-        const mutable = { ...input };
+        const expectedBody: CreateAgentRunInput = withSkills ? { ...input, pinnedSkillIds: ["installed-skill"], contextScope: ["skills"] } : input;
+        const mutable = structuredClone(expectedBody);
         transport.http.post = async (_path: string, body: unknown, options: unknown) => {
             bodies.push(structuredClone(body));
             expect(options).toEqual({ timeout: 15_000 });
             mutable.model = "changed";
+            mutable.pinnedSkillIds?.push("changed-skill");
+            mutable.contextScope?.splice(0);
             if (bodies.length < 3) throw { retryable: true };
             return { run: { id: "accepted" } };
         };
         expect(await api.createAgentRun(mutable)).toMatchObject({ run: { id: "accepted" } });
-        expect(bodies).toEqual([input, input, input]);
+        expect(bodies).toEqual([expectedBody, expectedBody, expectedBody]);
     });
 
     it("limits transport failures to three attempts, but never retries admission rejection", async () => {

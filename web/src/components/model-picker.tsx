@@ -60,6 +60,7 @@ export function ModelPicker({
     modelDisabledReason,
 }: ModelPickerProps) {
     const creditsEnabled = useUserStore((state) => state.features.creditsEnabled);
+    const userId = useUserStore((state) => state.user?.id);
     const pickerId = useId();
     // 双保险：即使 store merge 写出非法 theme，这里也兜底到 dark，避免 "reading 'node'" 崩溃
     const rawTheme = useActiveTheme();
@@ -89,9 +90,6 @@ export function ModelPicker({
     const creationVariant = variant === "creation";
     const currentChannel = current ? resolveModelChannel(config, current) : undefined;
     const isCurrentCustomChannel = Boolean(current && currentChannel && currentChannel.scope !== "system");
-    const currentChannelLabel = current ? modelChannelLabel(config, current) : "";
-    const currentModelName = current ? modelOptionName(current) : "";
-    const showChannelBadge = Boolean(currentChannelLabel && currentChannelLabel !== currentModelName && currentChannelLabel !== modelDisplayName(config, current) && !isCurrentCustomChannel);
 
     useLayoutEffect(() => {
         if (!open) return;
@@ -109,7 +107,7 @@ export function ModelPicker({
     }, [open]);
 
     useEffect(() => {
-        if (!showSelectedPrice || !creditsEnabled || !quoteRequest) {
+        if (!userId || !showSelectedPrice || !creditsEnabled || !quoteRequest) {
             setRouteQuote(undefined);
             return;
         }
@@ -121,7 +119,7 @@ export function ModelPicker({
                 if (!controller.signal.aborted) setRouteQuote(undefined);
             });
         return () => controller.abort();
-    }, [creditsEnabled, quoteRequest, showSelectedPrice]);
+    }, [creditsEnabled, quoteRequest, showSelectedPrice, userId]);
 
     useEffect(() => {
         const closeOtherPicker = (event: Event) => {
@@ -375,11 +373,6 @@ export function ModelPicker({
                             <ModelIcon config={config} model={current} />
                         </span>
                         <span className="min-w-0 flex-1 truncate">{triggerLabel || (current ? (creationVariant ? pickerModelDisplayName(config, current, showConfiguredModelName) : pickerModelOptionLabel(config, current, showConfiguredModelName)) : placeholder)}</span>
-                        {showChannelBadge ? (
-                            <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium leading-none bg-foreground/10 text-foreground/70" title={currentChannelLabel}>
-                                {currentChannelLabel.length > 8 ? currentChannelLabel.slice(0, 8) : currentChannelLabel}
-                            </span>
-                        ) : null}
                         {isCurrentCustomChannel ? <span className="shrink-0 rounded px-2 py-0.5 text-[var(--fs-label)] font-medium leading-none bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/25">个人</span> : null}
                         {showSelectedPrice && creditsEnabled ? <ModelPrice price={currentPrice} quote={routeQuote} compact /> : null}
                     </span>

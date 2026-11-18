@@ -50,6 +50,7 @@ const { AgentChatComposer, AgentQuestionBar, AgentSceneCapsules } = await import
 const { CanvasAgentSkillLibraryModal } = await import("@/components/canvas/canvas-agent-skill-library-modal");
 const { useAgentPanelDock } = await import("@/components/canvas/use-agent-panel-dock");
 const { useGlobalAgentStore } = await import("@/stores/use-global-agent-store");
+const { useUserStore } = await import("@/stores/use-user-store");
 const { restoreAgentPanelDock } = await import("@/lib/canvas/agent-panel-dock");
 const { defaultConfig } = await import("@/stores/use-config-store");
 const { canvasThemes } = await import("@/lib/canvas-theme");
@@ -95,6 +96,7 @@ let chosenPresets: string[];
 
 beforeEach(() => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 1280 });
+    useUserStore.setState({ hydrated: true, user: { id: "sidebar-admin", username: "sidebar-admin", displayName: "侧栏管理员", role: "admin", status: "active" } });
     useGlobalAgentStore.setState({ open: true, canvas, dock: { ...initialDock } });
     host = document.createElement("div");
     document.body.append(host);
@@ -289,7 +291,7 @@ function SidebarFixture() {
     );
 }
 
-test("空会话恢复原光球、居中欢迎文案和三个入口，输入仍可操作", async () => {
+test("管理员空会话恢复原光球、居中欢迎文案和三个入口，输入仍可操作", async () => {
     await render(<SidebarFixture />);
     expect(host.querySelector(".agent-welcome-orb")).not.toBeNull();
     expect(host.querySelector(".agent-welcome-intro h2")?.textContent).toContain("让灵感，慢慢成形");
@@ -303,6 +305,61 @@ test("空会话恢复原光球、居中欢迎文案和三个入口，输入仍�
     expect(button("发送").disabled).toBe(false);
     await click("发送");
     expect(sent).toEqual(["保留我的短片草稿"]);
+});
+
+test("普通用户欢迎页保留三个入口，可打开技能库且不丢失创作草稿", async () => {
+    useUserStore.setState({ user: { id: "sidebar-user", username: "sidebar-user", displayName: "侧栏用户", role: "user", status: "active" } });
+    await render(<SidebarFixture />);
+    expect(host.querySelectorAll(".agent-welcome-actions button")).toHaveLength(3);
+    expect(button("打开 Skills 技能库").disabled).toBe(false);
+    expect(host.textContent).toContain("选择技能，开始创作");
+    await type("普通用户的短片草稿");
+    await click("选择技能，开始创作");
+    await eventually(() => expect(document.querySelector('[role="dialog"] .agent-scene-capsules')).not.toBeNull());
+    await act(async () => document.querySelector<HTMLButtonElement>(".canvas-agent-skill-library-close")!.click());
+    await eventually(() => expect(document.querySelector(".agent-scene-capsules")).toBeNull());
+    expect(editorText()).toBe("普通用户的短片草稿");
+    await click("发送");
+    expect(sent).toEqual(["普通用户的短片草稿"]);
+});
+
+test("画布选择状态固定占一行，切换选区保留输入与其他上下文", async () => {
+    let toggles = 0;
+    const composer = (count: number, excluded = false) => (
+        <AgentChatComposer
+            prompt="保留我的草稿"
+            theme={theme}
+            placeholder="描述创作想法"
+            onPromptChange={noop}
+            onSubmit={noop}
+            includeAssetLibrary={false}
+            canvasSelection={{ count, excluded, onToggle: () => toggles++ }}
+            contextBar={<span>当前模型不能看图</span>}
+        />
+    );
+    await render(composer(0));
+    const row = host.querySelector(".agent-composer-canvas-selection");
+    const input = host.querySelector('[aria-label="Agent 输入"]');
+    const surface = host.querySelector(".agent-composer-surface");
+    const childCount = surface?.childElementCount;
+    expect(row?.textContent).toBe("未选中节点");
+    for (const count of [1, 24, 0]) {
+        await render(composer(count));
+        expect(host.querySelector(".agent-composer-canvas-selection")).toBe(row);
+        expect(host.querySelector('[aria-label="Agent 输入"]')).toBe(input);
+        expect(surface?.childElementCount).toBe(childCount);
+        expect(host.querySelector(".agent-composer-context")?.textContent).toBe("当前模型不能看图");
+        expect(input?.textContent).toBe("保留我的草稿");
+        if (count) {
+            expect(row?.textContent).toContain(`已选 ${count} 个节点`);
+            await click("这条消息不带选中的节点");
+        } else expect(row?.querySelector("button")).toBeNull();
+    }
+    expect(toggles).toBe(2);
+    await render(composer(2, true));
+    expect(row?.textContent).toContain("这条不带选中的 2 个节点");
+    await click("这条消息带上选中的节点");
+    expect(toggles).toBe(3);
 });
 
 test("原欢迎页创作入口只填草稿、保留已有输入，发送后收起", async () => {

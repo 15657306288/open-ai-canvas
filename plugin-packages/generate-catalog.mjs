@@ -94,8 +94,21 @@ function add(spec) {
 
 add({
   id: "openai-images", providerId: "openai-image", name: "OpenAI Images", vendor: "OpenAI", capability: "image",
-  baseUrl: "https://api.openai.com", auth: bearer, params: imageParams,
-  notes: "无参考图走 JSON generations；有参考图或蒙版走 multipart edits（官方与 LiteLLM 等网关的通用格式），单张参考图用 image 字段、多张用 image[]，蒙版用 mask。quality 的 1k/2k/4k 映射为 OpenAI low/medium/high。",
+  version: "2.2.2",
+  baseUrl: "https://api.openai.com", auth: bearer,
+  params: imageParams.map((parameter) => parameter[0] === "resolution"
+    ? ["resolution", "string", false, "size", "仅用于宿主选择像素尺寸与计价，不发送独立 resolution 字段。"]
+    : parameter),
+  imageParameters: [
+    { name: "size", label: "画幅 / 尺寸", type: "string", binding: "aspectRatio", encoding: "pixels", pricing: true },
+    { name: "imageResolution", label: "分辨率", type: "string", binding: "resolution", enabled: false, pricing: true },
+    { name: "quality", label: "图片质量", type: "string", binding: "quality", pricing: true },
+    { name: "count", label: "生成数量", type: "integer", binding: "imageCount", min: 1, max: 100, step: 1, default: 1 },
+    { name: "transparentBackground", label: "透明背景", type: "boolean", binding: "transparentBackground", default: false, enabled: false },
+    { name: "outputFormat", label: "输出格式", type: "string", binding: "providerOptions.openai-image.output_format", values: ["png", "jpeg", "webp", "gif"], default: "png", enabled: false },
+    { name: "outputCompression", label: "压缩质量", type: "integer", binding: "providerOptions.openai-image.output_compression", min: 0, max: 100, step: 1, enabled: false }
+  ],
+  notes: "无参考图走 JSON generations；有参考图或蒙版走 multipart edits（官方与 LiteLLM 等网关的通用格式），单张参考图用 image 字段、多张用 image[]，蒙版用 mask。1K/2K/4K 档位只用于选择 size 像素预设及计价，不向上游发送 resolution；自动尺寸由模型决定。quality 独立发送，auto 时省略，不把分辨率档位转换为质量。输出格式通过 providerOptions.openai-image.output_format 发送；管理员须按渠道实际能力启用并限定枚举，支持 GIF 的 GPT Image 2.6 渠道可使用对应能力模板。Base64 响应读取单张或顶层 output_format，并按实际文件头识别格式；GIF 下载保留原文件动画。",
   create: {
     method: "POST",
     path: "/v1/images/generations",
@@ -112,17 +125,7 @@ add({
       prompt: ref("request.prompt"),
       n: omit(conditional(gt(ref("request.imageCount"), 0), ref("request.imageCount"), 1)),
       size: omit(conditional({ $in: [lower(trim(ref("request.aspectRatio"))), ["", "auto"]] }, null, ref("request.aspectRatio"))),
-      quality: omit({
-        $switch: {
-          cases: [
-            { when: { $in: [lower(trim(ref("request.quality"))), ["1k"]] }, then: "low" },
-            { when: { $in: [lower(trim(ref("request.quality"))), ["2k"]] }, then: "medium" },
-            { when: { $in: [lower(trim(ref("request.quality"))), ["4k"]] }, then: "high" },
-            { when: { $in: [lower(trim(ref("request.quality"))), ["", "auto"]] }, then: null }
-          ],
-          default: ref("request.quality")
-        }
-      }),
+      quality: omit(conditional({ $in: [lower(trim(ref("request.quality"))), ["", "auto"]] }, null, ref("request.quality"))),
       background: omit(coalesce(
         ref("request.providerOptions.openai-image.background"),
         conditional(eq(ref("request.extra.transparentBackground"), "true"), "transparent", null)
@@ -139,7 +142,8 @@ add({
     status: "succeeded",
     images: map(ref("response.data"), "item", {
       url: omit(ref("item.url")),
-      dataUrl: conditional(ref("item.b64_json"), { $concat: ["data:image/png;base64,", ref("item.b64_json")] })
+      b64_json: omit(ref("item.b64_json")),
+      output_format: omit(coalesce(ref("item.output_format"), ref("response.output_format")))
     }),
     usage: ref("response.usage"), errorPaths: ["error.code"], messagePaths: ["error.message"]
   }
@@ -225,15 +229,42 @@ const arkSeedreamImageBody = (optionNamespace) => ({
 });
 
 add({
-  id: "volcengine-ark-seedream", providerId: "volcengine-ark-image", name: "Volcengine Ark Seedream Images", vendor: "Volcengine", capability: "image",
+  id: "volcengine-ark-seedream", providerId: "volcengine-ark-image", name: "火山方舟 Seedream 官方图片生成", vendor: "Volcengine", capability: "image",
+  version: "2.1.0",
+  description: "火山方舟官方 Seedream 图片生成接口，使用普通 /api/v3 推理 API Key；支持图片生成和参考图编辑。",
+  readmeIntro: "火山方舟官方声明式图片协议插件，面向普通 `/api/v3` Seedream 图片生成接口。使用方舟推理 API Key，可生成图片或通过参考图编辑。",
+
   baseUrl: "https://ark.cn-beijing.volces.com", auth: bearer, params: imageParams,
+  imageParameters: [
+    { name: "size", label: "画幅 / 尺寸", type: "string", pricing: true, binding: "aspectRatio", encoding: "pixels" },
+    { name: "imageResolution", label: "分辨率", type: "string", values: ["1k", "1.5k", "2k"], default: "2k", pricing: true, binding: "resolution" },
+    { name: "layerDecomposition", label: "图层拆分", type: "boolean", default: false, pricing: true, binding: "providerOptions.volcengine-ark-image.layer_decomposition" },
+    { name: "maxImages", label: "最多输出张数（含底图）", type: "integer", min: 2, max: 100, step: 1, default: 30, binding: "providerOptions.volcengine-ark-image.max_images" },
+    { name: "layerSize", label: "拆层输出尺寸", type: "string", values: ["1K", "1.5K", "2K", "auto"], default: "auto", binding: "providerOptions.volcengine-ark-image.layer_size" },
+    { name: "background", label: "图片背景", type: "string", values: ["auto", "opaque", "transparent"], default: "auto", binding: "providerOptions.volcengine-ark-image.background" },
+    { name: "outputFormat", label: "输出格式", type: "string", values: ["png", "jpeg"], default: "png", binding: "providerOptions.volcengine-ark-image.output_format" },
+    { name: "textRecognition", label: "拆层时识别文字", type: "boolean", default: false, binding: "providerOptions.volcengine-ark-image.text_recognition" }
+  ].map((parameter) => ({ ...parameter, models: ["doubao-seedream-5-5-261028"] })),
   notes: "官方 Ark 推理接入：Base URL 使用 /api/v3，API Key 来自方舟推理接入控制台，不可与 Agent Plan 专属 Key 混用。",
-  create: jsonCreate("/api/v3/images/generations", arkSeedreamImageBody("volcengine-ark-image")),
+  create: jsonCreate("/api/v3/images/generations", {
+    ...arkSeedreamImageBody("volcengine-ark-image"),
+    size: conditional(eq(ref("request.providerOptions.volcengine-ark-image.layer_decomposition"), true), coalesce(ref("request.providerOptions.volcengine-ark-image.layer_size"), "auto"), arkSeedreamImageBody("volcengine-ark-image").size),
+    layer_decomposition: omit(ref("request.providerOptions.volcengine-ark-image.layer_decomposition")),
+    layer_decomposition_options: omit(conditional(eq(ref("request.providerOptions.volcengine-ark-image.layer_decomposition"), true), {
+      max_images: coalesce(ref("request.providerOptions.volcengine-ark-image.max_images"), 30),
+      text_recognition: coalesce(ref("request.providerOptions.volcengine-ark-image.text_recognition"), false)
+    })),
+    background: omit(conditional(eq(ref("request.providerOptions.volcengine-ark-image.layer_decomposition"), true), null, ref("request.providerOptions.volcengine-ark-image.background"))),
+    output_format: omit(ref("request.providerOptions.volcengine-ark-image.output_format"))
+  }),
   response: { status: "succeeded", images: ref("response.data"), usage: ref("response.usage"), errorPaths: ["error.code"], messagePaths: ["error.message"] }
 });
 
 add({
-  id: "volcengine-ark-agent-plan-seedream", providerId: "volcengine-ark-agent-plan-image", name: "Volcengine Ark Agent Plan Seedream Images", vendor: "Volcengine", capability: "image",
+  id: "volcengine-ark-agent-plan-seedream", providerId: "volcengine-ark-agent-plan-image", name: "火山方舟 Seedream Agent Plan 图片接口", vendor: "Volcengine", capability: "image",
+  description: "火山方舟 Agent Plan 专用 Seedream /api/plan/v3 图片生成接口，需要专用 API Key 和 AFP 额度；与普通 /api/v3 分开配置。",
+  readmeIntro: "火山方舟 Agent Plan 专用声明式图片协议插件，使用 `/api/plan/v3` 图片生成接口。需要 Agent Plan 专用 API Key 和 AFP 额度，不能与普通 `/api/v3` 方舟接口混用。",
+
   baseUrl: "https://ark.cn-beijing.volces.com", auth: bearer, params: imageParams,
   notes: "Agent Plan 专属接入：请求路径为 /api/plan/v3/images/generations，必须使用 Agent Plan 控制台专属 API Key；请求体与官方 Seedream 协议一致，但凭证与额度按 AFP 套餐结算，不能与 /api/v3 官方 Key 混用。",
   create: jsonCreate("/api/plan/v3/images/generations", arkSeedreamImageBody("volcengine-ark-agent-plan-image")),
@@ -304,7 +335,10 @@ const arkSeedanceResponse = {
 };
 
 add({
-  id: "volcengine-ark-seedance", providerId: "volcengine-ark-video", name: "Volcengine Ark Seedance", vendor: "Volcengine", capability: "video",
+  id: "volcengine-ark-seedance", providerId: "volcengine-ark-video", name: "火山方舟 Seedance 官方视频生成", vendor: "Volcengine", capability: "video",
+  description: "火山方舟官方 Seedance 视频生成接口，使用普通 /api/v3 Contents Generations Tasks 和方舟推理 API Key；不是 Agent Plan 专用线路。",
+  readmeIntro: "火山方舟官方声明式协议插件，面向普通 `/api/v3` Contents Generations Tasks 视频生成接口。使用普通方舟 API Key 和 Endpoint，可接入 Seedance 视频模型。",
+
   baseUrl: "https://ark.cn-beijing.volces.com", auth: bearer, params: arkSeedanceParams, requiresPublicMediaUrls: true,
   validations: arkSeedanceValidations,
   notes: "官方 Ark 推理接入：创建/查询/取消走 /api/v3/contents/generations/tasks；插件不根据图片下标推断首尾帧，role 由业务层确定。API Key 来自方舟推理接入控制台。",
@@ -315,7 +349,10 @@ add({
 });
 
 add({
-  id: "volcengine-ark-agent-plan-seedance", providerId: "volcengine-ark-agent-plan-video", name: "Volcengine Ark Agent Plan Seedance", vendor: "Volcengine", capability: "video",
+  id: "volcengine-ark-agent-plan-seedance", providerId: "volcengine-ark-agent-plan-video", name: "火山方舟 Seedance Agent Plan 视频接口", vendor: "Volcengine", capability: "video",
+  description: "火山方舟 Agent Plan 专用 Seedance /api/plan/v3 视频生成接口，需要专用 API Key 和 AFP 额度；与普通 /api/v3 分开配置。",
+  readmeIntro: "火山方舟 Agent Plan 专用声明式协议插件，使用 `/api/plan/v3` 视频生成接口。需要 Agent Plan 专用 API Key 和 AFP 额度，不能与普通 `/api/v3` 方舟接口混用。",
+
   baseUrl: "https://ark.cn-beijing.volces.com", auth: bearer, params: arkSeedanceParams, requiresPublicMediaUrls: true,
   validations: arkSeedanceValidations,
   notes: "Agent Plan 专属接入：创建/查询/取消走 /api/plan/v3/contents/generations/tasks；请求体与官方 Seedance 协议一致，但必须使用 Agent Plan 专属 API Key 与 AFP 额度，不能与 /api/v3 官方 Key 混用。",
@@ -394,7 +431,10 @@ const jimengResponse = (kind, results) => asyncResponse(kind, {
 });
 
 add({
-  id: "volcengine-jimeng-image", providerId: "volcengine-jimeng-image", name: "Volcengine Jimeng Image", vendor: "Volcengine", capability: "image",
+  id: "volcengine-jimeng-image", providerId: "volcengine-jimeng-image", name: "火山即梦 官方图片生成", vendor: "Volcengine", capability: "image",
+  description: "火山即梦 Visual API 图片生成接口，使用 API Key 与 Secret Key；协议和凭证不同于火山方舟 Seedream。",
+  readmeIntro: "火山即梦 Visual API 官方声明式图片协议插件，使用 API Key 与 Secret Key。它与火山方舟 Seedream 使用不同的接口协议和凭证。",
+
   baseUrl: "https://visual.volcengineapi.com", auth: { type: "volcengine-v4", field: "apiKey", secretField: "secretKey", service: "cv", region: "cn-north-1" }, params: imageParams,
   configuration: config([{ name: "secretKey", type: "secret", label: "Secret Key", required: true }]),
   notes: "本地参考图走 binary_data_base64；公网 URL 走 image_urls。WxH 尺寸拆成 width/height。",
@@ -647,7 +687,10 @@ add({
 });
 
 add({
-  id: "volcengine-jimeng-video", providerId: "volcengine-jimeng-video", name: "Volcengine Jimeng Video", vendor: "Volcengine", capability: "video",
+  id: "volcengine-jimeng-video", providerId: "volcengine-jimeng-video", name: "火山即梦 官方视频生成", vendor: "Volcengine", capability: "video",
+  description: "火山即梦 Visual API 视频生成接口，使用 API Key 与 Secret Key；协议和凭证不同于火山方舟 Seedance。",
+  readmeIntro: "火山即梦 Visual API 官方声明式视频协议插件，使用 API Key 与 Secret Key。它与火山方舟 Seedance 使用不同的接口协议和凭证。",
+
   baseUrl: "https://visual.volcengineapi.com", auth: { type: "volcengine-v4", field: "apiKey", secretField: "secretKey", service: "cv", region: "cn-north-1" }, params: videoParams,
   configuration: config([{ name: "secretKey", type: "secret", label: "Secret Key", required: true }]),
   create: jsonCreate("/", {
@@ -819,6 +862,106 @@ add({
     ]
   },
   response: { status: "succeeded", images: coalesce(ref("response.data"), ref("response.images")), errorPaths: ["error.code"], messagePaths: ["error.message", "message"] }
+});
+
+// MiniMax H3 Image 使用 OpenAI 风格的 /v1/images/generations 与 /v1/images/edits，
+// 与旧 minimax-image（/v1/image_generation）是不同线协议，独立成包以免影响已配置的旧渠道。
+const minimaxH3Models = ["MiniMax-H3-Image", "MiniMax-H3-Image-Highspeed"];
+const minimaxH3Areas = ["1K", "2K", "4K"];
+const minimaxH3Aspect = lower(trim(ref("request.aspectRatio")));
+const minimaxH3PixelParts = split(minimaxH3Aspect, "x");
+const minimaxH3PixelWidth = toFloat(at(minimaxH3PixelParts, 0));
+const minimaxH3PixelHeight = toFloat(at(minimaxH3PixelParts, 1));
+const minimaxH3HasPixelSize = and(eq(len(minimaxH3PixelParts), 2), gt(minimaxH3PixelWidth, 0), gt(minimaxH3PixelHeight, 0));
+const minimaxH3RatioParts = split(minimaxH3Aspect, ":");
+const minimaxH3RatioWidth = toFloat(at(minimaxH3RatioParts, 0));
+const minimaxH3RatioHeight = toFloat(at(minimaxH3RatioParts, 1));
+const minimaxH3IsInteger = (value) => eq(value, toInt(value));
+// 1:3 到 3:1（含边界）用乘法比较，避免浮点除法误差和除零。
+const minimaxH3WithinRatio = (width, height) => and(lte(width, multiply(height, 3)), lte(height, multiply(width, 3)));
+const minimaxH3ValidPixelSize = and(
+  minimaxH3HasPixelSize, minimaxH3IsInteger(minimaxH3PixelWidth), minimaxH3IsInteger(minimaxH3PixelHeight),
+  gte(multiply(minimaxH3PixelWidth, minimaxH3PixelHeight), 655360), lte(multiply(minimaxH3PixelWidth, minimaxH3PixelHeight), 20000000),
+  minimaxH3WithinRatio(minimaxH3PixelWidth, minimaxH3PixelHeight)
+);
+const minimaxH3ValidRatio = and(
+  eq(len(minimaxH3RatioParts), 2), gte(minimaxH3RatioWidth, 1), lte(minimaxH3RatioWidth, 300), gte(minimaxH3RatioHeight, 1), lte(minimaxH3RatioHeight, 300),
+  minimaxH3IsInteger(minimaxH3RatioWidth), minimaxH3IsInteger(minimaxH3RatioHeight), minimaxH3WithinRatio(minimaxH3RatioWidth, minimaxH3RatioHeight)
+);
+const minimaxH3Resolution = { $upper: trim(ref("request.resolution")) };
+const minimaxH3OptionPath = "request.providerOptions.minimax-h3-image";
+const minimaxH3SuccessItems = filter(ref("response.data"), "item", { $or: [ref("item.url"), ref("item.b64_json")] });
+
+add({
+  id: "minimax-h3-image", providerId: "minimax-h3-image", name: "MiniMax H3 Image", vendor: "MiniMax", capability: "image",
+  baseUrl: "https://api.minimax.cn", auth: bearer, requiresPublicMediaUrls: false,
+  imageParameters: [
+    { name: "size", label: "画幅比例", type: "string", binding: "aspectRatio", encoding: "ratio", values: ["1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3", "21:9", "3:1", "1:3"], default: "1:1", pricing: true },
+    { name: "imageResolution", label: "分辨率", type: "string", binding: "resolution", values: minimaxH3Areas, default: "2K", pricing: true },
+    { name: "count", label: "生成数量", type: "integer", binding: "imageCount", min: 1, max: 10, step: 1, default: 1 },
+    { name: "quality", label: "图片质量", type: "string", binding: "quality", enabled: false },
+    { name: "transparentBackground", label: "透明背景", type: "boolean", binding: "transparentBackground", default: false, enabled: false },
+    // 渠道套用 GPT Image 能力模板时会带上 outputFormat/outputCompression；这里声明本插件自己的安全映射，默认停用。
+    { name: "outputFormat", label: "输出格式", type: "string", binding: "providerOptions.minimax-h3-image.output_format", values: ["jpeg", "png", "webp"], default: "jpeg", enabled: false },
+    { name: "outputCompression", label: "压缩质量", type: "integer", binding: "providerOptions.minimax-h3-image.output_compression", min: 0, max: 100, step: 1, enabled: false }
+  ],
+  params: [
+    ["model", "string", true, "model", "MiniMax-H3-Image 或 MiniMax-H3-Image-Highspeed。"],
+    ["prompt", "string", true, "prompt", "图片提示词，去除首尾空白后不能为空，最长 32000 个字符。"],
+    ["images", "media[]", false, "images[].image_url", "参考图，1 到 16 张，按 order 顺序下发；有参考图时改走 /v1/images/edits。不支持 mask。"],
+    ["imageCount", "integer", false, "n", "输出数量，1 到 10，未设置时为 1。"],
+    ["aspectRatio", "string", false, "aspect_ratio / size", "X:Y 比例（1 到 300 的整数，1:3 到 3:1）映射到 aspect_ratio，并固定 size=auto；宽x高像素尺寸映射到 size，不再发送 aspect_ratio 和 area。"],
+    ["resolution", "string", false, "area", "分辨率档位 1K、2K、4K；未设置时为 2K，避免落到上游默认的 4K。"],
+    ["providerOptions", "object", false, "output_format / output_compression", "仅开放 providerOptions.minimax-h3-image.output_format（jpeg/png/webp）与 output_compression（0-100）。"]
+  ],
+  validations: [
+    { assert: { $in: [ref("request.model"), minimaxH3Models] }, message: "MiniMax H3 Image 仅支持 MiniMax-H3-Image 或 MiniMax-H3-Image-Highspeed" },
+    { assert: and(gt(len(trim(ref("request.prompt"))), 0), lte(len(trim(ref("request.prompt"))), 32000)), message: "MiniMax H3 Image 提示词不能为空且不能超过 32000 个字符" },
+    { assert: lte(len(ref("request.images")), 16), message: "MiniMax H3 Image 最多支持 16 张参考图" },
+    { assert: eq(len(filter(ref("request.images"), "media", eq(ref("media.role"), "mask"))), 0), message: "MiniMax H3 Image 不支持蒙版（mask）局部编辑，请改用提示词描述需要修改的区域" },
+    { assert: { $or: [eq(ref("request.imageCount"), null), eq(ref("request.imageCount"), 0), and(gte(ref("request.imageCount"), 1), lte(ref("request.imageCount"), 10))] }, message: "MiniMax H3 Image 生成数量必须为 1 到 10" },
+    { assert: { $or: [{ $in: [minimaxH3Aspect, ["", "auto"]] }, minimaxH3ValidRatio, minimaxH3ValidPixelSize] }, message: "MiniMax H3 Image 比例须在 1:3 到 3:1 之间；像素尺寸须为「宽x高」整数，总像素 655360 到 20000000" },
+    { assert: { $in: [minimaxH3Resolution, ["", "AUTO", ...minimaxH3Areas]] }, message: "MiniMax H3 Image 分辨率仅支持 1K、2K、4K" },
+    { assert: { $in: [coalesce(lower(trim(ref(`${minimaxH3OptionPath}.output_format`))), "jpeg"), ["jpeg", "jpg", "png", "webp"]] }, message: "MiniMax H3 Image 输出格式仅支持 jpeg、png、webp" }
+  ],
+  create: {
+    method: "POST",
+    path: "/v1/images/generations",
+    pathTemplate: conditional(gt(len(ref("request.images")), 0), "/v1/images/edits", "/v1/images/generations"),
+    contentType: "application/json",
+    body: {
+      model: ref("request.model"),
+      prompt: ref("request.prompt"),
+      n: conditional(gt(ref("request.imageCount"), 0), ref("request.imageCount"), 1),
+      // 宿主会为 /images/generations 补全 OpenAI 像素 size；这里必须显式声明 size，比例输入时固定为 auto。
+      size: conditional(minimaxH3HasPixelSize, minimaxH3Aspect, "auto"),
+      // 上游规定像素尺寸模式下不能出现 aspect_ratio 与 area（即使是 auto）。
+      aspect_ratio: conditional({ $or: [minimaxH3HasPixelSize, { $in: [minimaxH3Aspect, ["", "auto"]] }] }, null, minimaxH3Aspect),
+      area: conditional(minimaxH3HasPixelSize, null, conditional({ $in: [minimaxH3Resolution, minimaxH3Areas] }, minimaxH3Resolution, "2K")),
+      images: conditional(gt(len(ref("request.images")), 0), map(sorted(ref("request.images")), "media", { image_url: ref("media.value") })),
+      response_format: "url",
+      output_format: omit(lower(trim(ref(`${minimaxH3OptionPath}.output_format`)))),
+      output_compression: conditional({ $ne: [ref(`${minimaxH3OptionPath}.output_compression`), null] }, toInt(ref(`${minimaxH3OptionPath}.output_compression`))),
+      // 显式占位但不发送：阻止宿主按 OpenAI 规则补 quality/background，H3 不支持这两个字段。
+      quality: null,
+      background: null
+    }
+  },
+  response: {
+    // data[] 中失败的单张只有 error 字段；全部失败时上游返回 4xx/5xx，宿主按 HTTP 错误处理。
+    status: conditional(gt(len(minimaxH3SuccessItems), 0), "succeeded", "failed"),
+    message: coalesce(ref("response.error.message"), first(map(filter(ref("response.data"), "item", ref("item.error")), "item", ref("item.error.message"))), conditional(eq(len(minimaxH3SuccessItems), 0), "MiniMax H3 Image 没有返回可用图片")),
+    images: map(minimaxH3SuccessItems, "item", {
+      url: omit(ref("item.url")),
+      dataUrl: omit(ref("item.b64_json")),
+      output_format: omit(ref("response.output_format"))
+    }),
+    usage: ref("response.usage"),
+    resultEphemeral: true,
+    errorPaths: ["error.code", "error.type"],
+    messagePaths: ["error.message"]
+  },
+  notes: `适配 MiniMax 开放平台 H3 图片接口，模型为 MiniMax-H3-Image 与 MiniMax-H3-Image-Highspeed（参数和限制相同）。默认 Base URL 为国内站 https://api.minimax.cn，国际站可改为 https://api.minimax.io；API Key 需与站点对应。\n\n无参考图走 POST /v1/images/generations，有参考图走 POST /v1/images/edits（JSON，images[].image_url），参考图 1 到 16 张、按 order 保持顺序，支持公网 URL 或 data URI；请求体总大小上限 64 MiB。不支持 mask、透明背景和质量档位：mask 会在校验阶段明确拒绝，quality/background 不会发送。区域改色等局部修改只能通过提示词描述实现。\n\n比例输入发送 size=auto + aspect_ratio + area；「宽x高」像素输入只发送 size（总像素 655360 到 20000000，比例 1:3 到 3:1），不发送 aspect_ratio 与 area。area 未设置时固定发送 2K，避免落到上游默认的 4K。output_format 与 output_compression 只能通过本插件 providerOptions 命名空间设置，默认不发送（上游默认 jpeg、95）。\n\n同步返回，response_format 固定为 url；图片 URL 不保证长期可用，已声明 resultEphemeral，由宿主立即下载持久化。data[] 中只有 error 的失败项会被跳过，至少一张成功即成功；全部失败时上游返回 402/422/500，按 HTTP 错误失败。usage 原样保留供核对，不改写本地计费规则。\n\n风险：上游最长处理 600 秒，而宿主请求超时固定为 5 分钟，4K 多图可能先超时；上游接口不幂等，客户端超时或断开后仍会完成生成并对成功图片扣费，重试会再次扣费。\n\n官方接口：[文生图](https://platform.minimax.io/docs/api-reference/image-generation-h3-generations)、[图片编辑](https://platform.minimax.io/docs/api-reference/image-generation-h3-edits)、[国内站图片生成指南](https://platform.minimax.cn/docs/guides/image-generation)。`
 });
 
 const minimaxInputs = coalesce({ $concatArrays: [
@@ -1176,9 +1319,9 @@ function manifestFor(spec) {
     apiVersion: "yingce.plugin/v2",
     id: spec.id,
     name: spec.name,
-    version: "2.0.0",
+    version: spec.version || "2.0.0",
     author: `${spec.vendor} / 影策`,
-    description: `${spec.name} 独立请求协议插件。`,
+    description: spec.description || `${spec.name} 独立请求协议插件。`,
     documentation: `# ${spec.name}\n\n完整字段、映射、响应、鉴权和兼容边界见包内 README.md 与 docs/interface.md。\n\n## 影策运行时合同\n\n用户只操作统一的文本、图片或视频能力；插件负责把统一请求转换为 ${spec.name} 上游协议。`,
     permissions: ["generation.run", "media.read"],
     configuration: spec.configuration || config(),
@@ -1191,6 +1334,7 @@ function manifestFor(spec) {
         baseUrl: spec.baseUrl,
         requiresPublicMediaUrls: spec.requiresPublicMediaUrls === true,
         auth: spec.auth,
+        ...(spec.imageParameters ? { imageParameters: spec.imageParameters } : {}),
         parameters: parameters(spec.params),
         ...(spec.validations ? { validations: spec.validations } : {}),
         create: spec.create,
@@ -1313,7 +1457,8 @@ for (const spec of selectedSpecs) {
   }
   await mkdir(join(dir, "docs"), { recursive: true });
   await writeFile(join(dir, "manifest.json"), JSON.stringify(manifestFor(spec), null, 2) + "\n");
-  await writeFile(join(dir, "README.md"), `# ${spec.name}\n\n该目录是独立官方协议插件源码。后端从生成的 \`${spec.id}.yingce-plugin\` 包加载，不依赖系统内置 \`host:\` 适配器。\n\n完整接口见 [docs/interface.md](docs/interface.md)。\n`);
+  const readmeIntro = spec.readmeIntro || "该目录是独立官方协议插件源码。";
+  await writeFile(join(dir, "README.md"), `# ${spec.name}\n\n${readmeIntro}\n\n后端从生成的 \`${spec.id}.yingce-plugin\` 包加载，不依赖系统内置 \`host:\` 适配器。\n\n完整接口见 [docs/interface.md](docs/interface.md)。\n`);
   await writeFile(join(dir, "docs", "interface.md"), docsFor(spec));
 }
 
