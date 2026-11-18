@@ -1,4 +1,4 @@
-import { AutoComplete, Button, Input, Popover, Select, Tooltip } from "antd";
+import { AutoComplete, Button, Input, Popover, Select, Switch, Tooltip } from "antd";
 import { ArrowUp, Check, ChevronDown, Scissors, ClipboardPaste, FolderOpen, Link2, LoaderCircle, Music2, Play, Plus, Sparkles, Volume2, VolumeX, X } from "lucide-react";
 import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type ReactNode } from "react";
 
@@ -538,7 +538,9 @@ export function EcommerceVideoComposer({ state }: { state: EcommerceVideoState }
                     </div>
                     {state.hasProductImage ? (
                         <label className="ecv-subject">
-                            <span>商品名称 <small>选填</small></span>
+                            <span>
+                                商品名称 <small>选填</small>
+                            </span>
                             <Input variant="filled" maxLength={60} placeholder="例如：海盐曲奇饼干" value={state.productName} onChange={(event) => state.setProductName(event.target.value)} />
                         </label>
                     ) : null}
@@ -665,6 +667,27 @@ export function EcommerceVideoComposer({ state }: { state: EcommerceVideoState }
                     </Section>
                 ) : null}
                 <Section title="模型与参数">
+                    <label className="ecv-auto-model">
+                        <Switch size="small" checked={state.autoModel} onChange={state.setAutoModel} />
+                        <span>
+                            <strong>自动选模型</strong>
+                            <small>按参考视频时长推荐模型、分段和参考视频切分</small>
+                        </span>
+                    </label>
+                    {state.autoModel && state.route?.recommended ? (
+                        <div className="ecv-route-card">
+                            <strong>
+                                推荐 {state.route.recommended.label} · {state.route.recommended.track === "reference" ? "参考视频复刻" : "脚本复刻"}
+                                {state.route.recommended.faceSafe ? " · 不卡人脸" : ""}
+                            </strong>
+                            <span>
+                                原片 {state.route.sourceSeconds} 秒 → {state.route.recommended.tasks} 段生成（{(state.route.recommended.taskSeconds || []).join(" + ")} 秒）
+                                {state.route.recommended.clipsPerTask > 1 ? ` · 每段原片切成 ${state.route.recommended.clipsPerTask} 个参考视频上传` : ""}
+                            </span>
+                            <small>{state.route.reason}</small>
+                        </div>
+                    ) : null}
+                    {state.autoModel && state.routeError ? <p className="ecv-mode-note">{state.routeError}</p> : null}
                     <div className="ecv-params">
                         <div className="ecv-param">
                             <small>模型</small>
@@ -679,7 +702,11 @@ export function EcommerceVideoComposer({ state }: { state: EcommerceVideoState }
                                 showOptionPrices
                                 modelFilter={state.systemModel}
                                 placeholder="暂无可用视频模型"
-                                onChange={state.setModel}
+                                onChange={(value: string) => {
+                                    // 手动选模型即退出自动选模型，以用户的选择为准。
+                                    if (value !== state.selectedModel) state.setAutoModel(false);
+                                    state.setModel(value);
+                                }}
                             />
                         </div>
                         <label className="ecv-param">
@@ -704,7 +731,7 @@ export function EcommerceVideoComposer({ state }: { state: EcommerceVideoState }
                         state.editMode ? (
                             <p className="ecv-mode-note is-edit">原片编辑：以参考视频为底片，场景、手部动作和运镜保持原样，只替换你的商品 / 人物</p>
                         ) : (
-                            <p className="ecv-mode-note">当前模型不能读取参考视频，只能按文字描述重新生成画面，场景和动作会与原视频不同；想保留原视频画面只换商品，请换用 Seedance 2.0 等支持参考视频的模型</p>
+                            <p className="ecv-mode-note">脚本复刻：当前模型不能读取参考视频，后台按反推出的逐秒动作、运镜和物理节奏脚本复刻，并用首尾帧接力保持连贯；画面结构接近原片但不会逐帧一致，想保留原视频画面只换商品，请换用支持参考视频的模型</p>
                         )
                     ) : null}
                 </Section>

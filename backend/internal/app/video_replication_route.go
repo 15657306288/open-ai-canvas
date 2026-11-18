@@ -367,6 +367,23 @@ func (s *Service) RouteVideoReplication(userID, projectID string) (*VideoReplica
 	return s.routeVideoReplication(userID, project.VideoType, params, sourceMs)
 }
 
+// VideoReplicationRouteInput 是提交前的推荐请求：页面读到参考视频（裁剪后）时长后即可预览推荐方案。
+type VideoReplicationRouteInput struct {
+	DurationMs  int64  `json:"durationMs"`
+	VideoType   string `json:"videoType"`
+	ReplaceMode string `json:"replaceMode"`
+}
+
+func (s *Service) PreviewVideoReplicationRoute(userID string, input VideoReplicationRouteInput) (*VideoReplicationRoute, error) {
+	if err := s.requireVideoReplication(); err != nil {
+		return nil, err
+	}
+	if input.DurationMs < videoReplicationMinDurationMs-videoReplicationDurationSlackMs || input.DurationMs > videoReplicationMaxSourceMs {
+		return nil, BadAuthRequest("参考视频时长无效")
+	}
+	return s.routeVideoReplication(userID, strings.TrimSpace(input.VideoType), VideoReplicationParameters{ReplaceMode: strings.TrimSpace(input.ReplaceMode)}, input.DurationMs)
+}
+
 func (s *Service) routeVideoReplication(userID, videoType string, params VideoReplicationParameters, sourceMs int64) (*VideoReplicationRoute, error) {
 	setting, err := s.videoReplicationSetting()
 	if err != nil {

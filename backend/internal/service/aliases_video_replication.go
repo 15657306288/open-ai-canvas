@@ -13,6 +13,7 @@ type (
 	VideoReplicationStartInput        = app.VideoReplicationStartInput
 	VideoReplicationRoute             = app.VideoReplicationRoute
 	VideoReplicationRouteOption       = app.VideoReplicationRouteOption
+	VideoReplicationRouteInput        = app.VideoReplicationRouteInput
 	VideoReplicationSetting           = app.VideoReplicationSetting
 	VideoReplicationVoiceCast         = app.VideoReplicationVoiceCast
 	VideoReplicationVoicePreviewInput = app.VideoReplicationVoicePreviewInput

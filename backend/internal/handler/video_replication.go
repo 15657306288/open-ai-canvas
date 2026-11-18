@@ -15,6 +15,28 @@ import (
 // RegisterVideoReplicationRoutes 注册影棚视频「商品视频复刻」接口；归属与功能开关都在 service 校验。
 func RegisterVideoReplicationRoutes(r *gin.RouterGroup, svc *service.Service) {
 	group := r.Group("/video-replication/projects")
+	r.POST("/video-replication/route", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		var req service.VideoReplicationRouteInput
+		if err := decodeWorkbenchJSON(c, &req); err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		route, err := svc.PreviewVideoReplicationRoute(user.ID, req)
+		if err != nil && route != nil {
+			ok(c, route)
+			return
+		}
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, route)
+	})
 	group.POST("/:id/outputs/:outputId/comparison-download", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
 		if err != nil {

@@ -14,6 +14,7 @@ import {
     getVideoReplicationProject,
     importVideoReplicationLinkStream,
     listVideoReplicationProjects,
+    previewVideoReplicationRoute,
     startVideoReplication,
     updateVideoReplicationProject,
     type VideoReplicationAsset,
@@ -21,6 +22,7 @@ import {
     type VideoReplicationRegion,
     type VideoReplicationProject,
     type VideoReplicationPublicConfig,
+    type VideoReplicationRoute,
     type VideoReplicationTarget,
     type VideoLinkProgress,
 } from "@/services/api/video-replication";
@@ -171,17 +173,16 @@ export function useEcommerceVideo() {
     const [loadingProjects, setLoadingProjects] = useState(true);
     const [publicConfig, setPublicConfig] = useState<VideoReplicationPublicConfig | null>(null);
     const [quoted, setEstimate] = useState<{ key: string; credits: number | null; label: string }>({ key: "", credits: null, label: "" });
+    // 自动选模型：读到参考视频时长后由后台按时长、复刻轨道、「不卡人脸」与真实报价推荐模型和分段，默认开启。
+    const [autoModel, setAutoModel] = useState(true);
+    const [routed, setRouted] = useState<{ key: string; route: VideoReplicationRoute | null; error: string }>({ key: "", route: null, error: "" });
     const submitInFlight = useRef(false);
     const draftProjectRef = useRef<Promise<string> | null>(null);
 
     const kindConfig: ReplaceKindConfig = replaceKindConfig(kind);
     // 替换音频时多一个参考音色位（放在「声音」里），提交时与素材一起登记到项目。
     const rhythmUi = kindConfig.audio === "rhythm";
-    const activeSlots = useMemo<MaterialSlot[]>(
-        () =>
-            rhythmUi || audio === "replace" ? [...kindConfig.slots, VOICE_SLOT] : kindConfig.slots,
-        [audio, kindConfig.slots, rhythmUi],
-    );
+    const activeSlots = useMemo<MaterialSlot[]>(() => (rhythmUi || audio === "replace" ? [...kindConfig.slots, VOICE_SLOT] : kindConfig.slots), [audio, kindConfig.slots, rhythmUi]);
 
     // ---------- 草稿：输入变化后写入本地，刷新后恢复 ----------
     // 挂载时用户信息还没加载好：等拿到用户 ID 后先恢复草稿，再开始写入，避免空面板覆盖已有草稿。
@@ -586,7 +587,14 @@ export function useEcommerceVideo() {
         const usable = allowedSeconds.filter((value) => value >= 4 && value <= limit);
         return usable.length ? Math.max(...usable) : allowedSeconds.length ? 0 : Math.max(0, limit);
     }, [allowedSeconds, editMode, editSeconds, segmentSeconds, voiceCount]);
-    const planSeconds = useMemo(() => (clipMs > 0 && voiceSegmentSeconds >= 4 ? estimateSegments(clipMs, voiceSegmentSeconds, allowedSeconds) : []), [allowedSeconds, clipMs, voiceSegmentSeconds]);
+    const routeKey = JSON.stringify([clipMs, kindConfig.id, kindConfig.targets.join(","), visibleImages.map((image) => image.category).join(",")]);
+    const route = autoModel && routed.key === routeKey ? routed.route : null;
+    const routeTaskSeconds = route?.recommended?.taskSeconds;
+    // 自动选模型且推荐模型已选中时，按后台的分段（参考视频可切成多段上传，单段可长于单个参考视频上限）预估。
+    const planSeconds = useMemo(() => {
+        if (routeTaskSeconds?.length && !voiceCount) return routeTaskSeconds;
+        return clipMs > 0 && voiceSegmentSeconds >= 4 ? estimateSegments(clipMs, voiceSegmentSeconds, allowedSeconds) : [];
+    }, [allowedSeconds, clipMs, routeTaskSeconds, voiceCount, voiceSegmentSeconds]);
     const quoteKey = JSON.stringify([selectedModel, ratio, resolution, planSeconds, referenceCount, referenceMode.mode, editMode, voiceCount]);
     const estimate = creditsEnabled && quoted.key === quoteKey ? quoted : { credits: null, label: "" };
     useEffect(() => {
@@ -611,6 +619,37 @@ export function useEcommerceVideo() {
         return [...new Set(visibleImages.flatMap((image) => CATEGORY_TARGET[image.category] || []))];
     }, [kindConfig.targets, visibleImages]);
     const adaptProductSpeech = targets.some((target) => target === "product" || target === "apparel");
+
+    // 读到时长或替换目标变化时向后台要推荐方案，并把模型选择器切到推荐模型。
+    useEffect(() => {
+        if (!autoModel || clipMs < 3950) return;
+        const controller = new AbortController();
+        const timer = window.setTimeout(() => {
+            previewVideoReplicationRoute({ durationMs: Math.round(clipMs), videoType: targets.join(","), replaceMode: kindConfig.id }, controller.signal)
+                .then((value) => {
+                    if (controller.signal.aborted) return;
+                    setRouted({ key: routeKey, route: value, error: value.recommended ? "" : value.reason });
+                    const ref = value.recommended?.model;
+                    if (!ref) return;
+                    const key = (ref.modelKey || "").replace(/^models\//, "");
+                    const match = selectableModelsByCapability(config, "video").find((model) =>
+                        ref.logicalModelId
+                            ? logicalModelIDForConfig({ ...config, model }) === ref.logicalModelId
+                            : !logicalModelIDForConfig({ ...config, model }) && resolveModelChannel(config, model)?.id === ref.channelId && modelOptionName(model).replace(/^models\//, "") === key,
+                    );
+                    if (match && match !== selectedModel) setModel(match);
+                })
+                .catch((error) => {
+                    if (!controller.signal.aborted) setRouted({ key: routeKey, route: null, error: errorText(error, "自动选模型失败，请手动选择模型") });
+                });
+        }, 300);
+        return () => {
+            window.clearTimeout(timer);
+            controller.abort();
+        };
+        // selectedModel 不进依赖：切到推荐模型后不需要重新请求。
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [autoModel, routeKey, config]);
 
     const missing = useMemo(() => {
         if (!selectedModel) return "暂无可用的视频模型";
@@ -640,7 +679,28 @@ export function useEcommerceVideo() {
         if (Array.from(notes).length > kindConfig.notesLimit) return `补充说明最多 ${kindConfig.notesLimit} 字`;
         if (creditsEnabled && estimate.credits === null && estimate.label !== "按实际用量结算") return estimate.label || "正在估算积分";
         return "";
-    }, [canGenerateAudio, clipMs, creditsEnabled, effectiveAudio, estimate.credits, estimate.label, faceConsent, kindConfig, maxVoiceAudios, notes, publicConfig?.maxReferenceSeconds, referenceMode.mode, rhythmUi, selectedModel, slotImages, video, visibleImages, voiceCount, voiceSegmentSeconds, voiceSupported]);
+    }, [
+        canGenerateAudio,
+        clipMs,
+        creditsEnabled,
+        effectiveAudio,
+        estimate.credits,
+        estimate.label,
+        faceConsent,
+        kindConfig,
+        maxVoiceAudios,
+        notes,
+        publicConfig?.maxReferenceSeconds,
+        referenceMode.mode,
+        rhythmUi,
+        selectedModel,
+        slotImages,
+        video,
+        visibleImages,
+        voiceCount,
+        voiceSegmentSeconds,
+        voiceSupported,
+    ]);
 
     const audioMode: AudioChoice = effectiveAudio;
     // 保留原声时参考音色用不上，不登记到项目。
@@ -707,9 +767,11 @@ export function useEcommerceVideo() {
             regions: kindConfig.lock && regions?.boxes.length ? regions.boxes : [],
             regionFrameMs: kindConfig.lock && regions?.boxes.length ? Math.round(regions.frameMs) : 0,
             talking: Boolean(kindConfig.talking && talking),
+            autoModel,
             ...(editMode ? keyframe : {}),
         };
     }, [
+        autoModel,
         keyframe,
         canGenerateAudio,
         regions,
@@ -963,6 +1025,10 @@ export function useEcommerceVideo() {
         selectedModel,
         setModel,
         systemModel,
+        autoModel,
+        setAutoModel,
+        route,
+        routeError: autoModel && routed.key === routeKey ? routed.error : "",
         ratio,
         setRatio,
         ratios,

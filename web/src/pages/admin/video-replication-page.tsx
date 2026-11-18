@@ -424,6 +424,18 @@ function FeaturesSection({ state }: { state: SettingState }) {
                     </span>
                     <InputNumber min={4} max={600} value={state.setting.maxReferenceSeconds || 120} onChange={(value) => state.patch({ maxReferenceSeconds: Number(value) || 120 })} addonAfter="秒" />
                 </label>
+                <Space className="mt-3" wrap>
+                    <Typography.Text>自动选模型排序</Typography.Text>
+                    <Segmented
+                        size="small"
+                        value={state.setting.routePreference || "continuity"}
+                        options={[
+                            { value: "continuity", label: "连贯优先（段数少，再比价）" },
+                            { value: "cost", label: "价格优先" },
+                        ]}
+                        onChange={(value) => state.patch({ routePreference: value as "continuity" | "cost" })}
+                    />
+                </Space>
             </Card>
         </>
     );
@@ -512,7 +524,14 @@ function ModelsSection({ state }: { state: SettingState }) {
         <div className="vr-admin-column">
             <Card size="small" title="分析模型" extra={<Typography.Text type="secondary">推荐按模型声明的能力与近 24 小时可用率计算</Typography.Text>}>
                 <div className="vr-admin-grid vr-admin-analysis-grid">
-                    {analysisModelPicker("视频理解模型", setting.vision, (vision) => patch({ vision }), "拆解镜头、运镜、口播、说话人与商品/模特档案；支持视频输入的模型读完整视频，支持图片输入的模型读按时间抽取的画面，不限制 Gemini 协议", options.vision, "未指定：沿用电商 Agent 识图模型")}
+                    {analysisModelPicker(
+                        "视频理解模型",
+                        setting.vision,
+                        (vision) => patch({ vision }),
+                        "拆解镜头、运镜、口播、说话人与商品/模特档案；支持视频输入的模型读完整视频，支持图片输入的模型读按时间抽取的画面，不限制 Gemini 协议",
+                        options.vision,
+                        "未指定：沿用电商 Agent 识图模型",
+                    )}
                     {analysisModelPicker("分镜策划模型", setting.planning, (planning) => patch({ planning }), "重构原创分镜、改写口播台词、推荐说话人音色", options.planning, "未指定：沿用电商 Agent 策划模型")}
                 </div>
             </Card>
@@ -750,6 +769,31 @@ function VideoModelsSection({ state }: { state: SettingState }) {
                                                 <Space>
                                                     <Switch size="small" checked={item.allowAudioToggle} onChange={(allowAudioToggle) => patchModel(index, { allowAudioToggle })} />
                                                     <Typography.Text>允许用户开关音频</Typography.Text>
+                                                </Space>
+                                            </Space>
+                                            <Space wrap size={24}>
+                                                <Space>
+                                                    <Typography.Text>复刻轨道</Typography.Text>
+                                                    <Select
+                                                        size="small"
+                                                        className="min-w-40"
+                                                        value={item.track || ""}
+                                                        options={[
+                                                            { value: "", label: "按渠道能力自动判断" },
+                                                            { value: "reference", label: "参考视频复刻" },
+                                                            { value: "script", label: "脚本复刻（不传参考视频）" },
+                                                        ]}
+                                                        onChange={(track: "" | "reference" | "script") => patchModel(index, { track })}
+                                                    />
+                                                </Space>
+                                                <Space>
+                                                    <Switch size="small" checked={Boolean(item.faceSafe)} onChange={(faceSafe) => patchModel(index, { faceSafe })} />
+                                                    <Typography.Text>不卡人脸（换人任务优先选它）</Typography.Text>
+                                                </Space>
+                                                <Space>
+                                                    <Typography.Text>参考视频合计上限</Typography.Text>
+                                                    <InputNumber size="small" min={0} max={600} value={item.referenceTotalSeconds || 0} onChange={(value) => patchModel(index, { referenceTotalSeconds: Number(value) || 0 })} addonAfter="秒" />
+                                                    <Typography.Text type="secondary">0 = 不限合计（Seedance 2.0 填 15）</Typography.Text>
                                                 </Space>
                                             </Space>
                                         </>

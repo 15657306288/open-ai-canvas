@@ -68,6 +68,8 @@ export type VideoReplicationParameters = {
     maxReferenceAudios?: number;
     /** 所选模型可接收的参考视频数与单段时长；大于 0 时按「原片编辑」只替换目标。 */
     maxReferenceVideos?: number;
+    /** 模型、分段与参考视频切分由服务端按参考视频时长自动选择。 */
+    autoModel?: boolean;
     maxReferenceVideoSeconds?: number;
     /** 以下来自所选模型在后台的能力配置：参考音频时长上限、提示词字数上限。 */
     maxReferenceAudioSeconds?: number;
@@ -459,7 +461,40 @@ export type VideoReplicationVideoModel = VideoReplicationModelRef & {
     defaultResolution?: string;
     generateAudio: boolean;
     allowAudioToggle: boolean;
+    /** 复刻轨道：reference 参考视频复刻 / script 脚本复刻；空为按渠道能力自动判断。 */
+    track?: "" | "reference" | "script";
+    /** 上游不拦真人人脸：换人任务只在这些模型里自动选。 */
+    faceSafe?: boolean;
+    /** 一次任务全部参考视频的合计时长上限（秒），0 为不限合计。 */
+    referenceTotalSeconds?: number;
 };
+
+export type VideoReplicationRouteOption = {
+    model: VideoReplicationModelRef;
+    label: string;
+    track: "reference" | "script" | "";
+    faceSafe: boolean;
+    tasks: number;
+    taskSeconds: number[] | null;
+    clipsPerTask: number;
+    clipSeconds?: number;
+    estimatedMicrocredits: number;
+    priced: boolean;
+    blocked?: string;
+};
+
+export type VideoReplicationRoute = {
+    sourceSeconds: number;
+    preference: "continuity" | "cost";
+    recommended?: VideoReplicationRouteOption;
+    reason: string;
+    options: VideoReplicationRouteOption[] | null;
+};
+
+/** 自动选模型：按参考视频（裁剪后）时长预览推荐的模型、分段数与参考视频切分。 */
+export function previewVideoReplicationRoute(input: { durationMs: number; videoType: string; replaceMode: string }, signal?: AbortSignal) {
+    return http.post<VideoReplicationRoute>("/video-replication/route", input, { signal });
+}
 
 export type VideoReplicationSetting = {
     vision?: VideoReplicationModelRef;
@@ -468,6 +503,8 @@ export type VideoReplicationSetting = {
     restrictVideoModels?: boolean;
     maxReferenceSeconds?: number;
     disabledKinds?: string[];
+    /** 自动选模型排序：continuity 拼接段数少优先 / cost 价格优先。 */
+    routePreference?: "" | "continuity" | "cost";
     asr?: { mode: "env" | "model" | "vision"; model: VideoReplicationModelRef; language?: string };
     tts?: { model: VideoReplicationModelRef; voices: VideoReplicationVoiceOption[]; format?: string };
     /** Seedance / 可灵模型提示词知识库的开关与自定义内容（content 为空 = 内置默认内容）。 */
