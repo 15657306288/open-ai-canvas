@@ -404,11 +404,30 @@ func (s *Service) planVideoReplicationAutoStoryboard(ctx context.Context, cfg ec
 		hasSourceLines = hasSourceLines || strings.TrimSpace(segment.Lines) != ""
 		hasSourceSubtitles = hasSourceSubtitles || strings.TrimSpace(segment.Subtitle) != ""
 	}
-	if requestedRewrite && videoReplicationHasSubtitles(analysis) && !hasSourceLines && !hasSourceSubtitles {
-		return nil, BadAuthRequest("参考视频有字幕，但没有取得可用文字，无法按新商品改写；请重新分析，未提交视频生成")
+	speechDetected := videoReplicationOnCameraSpeech(analysis) || videoReplicationNarrationOnly(analysis)
+	// 一键生成默认不跑语音识别；规划阶段发现原片有口播但拿不到台词时，用分析时保存的音轨补跑一次识别。
+	if requestedRewrite && !hasSourceLines && speechDetected && s.recoverVideoReplicationTranscript(ctx, project.UserID, analysis) {
+		for index := range segments {
+			segments[index].Lines = ""
+		}
+		videoReplicationAssignVoiceLines(segments, videoReplicationVoiceLineSource(analysis))
+		for _, segment := range segments {
+			hasSourceLines = hasSourceLines || strings.TrimSpace(segment.Lines) != ""
+		}
 	}
-	if requestedRewrite && !hasSourceLines && (params.AudioMode != "mute" || videoReplicationHasSubtitles(analysis)) && (videoReplicationOnCameraSpeech(analysis) || videoReplicationNarrationOnly(analysis)) {
-		return nil, BadAuthRequest("参考视频已检测到口播或旁白，但没有取得可用台词，无法按新商品改写；请重新分析，未提交视频生成")
+	degradeNotes := []string{}
+	// 字幕只识别到「有」、没有原文：生成提示词本来就要求擦除烧录字幕，不需要原文也能继续，不再整单失败。
+	if requestedRewrite && videoReplicationHasSubtitles(analysis) && !hasSourceLines && !hasSourceSubtitles {
+		degradeNotes = append(degradeNotes, "原片字幕未能识别出文字：成片去掉原字幕，不生成新字幕。")
+	}
+	if requestedRewrite && !hasSourceLines && (params.AudioMode != "mute" || videoReplicationHasSubtitles(analysis)) && speechDetected {
+		// 成片直接用原音轨且无法分离人声时，旧商品口播会原样留在成片里，只能停下。
+		if (params.KeepOriginalAudio || params.AudioMode == "keep") && videoReplicationSeparatorURL() == "" {
+			return nil, BadAuthRequest("参考视频有口播，但没有取得可用台词，且成片会沿用原音轨（旧商品口播会留在成片里）；请在后台配置语音识别模型后重新分析，或把声音改为静音 / 重新配音，未提交视频生成")
+		}
+		// 其余情况不沿用原台词：成片不说旧商品文案，只保留音乐 / 环境声，并在方案里提示用户。
+		degradeNotes = append(degradeNotes, "原片口播未能识别出台词：成片人物不复述原台词，只保留动作、音乐与环境声；需要新口播时请在后台配置语音识别后重新分析。")
+		params.Talking = false
 	}
 	if requestedRewrite && params.AudioMode != "mute" && !params.GenerateAudio {
 		for _, segment := range segments {
@@ -546,6 +565,9 @@ func (s *Service) planVideoReplicationAutoStoryboard(ctx context.Context, cfg ec
 		storyboard.Elements, storyboard.Banned = nil, ""
 	} else if len(storyboard.Elements) == 0 {
 		storyboard.Elements = videoReplicationElementsFromChanges(storyboard.Changes)
+	}
+	if len(degradeNotes) > 0 {
+		storyboard.Notes = strings.TrimSpace(strings.Join(degradeNotes, "") + "\n" + storyboard.Notes)
 	}
 	storyboard.Subtitles = videoReplicationHasSubtitles(analysis)
 	normalized, err := normalizeVideoReplicationStoryboard(storyboard, params.ShotSeconds)

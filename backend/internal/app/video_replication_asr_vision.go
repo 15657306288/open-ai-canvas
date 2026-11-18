@@ -118,7 +118,7 @@ func encodeVideoReplicationAudio(ctx context.Context, path string) (string, erro
 	output := filepath.Join(filepath.Dir(path), "inline-audio.mp3")
 	defer os.Remove(output)
 	if raw, err := exec.CommandContext(ctx, ffmpegBin, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", path, "-vn", "-ac", "1", "-ar", "16000", "-b:a", "48k", output).CombinedOutput(); err != nil {
-		return "", fmt.Errorf("压缩音轨失败：%s", clipText(string(raw), 300))
+		return "", videoReplicationFFmpegFailure(ctx, "压缩音轨失败", raw, err)
 	}
 	data, err := os.ReadFile(output)
 	if err != nil {

@@ -1,6 +1,8 @@
 package app
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -62,5 +64,28 @@ func TestVideoReplicationClipDigestAndRules(t *testing.T) {
 	}
 	if !videoReplicationNeedsTranscript(VideoReplicationParameters{Auto: true, Talking: true}) {
 		t.Fatal("talking videos need transcript")
+	}
+}
+
+func TestVideoReplicationFFmpegFailureNeverBlank(t *testing.T) {
+	expired, cancel := context.WithTimeout(context.Background(), 0)
+	defer cancel()
+	<-expired.Done()
+	cases := []struct {
+		ctx  context.Context
+		out  string
+		err  error
+		want string
+	}{
+		{expired, "", errors.New("signal: killed"), "处理超时"},
+		{context.Background(), "", errors.New("signal: killed"), "内存不足"},
+		{context.Background(), "", errors.New("exit status 1"), "exit status 1"},
+		{context.Background(), "Invalid data found", errors.New("exit status 1"), "Invalid data found"},
+	}
+	for _, item := range cases {
+		got := videoReplicationFFmpegFailure(item.ctx, "裁剪参考视频失败", []byte(item.out), item.err).Error()
+		if !strings.Contains(got, item.want) || strings.HasSuffix(got, "：") {
+			t.Fatalf("want %q in %q", item.want, got)
+		}
 	}
 }

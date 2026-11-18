@@ -330,7 +330,7 @@ func TestSyncVideoReplicationMapsTaskStates(t *testing.T) {
 	if run := byID["run-fail"]; run.Status != model.VideoReplicationRunFailed || !strings.Contains(run.Error, "退款") {
 		t.Fatalf("run-fail = %+v", run)
 	}
-	if run := byID["run-empty"]; run.Status != model.VideoReplicationRunFailed || !strings.Contains(run.Error, "没有返回视频文件") {
+	if run := byID["run-empty"]; run.Status != model.VideoReplicationRunFailed || !strings.Contains(run.Error, "没有返回媒体文件") {
 		t.Fatalf("succeeded task without video must not count as success: %+v", run)
 	}
 	if run := byID["run-lost"]; run.Status != model.VideoReplicationRunFailed || !strings.Contains(run.Error, "未扣费") {

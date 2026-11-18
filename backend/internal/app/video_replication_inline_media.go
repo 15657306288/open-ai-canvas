@@ -53,7 +53,7 @@ func prepareVideoReplicationInlineMedia(ctx context.Context, ffmpegBin, source s
 	defer os.RemoveAll(dir)
 	scale := fmt.Sprintf("fps=%s,scale=%d:%d:force_original_aspect_ratio=decrease", strconv.FormatFloat(fps, 'f', 4, 64), videoReplicationInlineFrameEdge, videoReplicationInlineFrameEdge)
 	if output, err := exec.CommandContext(ctx, ffmpegBin, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", source, "-vf", scale, "-q:v", "6", filepath.Join(dir, "frame-%04d.jpg")).CombinedOutput(); err != nil {
-		return media, fmt.Errorf("抽取参考视频画面失败：%s", clipText(string(output), 300))
+		return media, videoReplicationFFmpegFailure(ctx, "抽取参考视频画面失败", output, err)
 	}
 	names, _ := filepath.Glob(filepath.Join(dir, "frame-*.jpg"))
 	sort.Strings(names)
@@ -73,7 +73,7 @@ func prepareVideoReplicationInlineMedia(ctx context.Context, ffmpegBin, source s
 	if probe.HasAudio {
 		audioPath := filepath.Join(dir, "audio.mp3")
 		if output, err := exec.CommandContext(ctx, ffmpegBin, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", source, "-vn", "-ac", "1", "-ar", "16000", "-b:a", "48k", audioPath).CombinedOutput(); err != nil {
-			return media, fmt.Errorf("提取参考视频音轨失败：%s", clipText(string(output), 300))
+			return media, videoReplicationFFmpegFailure(ctx, "提取参考视频音轨失败", output, err)
 		}
 		data, err := os.ReadFile(audioPath)
 		if err != nil {

@@ -3,7 +3,9 @@ package app
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"os"
 	"os/exec"
@@ -107,18 +109,61 @@ func videoReplicationClipKey(params VideoReplicationParameters) string {
 }
 
 // trimVideoReplicationFile 把参考视频的 [start, end) 截成新文件（重新编码，切点精确到帧，保留音轨）。
+// 超时按片段时长放宽；重新编码失败（CPU 被打满超时、内存不足被杀）时退回流复制，切点对齐到关键帧，
+// 用于镜头检测与理解足够，避免整次分析因一次重编码失败而中断。
 func trimVideoReplicationFile(ctx context.Context, ffmpegBin, input string, startMs, endMs int64) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
-	defer cancel()
 	output := filepath.Join(filepath.Dir(input), "trimmed.mp4")
-	cmd := exec.CommandContext(ctx, ffmpegBin, "-hide_banner", "-loglevel", "error", "-nostdin",
+	timeout := max(3*time.Minute, time.Duration(endMs-startMs)*time.Millisecond*20)
+	encodeCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	cmd := exec.CommandContext(encodeCtx, ffmpegBin, "-hide_banner", "-loglevel", "error", "-nostdin",
 		"-ss", fmt.Sprintf("%.3f", float64(startMs)/1000), "-i", input, "-t", fmt.Sprintf("%.3f", float64(endMs-startMs)/1000),
 		"-map", "0:v:0", "-map", "0:a:0?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
 		"-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", "-y", output)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("裁剪参考视频失败：%s", clipText(strings.TrimSpace(string(out)), 300))
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		return output, nil
 	}
+	encodeErr := videoReplicationFFmpegFailure(encodeCtx, "裁剪参考视频失败", out, err)
+	if ctx.Err() != nil {
+		return "", encodeErr
+	}
+	copyCtx, cancelCopy := context.WithTimeout(ctx, time.Minute)
+	defer cancelCopy()
+	copyCmd := exec.CommandContext(copyCtx, ffmpegBin, "-hide_banner", "-loglevel", "error", "-nostdin",
+		"-ss", fmt.Sprintf("%.3f", float64(startMs)/1000), "-i", input, "-t", fmt.Sprintf("%.3f", float64(endMs-startMs)/1000),
+		"-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", "-avoid_negative_ts", "make_zero", "-movflags", "+faststart", "-y", output)
+	if copyOut, copyErr := copyCmd.CombinedOutput(); copyErr != nil {
+		return "", fmt.Errorf("%w；流复制兜底也失败：%v", encodeErr, videoReplicationFFmpegFailure(copyCtx, "流复制", copyOut, copyErr))
+	}
+	slog.Warn("video replication trim fell back to stream copy", "error", encodeErr)
 	return output, nil
+}
+
+// videoReplicationFFmpegFailure 组装 ffmpeg 失败原因。-loglevel error 下进程被杀（超时、内存不足）时 stderr 为空，
+// 只打印 stderr 会得到「裁剪参考视频失败：」这样没有原因的报错，所以必须带上退出原因。
+func videoReplicationFFmpegFailure(ctx context.Context, action string, out []byte, err error) error {
+	detail := strings.TrimSpace(string(out))
+	reason := ""
+	switch {
+	case ctx != nil && errors.Is(ctx.Err(), context.DeadlineExceeded):
+		reason = "处理超时（服务器繁忙或视频过大）"
+	case ctx != nil && errors.Is(ctx.Err(), context.Canceled):
+		reason = "任务已取消"
+	case err != nil && strings.Contains(err.Error(), "killed"):
+		reason = "ffmpeg 进程被系统终止（多为内存不足）"
+	case err != nil && detail == "":
+		reason = err.Error()
+	}
+	switch {
+	case reason != "" && detail != "":
+		detail = reason + "：" + detail
+	case reason != "":
+		detail = reason
+	case detail == "":
+		detail = "ffmpeg 未返回原因"
+	}
+	return fmt.Errorf("%s：%s", action, clipText(detail, 300))
 }
 
 // drawVideoReplicationRegions 抽取原视频 atMs 处的一帧并画上红框，供识图模型识别要替换的目标。
@@ -132,7 +177,7 @@ func drawVideoReplicationRegions(ctx context.Context, ffmpegBin, input string, a
 	cmd := exec.CommandContext(ctx, ffmpegBin, "-hide_banner", "-loglevel", "error", "-nostdin", "-ss", fmt.Sprintf("%.3f", float64(atMs)/1000), "-i", input,
 		"-frames:v", "1", "-vf", strings.Join(filters, ","), "-q:v", "3", "-y", output)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("抽取框选画面失败：%s", clipText(strings.TrimSpace(string(out)), 300))
+		return videoReplicationFFmpegFailure(ctx, "抽取框选画面失败", out, err)
 	}
 	return nil
 }

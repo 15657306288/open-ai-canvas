@@ -313,7 +313,7 @@ func (s *Service) videoReplicationSourceVoiceClip(ctx context.Context, userID st
 		// 只做截取、单声道与响度统一；不做降噪，保留原音色。
 		cmd := exec.CommandContext(ctx, ffmpegBin, "-hide_banner", "-loglevel", "error", "-nostdin", "-ss", fmt.Sprintf("%.3f", float64(startMs)/1000), "-t", fmt.Sprintf("%.3f", float64(endMs-startMs)/1000), "-i", path, "-vn", "-ac", "1", "-ar", "44100", "-af", "loudnorm=I=-16:TP=-1.5:LRA=11", "-c:a", "libmp3lame", "-b:a", "128k", "-y", output)
 		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("截取原视频人声失败：%s", clipText(strings.TrimSpace(string(out)), 300))
+			return videoReplicationFFmpegFailure(ctx, "截取原视频人声失败", out, err)
 		}
 		saved, err := s.saveVideoReplicationFile(userID, output, "原视频音色.mp3", "audio", 0, 0, endMs-startMs, identity)
 		if err != nil {
@@ -427,7 +427,7 @@ func (s *Service) videoReplicationTrimAudio(userID, resourceID string, maxMs int
 		output := filepath.Join(filepath.Dir(path), "voice-fit.mp3")
 		cmd := exec.CommandContext(ctx, ffmpegBin, "-hide_banner", "-loglevel", "error", "-nostdin", "-i", path, "-t", fmt.Sprintf("%.3f", float64(maxMs)/1000), "-vn", "-ac", "1", "-ar", "44100", "-c:a", "libmp3lame", "-b:a", "128k", "-y", output)
 		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("%s", clipText(strings.TrimSpace(string(out)), 300))
+			return videoReplicationFFmpegFailure(ctx, "截取参考音色失败", out, err)
 		}
 		saved, err := s.saveVideoReplicationFile(userID, output, "参考音色.mp3", "audio", 0, 0, maxMs, identity)
 		if err != nil {
@@ -437,4 +437,39 @@ func (s *Service) videoReplicationTrimAudio(userID, resourceID string, maxMs int
 		return nil
 	})
 	return result, err
+}
+
+// recoverVideoReplicationTranscript 在规划阶段补跑一次语音识别：分析时保存了参考视频音轨（AudioResourceID），
+// 一键生成为省时没跑识别、或视频理解模型没听写出台词时，用它补齐带时间戳的台词。识别成功返回 true。
+func (s *Service) recoverVideoReplicationTranscript(ctx context.Context, userID string, analysis *VideoReplicationAnalysis) bool {
+	if analysis == nil || len(analysis.Videos) == 0 || analysis.Videos[0].AudioResourceID == "" {
+		return false
+	}
+	if analysis.Voice != nil && analysis.Voice.ASRAvailable {
+		return false
+	}
+	transcriber, unavailable := s.videoReplicationTranscriberFor(userID)
+	if transcriber == nil {
+		slog.Info("video replication transcript recovery skipped", "reason", unavailable)
+		return false
+	}
+	primary := analysis.Videos[0]
+	var recovered *VideoReplicationVoice
+	err := s.withVideoReplicationResourceFile(userID, primary.AudioResourceID, videoReplicationMaxVideoBytes, func(_ *model.Resource, path string) error {
+		recovered = transcribeVideoReplicationAudio(ctx, path, videoReplicationProbe{HasAudio: true, DurationMs: primary.DurationMs}, transcriber, unavailable)
+		return nil
+	})
+	if err != nil || recovered == nil || !recovered.ASRAvailable || len(recovered.Segments) == 0 {
+		slog.Warn("video replication transcript recovery failed", "error", err)
+		return false
+	}
+	if analysis.Voice != nil {
+		// 保留视频理解给出的说话人类型等概况，只补识别结果。
+		merged := *analysis.Voice
+		merged.ASRAvailable, merged.ASRError, merged.Language = true, "", recovered.Language
+		merged.Segments, merged.SpeechMs, merged.CharsPerSec = recovered.Segments, recovered.SpeechMs, recovered.CharsPerSec
+		recovered = &merged
+	}
+	analysis.Voice = recovered
+	return true
 }

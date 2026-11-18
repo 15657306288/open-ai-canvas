@@ -298,7 +298,7 @@ func extractVideoReplicationFrame(ctx context.Context, ffmpegBin, input string, 
 	cmd := exec.CommandContext(ctx, ffmpegBin, "-hide_banner", "-loglevel", "error", "-nostdin", "-ss", at, "-i", input, "-frames:v", "1",
 		"-vf", "scale='if(gt(iw,ih),min(768,iw),-2)':'if(gt(iw,ih),-2,min(768,ih))'", "-q:v", "4", "-y", output)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("抽取关键帧失败：%s", clipText(strings.TrimSpace(string(out)), 300))
+		return videoReplicationFFmpegFailure(ctx, "抽取关键帧失败", out, err)
 	}
 	return nil
 }
@@ -309,7 +309,7 @@ func extractVideoReplicationAudio(ctx context.Context, ffmpegBin, input, output 
 	defer cancel()
 	cmd := exec.CommandContext(ctx, ffmpegBin, "-hide_banner", "-loglevel", "error", "-nostdin", "-i", input, "-vn", "-ac", "1", "-ar", "44100", "-c:a", "aac", "-b:a", "96k", "-y", output)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("抽取音轨失败：%s", clipText(strings.TrimSpace(string(out)), 300))
+		return videoReplicationFFmpegFailure(ctx, "抽取音轨失败", out, err)
 	}
 	return nil
 }
@@ -331,7 +331,7 @@ func (s *Service) videoReplicationImageDataURL(ctx context.Context, userID, reso
 		cmd := exec.CommandContext(callCtx, ffmpegBin, "-hide_banner", "-loglevel", "error", "-nostdin", "-i", input, "-frames:v", "1",
 			"-vf", "scale='if(gt(iw,ih),min(1024,iw),-2)':'if(gt(iw,ih),-2,min(1024,ih))'", "-q:v", "4", "-y", output)
 		if out, runErr := cmd.CombinedOutput(); runErr != nil {
-			return fmt.Errorf("读取图片失败：%s", clipText(strings.TrimSpace(string(out)), 300))
+			return videoReplicationFFmpegFailure(callCtx, "读取图片失败", out, runErr)
 		}
 		data, readErr := os.ReadFile(output)
 		if readErr != nil {

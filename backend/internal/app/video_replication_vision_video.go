@@ -98,7 +98,7 @@ func prepareVideoReplicationVisionVideo(ctx context.Context, ffmpegBin, source s
 		"-c:v", "libx264", "-preset", "veryfast", "-b:v", strconv.FormatInt(videoBits, 10), "-maxrate", strconv.FormatInt(videoBits, 10), "-bufsize", strconv.FormatInt(videoBits*2, 10),
 		"-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "64k", "-movflags", "+faststart", path}
 	if output, err := exec.CommandContext(ctx, ffmpegBin, args...).CombinedOutput(); err != nil {
-		return "", fmt.Errorf("完整视频预处理失败：%s", clipText(string(output), 300))
+		return "", videoReplicationFFmpegFailure(ctx, "完整视频预处理失败", output, err)
 	}
 	normalized, err := probeVideoReplicationFile(ctx, path)
 	if err != nil {

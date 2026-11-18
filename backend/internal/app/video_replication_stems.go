@@ -69,7 +69,7 @@ func (s *Service) separateVideoReplicationStem(ctx context.Context, userID, sour
 		wav := filepath.Join(filepath.Dir(path), "stem-input.wav")
 		convert := exec.CommandContext(ctx, ffmpegBin, "-hide_banner", "-loglevel", "error", "-nostdin", "-i", path, "-vn", "-ac", "2", "-ar", "44100", "-c:a", "pcm_s16le", "-y", wav)
 		if out, err := convert.CombinedOutput(); err != nil {
-			return fmt.Errorf("抽取音轨失败（可能没有声音）：%s", clipText(strings.TrimSpace(string(out)), 300))
+			return videoReplicationFFmpegFailure(ctx, "抽取音轨失败（可能没有声音）", out, err)
 		}
 		input, err := os.Open(wav)
 		if err != nil {

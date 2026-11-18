@@ -553,7 +553,7 @@ func cutVideoReplicationEditClip(ctx context.Context, ffmpegBin, input string, s
 	args = append(args, "-vf", videoReplicationEditClipFilter(fps), "-c:v", "libx264", "-preset", "medium", "-tune", "film", "-crf", crf, "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-y", output)
 	cmd := exec.CommandContext(ctx, ffmpegBin, args...)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("截取原视频片段失败：%s", clipText(strings.TrimSpace(string(out)), 300))
+		return videoReplicationFFmpegFailure(ctx, "截取原视频片段失败", out, err)
 	}
 	return nil
 }
