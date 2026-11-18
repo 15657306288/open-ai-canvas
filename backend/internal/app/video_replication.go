@@ -99,6 +99,11 @@ type VideoReplicationParameters struct {
 	// 每段把对应的原视频片段作为参考视频发送，只替换目标，场景、动作与运镜沿用原片。
 	MaxReferenceVideos       int `json:"maxReferenceVideos,omitempty"`
 	MaxReferenceVideoSeconds int `json:"maxReferenceVideoSeconds,omitempty"`
+	// MaxReferenceTotalSeconds 是一次任务全部参考视频的合计上限（后台按模型设置，0 表示不限合计）。
+	// 原片段超过单段参考时长时按它和 MaxReferenceVideos 切成多段一起上传。
+	MaxReferenceTotalSeconds int `json:"maxReferenceTotalSeconds,omitempty"`
+	// AutoModel：模型、分段和参考视频切分由服务端按参考视频时长自动选择（用户只上传商品 / 人物 / 背景）。
+	AutoModel bool `json:"autoModel,omitempty"`
 	// MaxReferenceAudioSeconds / PromptMaxChars 同样来自后台渠道给所选模型配的能力（参考音频时长、提示词字数），
 	// 开始生成时由服务端按模型配置重写（applyVideoReplicationModelLimits），不在代码里写死。
 	MaxReferenceAudioSeconds int `json:"maxReferenceAudioSeconds,omitempty"`

@@ -437,9 +437,44 @@ func videoReplicationApparelRules(tokens string, storyboard VideoReplicationStor
 	return b.String()
 }
 
-// videoReplicationSourceClip 从（裁剪后的）参考视频截出这一段，转成适合模型输入的 mp4 并登记为资源，返回资源 ID。
+// videoReplicationSourceClips 截出本段原片作为参考视频。本段超过单个参考视频时长上限（常见 15 秒）时，
+// 按上限切成多个首尾相接的片段一起上传（受模型可传参考视频数与合计上限约束），返回各片段资源 ID 与时长。
+func (s *Service) videoReplicationSourceClips(project *model.VideoReplicationProject, params VideoReplicationParameters, shotID string, startMs int64, seconds int, withAudio bool) ([]string, []int64, error) {
+	parts := videoReplicationClipParts(int64(seconds)*1000, int64(params.MaxReferenceVideoSeconds)*1000, params.MaxReferenceVideos, params.MaxReferenceTotalSeconds)
+	ids := make([]string, 0, len(parts))
+	offset := startMs
+	for index, length := range parts {
+		clipShotID := shotID
+		if len(parts) > 1 {
+			clipShotID = fmt.Sprintf("%s-p%d", shotID, index+1)
+		}
+		id, err := s.videoReplicationSourceClipRange(project, params, clipShotID, offset, length, withAudio)
+		if err != nil {
+			return nil, nil, err
+		}
+		ids = append(ids, id)
+		offset += length
+	}
+	return ids, parts, nil
+}
+
+// videoReplicationMultiClipPrefix 说明多个参考视频的拼接关系；提示词里其余「@视频1」统一改称「原片底片」。
+func videoReplicationMultiClipPrefix(parts []int64) string {
+	if len(parts) <= 1 {
+		return ""
+	}
+	spans := make([]string, 0, len(parts))
+	var start int64
+	for index, length := range parts {
+		spans = append(spans, fmt.Sprintf("@视频%d=%.1f–%.1f秒", index+1, float64(start)/1000, float64(start+length)/1000))
+		start += length
+	}
+	return "原片底片：" + strings.Join(spans, "、") + "，按顺序首尾相接就是本段完整原片，成片时间线与它逐秒对应，衔接处不跳帧、不重复。"
+}
+
+// videoReplicationSourceClipRange 从（裁剪后的）参考视频截出 [startMs, startMs+lengthMs)，转成适合模型输入的 mp4 并登记为资源，返回资源 ID。
 // 同一段、同一裁剪区间重复提交时复用同一份文件。
-func (s *Service) videoReplicationSourceClip(project *model.VideoReplicationProject, params VideoReplicationParameters, shotID string, startMs int64, seconds int, withAudio bool) (string, error) {
+func (s *Service) videoReplicationSourceClipRange(project *model.VideoReplicationProject, params VideoReplicationParameters, shotID string, startMs, lengthMs int64, withAudio bool) (string, error) {
 	assets, err := s.repo.VideoReplicationAssets(project.UserID, project.ID)
 	if err != nil {
 		return "", err
@@ -453,7 +488,6 @@ func (s *Service) videoReplicationSourceClip(project *model.VideoReplicationProj
 	if source == nil {
 		return "", fmt.Errorf("没有参考视频")
 	}
-	lengthMs := int64(seconds) * 1000
 	if limit := int64(params.MaxReferenceVideoSeconds) * 1000; limit > 0 && lengthMs > limit {
 		lengthMs = limit
 	}

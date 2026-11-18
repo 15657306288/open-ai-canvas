@@ -32,6 +32,12 @@ type VideoReplicationVideoModel struct {
 	DefaultResolution string   `json:"defaultResolution,omitempty"`
 	GenerateAudio     bool     `json:"generateAudio"`
 	AllowAudioToggle  bool     `json:"allowAudioToggle"`
+	// Track 是复刻轨道：reference（能接收参考视频，原片切段作为编辑底片）/ script（不接收参考视频，按反推脚本逐秒复刻）；
+	// 空表示按渠道能力配置自动判断。FaceSafe 标记上游不拦真人人脸（换人任务只在这些模型里自动选）。
+	Track    string `json:"track,omitempty"`
+	FaceSafe bool   `json:"faceSafe"`
+	// ReferenceTotalSeconds 是一次任务所有参考视频的合计时长上限（如 Seedance 2.0 合计 15 秒）；0 表示只受单段上限 × 数量限制。
+	ReferenceTotalSeconds int `json:"referenceTotalSeconds,omitempty"`
 }
 
 type VideoReplicationSetting struct {
@@ -49,6 +55,8 @@ type VideoReplicationSetting struct {
 	MaxReferenceSeconds int `json:"maxReferenceSeconds,omitempty"`
 	// DisabledKinds 是电商 Agent 商品视频里关闭的替换类型（replaceMode），前台隐藏、后端拒绝提交。
 	DisabledKinds []string `json:"disabledKinds,omitempty"`
+	// RoutePreference 是自动选模型的排序：continuity（默认，拼接段数少优先，再比价格）/ cost（价格优先）。
+	RoutePreference string `json:"routePreference,omitempty"`
 	// Knowledge 是 Seedance / 可灵模型提示词知识库的开关与自定义内容；没保存过的知识库默认开启、用内置内容。
 	Knowledge []VideoReplicationKnowledgeBase `json:"knowledge,omitempty"`
 	UpdatedAt time.Time                       `json:"updatedAt,omitempty"`
@@ -83,6 +91,7 @@ type VideoReplicationPublicConfig struct {
 	RestrictVideoModels bool                          `json:"restrictVideoModels"`
 	MaxReferenceSeconds int                           `json:"maxReferenceSeconds"`
 	DisabledKinds       []string                      `json:"disabledKinds"`
+	RoutePreference     string                        `json:"routePreference"`
 	ASRConfigured       bool                          `json:"asrConfigured"`
 	TTSConfigured       bool                          `json:"ttsConfigured"`
 	Voices              []VideoReplicationVoiceOption `json:"voices"`
@@ -364,6 +373,12 @@ func (s *Service) UpdateVideoReplicationSetting(actor *model.User, input VideoRe
 		return nil, BadAuthRequest("参考视频时长上限需为 4–600 秒")
 	}
 	next.MaxReferenceSeconds = input.MaxReferenceSeconds
+	switch input.RoutePreference {
+	case "", VideoReplicationRouteContinuity, VideoReplicationRouteCost:
+		next.RoutePreference = input.RoutePreference
+	default:
+		return nil, BadAuthRequest("自动选模型排序方式无效")
+	}
 	// 知识库：请求里没带（旧页面只保存其他设置）时保留已保存的开关与内容。
 	if input.Knowledge == nil {
 		if current, err := s.videoReplicationSetting(); err == nil {
@@ -440,7 +455,17 @@ func (s *Service) UpdateVideoReplicationSetting(actor *model.User, input VideoRe
 			return nil, BadAuthRequest("视频模型重复")
 		}
 		seen[identity] = true
-		model := VideoReplicationVideoModel{EcommerceAgentModelRef: item.EcommerceAgentModelRef, Label: clipText(strings.TrimSpace(item.Label), 60), Enabled: item.Enabled, Ratios: clean(item.Ratios), Resolutions: clean(item.Resolutions), DefaultRatio: strings.TrimSpace(item.DefaultRatio), DefaultResolution: strings.TrimSpace(item.DefaultResolution), GenerateAudio: item.GenerateAudio, AllowAudioToggle: item.AllowAudioToggle}
+		model := VideoReplicationVideoModel{EcommerceAgentModelRef: item.EcommerceAgentModelRef, Label: clipText(strings.TrimSpace(item.Label), 60), Enabled: item.Enabled, Ratios: clean(item.Ratios), Resolutions: clean(item.Resolutions), DefaultRatio: strings.TrimSpace(item.DefaultRatio), DefaultResolution: strings.TrimSpace(item.DefaultResolution), GenerateAudio: item.GenerateAudio, AllowAudioToggle: item.AllowAudioToggle, FaceSafe: item.FaceSafe}
+		switch item.Track {
+		case "", VideoReplicationTrackReference, VideoReplicationTrackScript:
+			model.Track = item.Track
+		default:
+			return nil, BadAuthRequest("复刻轨道无效：" + item.Track)
+		}
+		if item.ReferenceTotalSeconds < 0 || item.ReferenceTotalSeconds > 600 {
+			return nil, BadAuthRequest("参考视频合计上限需为 0–600 秒")
+		}
+		model.ReferenceTotalSeconds = item.ReferenceTotalSeconds
 		if model.DefaultRatio != "" && len(model.Ratios) > 0 && !containsString(model.Ratios, model.DefaultRatio) {
 			return nil, BadAuthRequest("默认比例必须在开放的比例内")
 		}
@@ -475,6 +500,7 @@ func (s *Service) VideoReplicationConfig() (*VideoReplicationPublicConfig, error
 		}
 	}
 	config.RestrictVideoModels = setting.RestrictVideoModels
+	config.RoutePreference = setting.routePreference()
 	return config, nil
 }
 

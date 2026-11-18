@@ -252,6 +252,21 @@ func RegisterVideoReplicationRoutes(r *gin.RouterGroup, svc *service.Service) {
 		view, err := svc.StartVideoReplication(user.ID, c.Param("id"), req)
 		respond(c, view, err)
 	})
+	// 自动选模型：按参考视频（裁剪后）时长给出推荐模型、分段数与参考视频切分，并附上其他候选与不可用原因。
+	group.GET("/:id/route", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		route, err := svc.RouteVideoReplication(user.ID, c.Param("id"))
+		if err != nil && route != nil {
+			// 没有可用模型时仍返回各候选的不可用原因，便于前台提示管理员去开放模型。
+			ok(c, route)
+			return
+		}
+		respond(c, route, err)
+	})
 	group.PUT("/:id/storyboard", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
 		if err != nil {

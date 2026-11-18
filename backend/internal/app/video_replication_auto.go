@@ -115,8 +115,20 @@ func (s *Service) StartVideoReplication(userID, projectID string, input VideoRep
 		return nil, BadAuthRequest("项目正在处理，请等待完成后再生成")
 	}
 	params := videoReplicationParameters(project)
-	if params.LogicalModelID == "" && (params.ChannelID == "" || params.Model == "") {
-		return nil, BadAuthRequest("请选择可用的视频模型")
+	// 自动选模型（或用户没选模型）：按参考视频时长、后台轨道与「不卡人脸」标记、真实报价选模型和分段。
+	if params.AutoModel || (params.LogicalModelID == "" && (params.ChannelID == "" || params.Model == "")) {
+		route, err := s.RouteVideoReplication(userID, projectID)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.applyVideoReplicationRoute(userID, &params, *route.Recommended); err != nil {
+			return nil, err
+		}
+		params.AutoModel = true
+		input.SegmentSeconds = params.SegmentSeconds
+		if input.MaxVideoTasks > 0 && input.MaxVideoTasks < route.Recommended.Tasks {
+			return nil, BadAuthRequest(fmt.Sprintf("推荐方案需要生成 %d 段，超过你确认的 %d 次；请刷新后重新确认", route.Recommended.Tasks, input.MaxVideoTasks))
+		}
 	}
 	if err := s.videoReplicationModelAllowed(params); err != nil {
 		return nil, err
@@ -138,11 +150,12 @@ func (s *Service) StartVideoReplication(userID, projectID string, input VideoRep
 	params.Auto = true
 	params.ConfirmFirst = input.ConfirmFirst
 	params.SegmentSeconds = videoReplicationAutoSegmentSeconds(input.SegmentSeconds, params.ShotSeconds)
-	// 原片编辑：每段要把原视频片段作为参考视频发送，单段不能超过模型接收的参考视频时长。
-	if videoReplicationEditMode(params) && params.MaxReferenceVideoSeconds >= videoReplicationMinSegmentSeconds && params.SegmentSeconds > params.MaxReferenceVideoSeconds {
-		params.SegmentSeconds = videoReplicationAutoSegmentSeconds(params.MaxReferenceVideoSeconds, params.ShotSeconds)
-		if params.SegmentSeconds > params.MaxReferenceVideoSeconds {
-			params.SegmentSeconds = params.MaxReferenceVideoSeconds
+	// 原片编辑：每段要把原视频片段作为参考视频发送。单个参考视频有时长上限（常见 15 秒），超过时把本段原片
+	// 切成多个参考视频一起上传；单段时长因此受「可传参考视频数 × 单段上限（及合计上限）」约束，而不是单个参考视频时长。
+	if cover := videoReplicationReferenceCoverageSeconds(params.MaxReferenceVideos, params.MaxReferenceVideoSeconds, params.MaxReferenceTotalSeconds); videoReplicationEditMode(params) && cover >= videoReplicationMinSegmentSeconds && params.SegmentSeconds > cover {
+		params.SegmentSeconds = videoReplicationAutoSegmentSeconds(cover, params.ShotSeconds)
+		if params.SegmentSeconds > cover {
+			params.SegmentSeconds = cover
 		}
 	}
 	params.KeepOriginalAudio = input.KeepOriginalAudio

@@ -35,6 +35,7 @@ func (s *Service) applyVideoReplicationModelLimits(userID string, params *VideoR
 		if refs.MaxVideoDuration > 0 {
 			params.MaxReferenceVideoSeconds = refs.MaxVideoDuration
 		}
+		params.MaxReferenceTotalSeconds = s.videoReplicationReferenceTotalSeconds(*params)
 	}
 	if params.ReferenceMode == "reference" {
 		params.MaxReferenceAudios = min(refs.MaxAudios, videoReplicationParamSanityMax)
@@ -120,4 +121,20 @@ func videoReplicationVoiceSegmentSeconds(params VideoReplicationParameters, voic
 		}
 	}
 	return best
+}
+
+// videoReplicationReferenceTotalSeconds 读取后台给所选模型设置的参考视频合计上限；没设置时为 0（只受单段上限 × 数量限制）。
+func (s *Service) videoReplicationReferenceTotalSeconds(params VideoReplicationParameters) int {
+	setting, err := s.videoReplicationSetting()
+	if err != nil {
+		return 0
+	}
+	for _, item := range setting.VideoModels {
+		match := (item.LogicalModelID != "" && item.LogicalModelID == params.LogicalModelID) ||
+			(item.LogicalModelID == "" && params.LogicalModelID == "" && item.ChannelID == params.ChannelID && strings.TrimPrefix(item.ModelKey, "models/") == strings.TrimPrefix(params.Model, "models/"))
+		if match {
+			return item.ReferenceTotalSeconds
+		}
+	}
+	return 0
 }

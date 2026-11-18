@@ -338,6 +338,7 @@ func (s *Service) submitVideoReplication(project *model.VideoReplicationProject,
 		}
 		taskReferences := make([]workbench.TaskReference, 0, len(targetRefs))
 		tailFrame := ""
+		multiClip := ""
 		targetVoices := voices
 		if target.tailOf == "" && target.sourceEndMs > target.sourceStartMs && len(voices) > 0 {
 			// 上游要求参考音视频合计不超过模型参考时长上限：音色按本段原片片段剩下的时长截短。
@@ -359,11 +360,14 @@ func (s *Service) submitVideoReplication(project *model.VideoReplicationProject,
 			taskReferences = append(taskReferences, workbench.TaskReference{ResourceID: tail, Kind: "image", Role: "first_frame"})
 		} else {
 			if target.sourceEndMs > target.sourceStartMs {
-				clip, err := s.videoReplicationSourceClip(project, params, target.shotID, target.sourceStartMs, target.seconds, storyboard.VoiceAdapted && plan.AudioMode == videoReplicationAudioNative && len(targetVoices) == 0)
+				clips, parts, err := s.videoReplicationSourceClips(project, params, target.shotID, target.sourceStartMs, target.seconds, storyboard.VoiceAdapted && plan.AudioMode == videoReplicationAudioNative && len(targetVoices) == 0)
 				if err != nil {
 					return submitted, "截取原视频片段失败：" + err.Error(), nil
 				}
-				taskReferences = append(taskReferences, workbench.TaskReference{ResourceID: clip, Kind: "video", Role: "reference"})
+				for _, clip := range clips {
+					taskReferences = append(taskReferences, workbench.TaskReference{ResourceID: clip, Kind: "video", Role: "reference"})
+				}
+				multiClip = videoReplicationMultiClipPrefix(parts)
 			}
 			for _, reference := range targetRefs {
 				taskReferences = append(taskReferences, workbench.TaskReference{ResourceID: reference["resourceId"], Kind: "image", Role: reference["role"]})
@@ -386,7 +390,7 @@ func (s *Service) submitVideoReplication(project *model.VideoReplicationProject,
 		if params.ReplaceMode != "precise-person" && target.sourceEndMs > target.sourceStartMs {
 			required += "\n以 @视频1 为编辑底片，只换指定目标；镜头、机位、构图、运镜、切点与动作节奏沿用原片，未指定替换的对象保持原样。\n" + videoReplicationSubtitleRule
 		}
-		budget := videoReplicationPromptBudgetFor(params).without(negative).without(required)
+		budget := videoReplicationPromptBudgetFor(params).without(negative).without(required).without(multiClip)
 		if budget.limit <= 0 {
 			return submitted, "模型提示词上限不足以容纳商品定位和生成要求，请提高提示词上限或更换模型", nil
 		}
@@ -430,6 +434,10 @@ func (s *Service) submitVideoReplication(project *model.VideoReplicationProject,
 		core := videoReplicationReplacementCore(project.VideoType, params, targetRefs, target.sourceEndMs > target.sourceStartMs)
 		if err := videoReplicationValidateReplacementPrompt(prompt, core, videoReplicationPromptBudgetFor(params)); err != nil {
 			return submitted, "", err
+		}
+		if multiClip != "" {
+			// 「@视频1」与「原片底片」同为 4 个字，替换不改变按字数计的提示词长度。
+			prompt = multiClip + "\n" + strings.ReplaceAll(prompt, "@视频1", "原片底片")
 		}
 		runParams, _ := json.Marshal(videoReplicationRunParameters{Seconds: target.seconds, Ratio: params.Ratio, Resolution: params.Resolution, Model: params.Model, ModelLabel: params.ModelLabel, VideoType: project.VideoType, References: targetRefs, Mentions: mentions, Strategy: plan.Strategy, TailFrame: tailFrame})
 		run := &model.VideoReplicationShotRun{ID: newID(), ProjectID: projectID, UserID: userID, ShotID: target.shotID, IdempotencyKey: runKey, Status: model.VideoReplicationRunSubmitting, Prompt: prompt, ParametersJSON: string(runParams)}
