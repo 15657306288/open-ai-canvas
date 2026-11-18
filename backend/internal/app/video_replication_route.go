@@ -290,11 +290,52 @@ func (setting VideoReplicationSetting) routePreference() string {
 	return VideoReplicationRouteContinuity
 }
 
+// 已设名单即使全部失效也保持关闭；只有从未限定的空名单才使用当前用户的公开目录。
+func (s *Service) videoReplicationRouteModels(userID string, setting VideoReplicationSetting) ([]VideoReplicationVideoModel, error) {
+	if setting.RestrictVideoModels || len(setting.VideoModels) != 0 {
+		return setting.VideoModels, nil
+	}
+	access, err := s.userGroupAccess(userID)
+	if err != nil {
+		return nil, err
+	}
+	logical, err := s.FeatureEnabled(FeatureFrontendModels)
+	if err != nil {
+		return nil, err
+	}
+	var items []VideoReplicationVideoModel
+	if logical {
+		models, err := s.PublicLogicalModels(access, nil)
+		if err != nil {
+			return nil, err
+		}
+		for _, m := range models {
+			if m.Available && m.Capability == "video" {
+				items = append(items, VideoReplicationVideoModel{EcommerceAgentModelRef: EcommerceAgentModelRef{LogicalModelID: m.ID}, Label: firstNonEmpty(m.Name, m.Code), Enabled: true})
+			}
+		}
+		return items, nil
+	}
+	channels, err := s.publicSystemChannelCatalog(access, nil)
+	if err != nil {
+		return nil, err
+	}
+	for _, channel := range channels {
+		for _, m := range channel.Models {
+			if m.Available && m.Capability == "video" {
+				ref := EcommerceAgentModelRef{ChannelID: channel.ID, ChannelModelID: m.ID, ModelKey: m.ModelKey}
+				items = append(items, VideoReplicationVideoModel{EcommerceAgentModelRef: ref, Label: firstNonEmpty(m.DisplayName, m.ModelKey), Enabled: true})
+			}
+		}
+	}
+	return items, nil
+}
+
 // videoReplicationRouteCandidates 读取后台开放的全部视频模型及其渠道能力；解析不了的模型带着原因返回，便于后台排查。
-func (s *Service) videoReplicationRouteCandidates(userID string, setting VideoReplicationSetting) ([]videoReplicationRouteModel, []VideoReplicationRouteOption) {
+func (s *Service) videoReplicationRouteCandidates(userID string, items []VideoReplicationVideoModel) ([]videoReplicationRouteModel, []VideoReplicationRouteOption) {
 	candidates := []videoReplicationRouteModel{}
 	broken := []VideoReplicationRouteOption{}
-	for _, item := range setting.VideoModels {
+	for _, item := range items {
 		if !item.Enabled {
 			continue
 		}
@@ -389,7 +430,11 @@ func (s *Service) routeVideoReplication(userID, videoType string, params VideoRe
 	if err != nil {
 		return nil, err
 	}
-	candidates, broken := s.videoReplicationRouteCandidates(userID, setting)
+	items, err := s.videoReplicationRouteModels(userID, setting)
+	if err != nil {
+		return nil, err
+	}
+	candidates, broken := s.videoReplicationRouteCandidates(userID, items)
 	route := &VideoReplicationRoute{SourceSeconds: math.Round(float64(sourceMs)/100) / 10, Preference: setting.routePreference()}
 	price := func(candidate videoReplicationRouteModel, seconds int, clips []int64) (int64, bool) {
 		return s.quoteVideoReplicationTask(userID, candidate, seconds, clips)
@@ -412,7 +457,11 @@ func (s *Service) applyVideoReplicationRoute(userID string, params *VideoReplica
 	if err != nil {
 		return err
 	}
-	candidates, _ := s.videoReplicationRouteCandidates(userID, setting)
+	items, err := s.videoReplicationRouteModels(userID, setting)
+	if err != nil {
+		return err
+	}
+	candidates, _ := s.videoReplicationRouteCandidates(userID, items)
 	var chosen *videoReplicationRouteModel
 	var item *VideoReplicationVideoModel
 	for index := range candidates {
@@ -421,9 +470,9 @@ func (s *Service) applyVideoReplicationRoute(userID string, params *VideoReplica
 			break
 		}
 	}
-	for index := range setting.VideoModels {
-		if setting.VideoModels[index].EcommerceAgentModelRef == option.Model {
-			item = &setting.VideoModels[index]
+	for index := range items {
+		if items[index].EcommerceAgentModelRef == option.Model {
+			item = &items[index]
 			break
 		}
 	}

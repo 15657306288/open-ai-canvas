@@ -1,10 +1,96 @@
 package app
 
 import (
+	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
+
+	"yingce/backend/internal/model"
 )
+
+func TestVideoReplicationRouteUserCatalog(t *testing.T) {
+	svc, db, channel, cm, profile := newVideoTokenQuoteFixture(t)
+	if err := db.Model(&channel).Updates(map[string]any{"base_url": "https://8.8.8.8/v1", "api_key": "test"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	save := func(key, value string) {
+		t.Helper()
+		if err := svc.repo.SaveSystemSetting(&model.SystemSetting{Key: key, ValueJSON: value}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	save(featureAvailabilitySettingKey, `{"videoWorkbenchEnabled":true}`)
+	save(videoReplicationSettingKey, `{"videoModels":[]}`)
+	preview := func(user string) (*VideoReplicationRoute, error) {
+		return svc.PreviewVideoReplicationRoute(user, VideoReplicationRouteInput{DurationMs: 5000})
+	}
+	const user = "quote-user"
+	check := func(ref EcommerceAgentModelRef) VideoReplicationRouteOption {
+		t.Helper()
+		route, err := preview(user)
+		if err != nil || len(route.Options) != 1 || route.Recommended == nil || route.Recommended.Model != ref || !route.Recommended.Priced {
+			t.Fatalf("推荐与报价不符：%+v, %v", route, err)
+		}
+		var params VideoReplicationParameters
+		if err := svc.applyVideoReplicationRoute(user, &params, *route.Recommended); err != nil || params.LogicalModelID != ref.LogicalModelID || params.ChannelID != ref.ChannelID || params.Model != ref.ModelKey || params.SegmentSeconds <= 0 {
+			t.Fatalf("正式开始未应用推荐：%+v, %v", params, err)
+		}
+		return *route.Recommended
+	}
+	physical := check(EcommerceAgentModelRef{ChannelID: channel.ID, ChannelModelID: cm.ID, ModelKey: cm.ModelKey})
+	closed := func(user string) {
+		t.Helper()
+		route, err := preview(user)
+		if err == nil || route == nil || len(route.Options) != 0 || route.Recommended != nil {
+			t.Fatalf("应当没有候选：%+v, %v", route, err)
+		}
+	}
+	for _, raw := range []string{
+		`{"restrictVideoModels":true,"videoModels":[]}`,
+		`{"videoModels":[{"channelModelId":"removed","enabled":true}]}`,
+		fmt.Sprintf(`{"videoModels":[{"channelModelId":%q,"enabled":false}]}`, cm.ID),
+	} {
+		save(videoReplicationSettingKey, raw)
+		closed(user)
+		if err := svc.applyVideoReplicationRoute(user, &VideoReplicationParameters{}, physical); err == nil {
+			t.Fatalf("名单变更后仍然接受旧推荐：%s", raw)
+		}
+	}
+	save(videoReplicationSettingKey, `{"videoModels":[]}`)
+	// 无渠道权限的普通用户不能看到选项，连带 Blocked 的选项也不应有。
+	group := model.UserGroup{ID: "empty", Code: "empty", Name: "empty", RatioBasisPoints: 10000}
+	denied := model.User{ID: "denied", Username: "denied", Role: model.UserRoleUser, UserGroup: group.Code}
+	for _, row := range []any{&group, &denied} {
+		if err := db.Create(row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	svc.invalidateUserGroups()
+	closed(denied.ID)
+	save(featureAvailabilitySettingKey, `{"videoWorkbenchEnabled":true,"frontendModelsEnabled":true}`)
+	closed(user) // 空逻辑目录不回退到物理模型。
+	spec, err := CapabilitySpecFromModelCapabilityConfig(profile, "video")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logical := model.LogicalModel{ID: "logical", Code: "video", Name: "逻辑视频", Capability: "video", Enabled: true, ActiveRevisionID: "revision", PricePolicy: "channel"}
+	revision := model.LogicalModelRevision{ID: "revision", LogicalModelID: logical.ID, Version: 1, CapabilitySpecJSON: string(raw), DefaultOptionsJSON: `{"vquality":"720p","size":"16:9","videoSeconds":5,"videoGenerateAudio":false}`}
+	line := model.LogicalModelRoute{ID: "line", LogicalModelRevisionID: revision.ID, ChannelModelID: cm.ID, Enabled: true, Weight: 1}
+	for _, row := range []any{&logical, &revision, &line} {
+		if err := db.Create(row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	svc.invalidateRouteCatalog()
+	check(EcommerceAgentModelRef{LogicalModelID: logical.ID})
+	closed(denied.ID)
+}
 
 func TestVideoReplicationRefreshProjectShotSeconds(t *testing.T) {
 	unsupported := false
