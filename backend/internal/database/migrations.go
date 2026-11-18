@@ -381,9 +381,9 @@ var schemaMigrations = []migration{
 		return nil
 	}},
 	// 上游 v1.8.6 之后新增的 103–105：生产库 103/104 已被商品视频与微信登录占用，顺延为 105–107。
-	{version: 105, name: "mcp_tenant_boundaries", checksum: "sha256:mcp-tenant-boundaries-v105-20261117", apply: migrateMCPTenantBoundaries},
-	{version: 106, name: "agent_storage_limits", checksum: "sha256:agent-storage-limits-v106-20261117", apply: migrateAgentStorageLimits},
-	{version: 107, name: "image_usage_billing", checksum: "sha256:image-usage-billing-v107-20261117", apply: migrateImageUsageBilling},
+	{version: 105, name: "mcp_tenant_boundaries", checksum: "sha256:mcp-tenant-boundaries-v105", apply: migrateMCPTenantBoundaries},
+	{version: 106, name: "agent_storage_limits", checksum: "sha256:agent-storage-limits-v106", apply: migrateAgentStorageLimits},
+	{version: 107, name: "image_usage_billing", checksum: "sha256:image-usage-billing-v107", apply: migrateImageUsageBilling},
 }
 
 func migrateAPILogGenerationContent(tx *gorm.DB) error {
