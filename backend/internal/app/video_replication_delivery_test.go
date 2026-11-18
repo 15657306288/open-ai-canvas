@@ -38,6 +38,7 @@ func TestVideoReplicationDeliveryReadsActualVisionResult(t *testing.T) {
 	})
 	cfg := f.cfg("vision-test")
 	cfg.TextProvider.InterfaceType = "apimart-gemini-video-text"
+	installVideoReplicationProtocolFixture(t, f.svc, cfg.TextProvider.InterfaceType)
 	analysis := &VideoReplicationAnalysis{Voice: &VideoReplicationVoice{HasAudio: true}, Videos: []VideoReplicationVideoAnalysis{{Primary: true, HasAudio: true, Shots: []VideoReplicationSourceShot{{Index: 0, EndMs: 5000}}}}}
 	if err := f.svc.understandVideoReplicationShots(context.Background(), cfg, "project", analysis, nil, nil, []string{"https://media.example/reference.mp4"}, nil); err != nil {
 		t.Fatal(err)

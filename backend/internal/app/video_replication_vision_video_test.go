@@ -11,12 +11,42 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"yingce/backend/internal/protocol"
 )
+
+// 部署快照包含这两个插件 ID，但测试仓库只随附对应线格式的标准插件包。
+// 在当前服务的注册表中绑定测试 ID，实际请求和响应仍由包内声明映射。
+type videoReplicationProtocolFixture struct {
+	protocol.Adapter
+	id string
+}
+
+func (f videoReplicationProtocolFixture) Metadata() protocol.Metadata {
+	metadata := f.Adapter.Metadata()
+	metadata.ID = f.id
+	return metadata
+}
+
+func installVideoReplicationProtocolFixture(t *testing.T, svc *Service, id string) {
+	t.Helper()
+	packages := map[string]string{
+		"gemini-multimodal-text":    "google-gemini-generate-content.yingce-plugin",
+		"apimart-gemini-video-text": "openai-chat-completions.yingce-plugin",
+	}
+	adapter := loadOfficialProtocolAdapterForTest(t, packages[id])
+	registry, err := protocol.NewRegistry(videoReplicationProtocolFixture{Adapter: adapter, id: id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.pluginRuntime = &pluginRuntime{registry: registry}
+}
 
 func TestVideoReplicationFullVideoProtocolRequests(t *testing.T) {
 	for _, wire := range []string{"gemini-multimodal-text", "apimart-gemini-video-text"} {
 		t.Run(wire, func(t *testing.T) {
 			svc, _ := mockEcommerceAgentService(t)
+			installVideoReplicationProtocolFixture(t, svc, wire)
 			t.Setenv("CANVAS_ALLOWED_PRIVATE_UPSTREAM_HOSTS", "127.0.0.1")
 			calls := 0
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
