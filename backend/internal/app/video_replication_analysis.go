@@ -308,6 +308,8 @@ func (s *Service) analyzeVideoReplicationBase(ctx context.Context, userID, proje
 					return err
 				}
 			}
+			// 分析代理可能缩小画面；对外报告的素材尺寸仍取原片。
+			item.Width, item.Height = probe.Width, probe.Height
 			// 裁剪：后续镜头检测、视频理解、音轨与分段都只用选定的这一段。
 			if videoIndex == 0 && videoReplicationTrimmed(params) {
 				progress("按你选的区间裁剪参考视频", 7)
@@ -330,7 +332,7 @@ func (s *Service) analyzeVideoReplicationBase(ctx context.Context, userID, proje
 			if err := validateVideoReplicationDurationLimit(probe.DurationMs, videoReplicationMaxReferenceSeconds(setting)); err != nil {
 				return err
 			}
-			item.DurationMs, item.Width, item.Height, item.FPS, item.HasAudio = probe.DurationMs, probe.Width, probe.Height, probe.FPS, probe.HasAudio
+			item.DurationMs, item.FPS, item.HasAudio = probe.DurationMs, probe.FPS, probe.HasAudio
 			progress(fmt.Sprintf("准备完整视频与音轨 %d/%d", videoIndex+1, len(videos)), 10+videoIndex*20/len(videos))
 			switch visionMode {
 			case "inline":

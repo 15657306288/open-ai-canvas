@@ -378,6 +378,7 @@ func (s *Service) planVideoReplicationAutoStoryboard(ctx context.Context, cfg ec
 	primary := analysis.Videos[0]
 	requestedRewrite := params.RewriteVoice || videoReplicationHasTarget(project.VideoType, VideoReplicationTypeProduct) || videoReplicationHasTarget(project.VideoType, VideoReplicationTypeApparel)
 	params.RewriteVoice = videoReplicationAdaptVoice(project.VideoType, params, project.Prompt)
+	needsRewriteSource := videoReplicationNeedsRewriteSource(project.VideoType, params, analysis)
 	segmentSeconds := videoReplicationVoiceSegmentSeconds(params, len(videoReplicationVoiceAudios(assets, videoReplicationMaxVoiceAudios)))
 	if segmentSeconds == 0 {
 		return nil, BadAuthRequest("模型参考时长不足以同时接收原片和音色，请减少音色或更换模型")
@@ -419,7 +420,7 @@ func (s *Service) planVideoReplicationAutoStoryboard(ctx context.Context, cfg ec
 	}
 	speechDetected := videoReplicationOnCameraSpeech(analysis) || videoReplicationNarrationOnly(analysis)
 	// 一键生成默认不跑语音识别；规划阶段发现原片有口播但拿不到台词时，用分析时保存的音轨补跑一次识别。
-	if requestedRewrite && !hasSourceLines && speechDetected && s.recoverVideoReplicationTranscript(ctx, project.UserID, analysis) {
+	if needsRewriteSource && !hasSourceLines && speechDetected && s.recoverVideoReplicationTranscript(ctx, project.UserID, analysis) {
 		for index := range segments {
 			segments[index].Lines = ""
 		}
@@ -430,10 +431,10 @@ func (s *Service) planVideoReplicationAutoStoryboard(ctx context.Context, cfg ec
 	}
 	degradeNotes := []string{}
 	// 字幕只识别到「有」、没有原文：生成提示词本来就要求擦除烧录字幕，不需要原文也能继续，不再整单失败。
-	if requestedRewrite && videoReplicationHasSubtitles(analysis) && !hasSourceLines && !hasSourceSubtitles {
+	if needsRewriteSource && videoReplicationHasSubtitles(analysis) && !hasSourceLines && !hasSourceSubtitles {
 		degradeNotes = append(degradeNotes, "原片字幕未能识别出文字：成片去掉原字幕，不生成新字幕。")
 	}
-	if requestedRewrite && !hasSourceLines && (params.AudioMode != "mute" || videoReplicationHasSubtitles(analysis)) && speechDetected {
+	if needsRewriteSource && !hasSourceLines && (params.AudioMode != "mute" || videoReplicationHasSubtitles(analysis)) && speechDetected {
 		// 成片直接用原音轨且无法分离人声时，旧商品口播会原样留在成片里，只能停下。
 		if (params.KeepOriginalAudio || params.AudioMode == "keep") && videoReplicationSeparatorURL() == "" {
 			return nil, BadAuthRequest("参考视频有口播，但没有取得可用台词，且成片会沿用原音轨（旧商品口播会留在成片里）；请在后台配置语音识别模型后重新分析，或把声音改为静音 / 重新配音，未提交视频生成")

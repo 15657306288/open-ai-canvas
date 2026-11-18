@@ -118,7 +118,9 @@ func trimVideoReplicationFile(ctx context.Context, ffmpegBin, input string, star
 	defer cancel()
 	cmd := exec.CommandContext(encodeCtx, ffmpegBin, "-hide_banner", "-loglevel", "error", "-nostdin",
 		"-ss", fmt.Sprintf("%.3f", float64(startMs)/1000), "-i", input, "-t", fmt.Sprintf("%.3f", float64(endMs-startMs)/1000),
-		"-map", "0:v:0", "-map", "0:a:0?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+		// 只缩小用于分析的临时片段；生成参考片段仍按原素材及裁剪偏移单独截取。
+		"-vf", "scale=w='min(1280,iw)':h='min(1280,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
+		"-map", "0:v:0", "-map", "0:a:0?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
 		"-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", "-y", output)
 	out, err := cmd.CombinedOutput()
 	if err == nil {

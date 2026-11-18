@@ -42,7 +42,31 @@ func (s *Service) applyVideoReplicationModelLimits(userID string, params *VideoR
 		params.MaxReferenceAudioSeconds = refs.MaxAudioDuration
 	}
 	params.PromptMaxChars = refs.PromptMaxChars
+	refreshVideoReplicationShotSeconds(params, profile)
 	return true
+}
+
+// 复用路由的能力展开规则，但不把路由估算用的缺省时长写回旧项目。
+func refreshVideoReplicationShotSeconds(params *VideoReplicationParameters, profile *VideoCapabilityConfig) {
+	if profile == nil {
+		return
+	}
+	d := profile.Duration
+	if d.Selection != "enum" && (d.Selection != "range" || d.Min <= 0 || d.Max < d.Min) {
+		return
+	}
+	bounded := *profile
+	bounded.Duration.Max = min(d.Max, 60)
+	bounded.Duration.Step = min(d.Step, 60)
+	var seconds []int
+	for _, v := range videoReplicationDurationValues(&bounded) {
+		if v >= videoReplicationMinSegmentSeconds && v <= 60 && (len(seconds) == 0 || seconds[len(seconds)-1] != v) {
+			seconds = append(seconds, v)
+		}
+	}
+	if len(seconds) > 0 {
+		params.ShotSeconds = seconds
+	}
 }
 
 // videoReplicationElementLimit 是元素替换清单最多几条：模型每段能收的参考图减去替换目标（商品 / 人物……各至少一张），

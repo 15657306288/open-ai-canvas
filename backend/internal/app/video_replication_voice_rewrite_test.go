@@ -142,6 +142,27 @@ func TestVideoReplicationSilentProductSubtitlesAreAdaptedWithoutVoice(t *testing
 	}
 }
 
+func TestVideoReplicationNeedsRewriteSource(t *testing.T) {
+	analysis := &VideoReplicationAnalysis{Summary: VideoReplicationSummary{Subtitles: "画面有字幕"}}
+	for _, tc := range []struct {
+		name   string
+		params VideoReplicationParameters
+		want   bool
+	}{
+		{"保留原声不开字幕", VideoReplicationParameters{AudioMode: "keep", RewriteVoice: true}, false},
+		{"只改字幕", VideoReplicationParameters{AudioMode: "keep", Subtitles: true}, true},
+		{"改写口播", VideoReplicationParameters{AudioMode: "replace", GenerateAudio: true}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := tc.params
+			p.RewriteVoice = videoReplicationAdaptVoice("product", p, "")
+			if got := videoReplicationNeedsRewriteSource("product", p, analysis); got != tc.want {
+				t.Fatalf("需要改写原文 = %v，期望 %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestVideoReplicationKnownSpeechWithoutTranscriptStopsBeforePlanning(t *testing.T) {
 	for _, voiceType := range []string{"on_camera", "narration", "dialogue"} {
 		analysis := &VideoReplicationAnalysis{

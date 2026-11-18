@@ -22,7 +22,6 @@ import {
     type VideoReplicationRegion,
     type VideoReplicationProject,
     type VideoReplicationPublicConfig,
-    type VideoReplicationRoute,
     type VideoReplicationTarget,
     type VideoLinkProgress,
 } from "@/services/api/video-replication";
@@ -30,6 +29,7 @@ import { ApiError } from "@/services/api/request";
 import { logicalModelIDForConfig, modelDisplayName, modelOptionName, resolveModelChannel, selectableModelsByCapability, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
 
+import { resolveAutoRoute, sameRouteModel, type RouteInput, type RouteReply } from "./auto-route";
 import { quoteReplicationTasks } from "./replication-quote";
 import { draftImages, draftVideo, loadVideoDraft, saveVideoDraft } from "./video-draft";
 import { durationValues, estimateSegments, replicationReferenceMode, segmentSecondOptions } from "./replication-strategy";
@@ -175,7 +175,7 @@ export function useEcommerceVideo() {
     const [quoted, setEstimate] = useState<{ key: string; credits: number | null; label: string }>({ key: "", credits: null, label: "" });
     // 自动选模型：读到参考视频时长后由后台按时长、复刻轨道、「不卡人脸」与真实报价推荐模型和分段，默认开启。
     const [autoModel, setAutoModel] = useState(true);
-    const [routed, setRouted] = useState<{ key: string; route: VideoReplicationRoute | null; error: string }>({ key: "", route: null, error: "" });
+    const [routed, setRouted] = useState<RouteReply | null>(null);
     const submitInFlight = useRef(false);
     const draftProjectRef = useRef<Promise<string> | null>(null);
 
@@ -283,20 +283,24 @@ export function useEcommerceVideo() {
             if (next) setKind(next.id);
         }
     }, [disabledKinds, kind]);
-    const adminEntryFor = useCallback(
-        (model: string) => {
-            if (!publicConfig?.restrictVideoModels) return null;
-            const logicalModelId = logicalModelIDForConfig({ ...config, model }) || "";
-            const channelId = resolveModelChannel(config, model)?.id || "";
-            const key = modelOptionName(model).replace(/^models\//, "");
-            return publicConfig.videoModels.find((item) => (item.logicalModelId ? item.logicalModelId === logicalModelId : !logicalModelId && item.channelId === channelId && (item.modelKey || "").replace(/^models\//, "") === key)) || undefined;
-        },
-        [config, publicConfig],
-    );
+    const modelRef = useCallback((model: string) => ({ logicalModelId: logicalModelIDForConfig({ ...config, model }) || undefined, channelId: resolveModelChannel(config, model)?.id, modelKey: modelOptionName(model) }), [config]);
+    const adminEntryFor = useCallback((model: string) => {
+        if (!publicConfig?.restrictVideoModels) return null;
+        const ref = modelRef(model);
+        return publicConfig.videoModels.find((item) => sameRouteModel(item, ref));
+    }, [modelRef, publicConfig]);
     const systemModel = useCallback((model: string) => (Boolean(logicalModelIDForConfig({ ...config, model })) || resolveModelChannel(config, model)?.scope === "system") && adminEntryFor(model) !== undefined, [adminEntryFor, config]);
-    const firstModel = useMemo(() => selectableModelsByCapability(config, "video").find(systemModel) || "", [config, systemModel]);
-    const configured = config.videoModel || "";
-    const selectedModel = configured && systemModel(configured) ? configured : firstModel;
+    const options = useMemo(() => selectableModelsByCapability(config, "video").filter(systemModel).map((value) => ({ value, ref: modelRef(value) })), [config, modelRef, systemModel]);
+    const visibleImages = useMemo(() => images.filter((image) => activeSlots.some((slot) => slot.key === image.slot && slot.category === image.category)), [images, activeSlots]);
+    const targets = useMemo<VideoReplicationTarget[]>(() => kindConfig.targets.length ? kindConfig.targets : [...new Set(visibleImages.filter((image) => image.resourceId && !image.error).flatMap((image) => CATEGORY_TARGET[image.category] || []))].sort(), [kindConfig.targets, visibleImages]);
+    const videoType = targets.join(",");
+    const clipMs = trim ? trim.endMs - trim.startMs : video?.durationMs || 0;
+    const limitMs = (publicConfig?.maxReferenceSeconds || 120) * 1000 + 50;
+    const routeInput = useMemo<RouteInput | null>(() => autoModel && clipMs >= 3950 && clipMs <= limitMs && videoType ? { durationMs: Math.round(clipMs), videoType, replaceMode: kindConfig.id } : null, [autoModel, clipMs, limitMs, videoType, kindConfig.id]);
+    const selection = resolveAutoRoute(routeInput, routed, options);
+    const route = selection.route;
+    const routeIssue = selection.status === "pending" ? "正在匹配模型和分段" : selection.status === "unavailable" ? `${selection.reason}。可关闭自动选模型后手动选择。` : "";
+    const selectedModel = selection.model || options.find((option) => option.value === config.videoModel)?.value || options[0]?.value || "";
     const adminEntry = selectedModel ? adminEntryFor(selectedModel) : null;
     const profile = useMemo(() => (selectedModel ? modelCapabilityConfigFor(config, selectedModel).video : undefined), [config, selectedModel]);
     const referenceMode = replicationReferenceMode(profile);
@@ -308,7 +312,7 @@ export function useEcommerceVideo() {
     const canGenerateAudio = Boolean(profile?.generateAudio.supported) && !(audioLocked && adminEntry && !adminEntry.generateAudio);
     const voiceSupported = referenceMode.mode === "reference" && (profile?.references.maxAudios || 0) > 0;
     // 原片编辑：模型能接收参考视频时，每段把原视频片段发给模型，只替换目标，场景与动作沿用原片。
-    const editMode = referenceMode.mode === "reference" && (profile?.references.maxVideos || 0) > 0;
+    const editMode = (route?.recommended?.track || adminEntry?.track) !== "script" && referenceMode.mode === "reference" && (profile?.references.maxVideos || 0) > 0;
     const editSeconds = editMode ? Math.max(0, Math.floor(profile?.references.maxVideoDurationSeconds || 0)) : 0;
     const maxVoiceSeconds = profile?.references.maxAudioDurationSeconds || 15;
     const maxVoiceAudios = Math.min(VOICE_SLOT.max, profile?.references.maxAudios || 0);
@@ -348,7 +352,6 @@ export function useEcommerceVideo() {
 
     // ---------- 素材 ----------
     const slotImages = useCallback((slot: string) => images.filter((image) => image.slot === slot), [images]);
-    const visibleImages = useMemo(() => images.filter((image) => activeSlots.some((slot) => slot.key === image.slot && slot.category === image.category)), [images, activeSlots]);
     const hasProductImage = visibleImages.some((image) => image.category === "product_image" && image.resourceId && !image.error);
 
     const addImageFiles = useCallback(
@@ -580,21 +583,19 @@ export function useEcommerceVideo() {
     // ---------- 预估积分 ----------
     const referenceCount = Math.min(visibleImages.filter((image) => image.resourceId && image.category !== "voice_audio").length, referenceMode.max || 0);
     const voiceCount = effectiveAudio === "replace" ? visibleImages.filter((image) => image.category === "voice_audio" && image.resourceId).length : 0;
-    const clipMs = trim ? trim.endMs - trim.startMs : video?.durationMs || 0;
     const voiceSegmentSeconds = useMemo(() => {
         if (!voiceCount || !editMode || editSeconds <= 0) return segmentSeconds;
         const limit = Math.min(segmentSeconds, editSeconds - Math.max(5, Math.ceil((voiceCount * 2000 + 300) / 1000)));
         const usable = allowedSeconds.filter((value) => value >= 4 && value <= limit);
         return usable.length ? Math.max(...usable) : allowedSeconds.length ? 0 : Math.max(0, limit);
     }, [allowedSeconds, editMode, editSeconds, segmentSeconds, voiceCount]);
-    const routeKey = JSON.stringify([clipMs, kindConfig.id, kindConfig.targets.join(","), visibleImages.map((image) => image.category).join(",")]);
-    const route = autoModel && routed.key === routeKey ? routed.route : null;
     const routeTaskSeconds = route?.recommended?.taskSeconds;
     // 自动选模型且推荐模型已选中时，按后台的分段（参考视频可切成多段上传，单段可长于单个参考视频上限）预估。
     const planSeconds = useMemo(() => {
+        if (autoModel && !route) return [];
         if (routeTaskSeconds?.length && !voiceCount) return routeTaskSeconds;
         return clipMs > 0 && voiceSegmentSeconds >= 4 ? estimateSegments(clipMs, voiceSegmentSeconds, allowedSeconds) : [];
-    }, [allowedSeconds, clipMs, routeTaskSeconds, voiceCount, voiceSegmentSeconds]);
+    }, [allowedSeconds, autoModel, clipMs, route, routeTaskSeconds, voiceCount, voiceSegmentSeconds]);
     const quoteKey = JSON.stringify([selectedModel, ratio, resolution, planSeconds, referenceCount, referenceMode.mode, editMode, voiceCount]);
     const estimate = creditsEnabled && quoted.key === quoteKey ? quoted : { credits: null, label: "" };
     useEffect(() => {
@@ -614,48 +615,27 @@ export function useEcommerceVideo() {
     }, [config, creditsEnabled, editMode, planSeconds, profile, quoteKey, ratio, referenceCount, referenceMode.mode, resolution, selectedModel, voiceCount]);
 
     // ---------- 提交 ----------
-    const targets = useMemo<VideoReplicationTarget[]>(() => {
-        if (kindConfig.targets.length) return kindConfig.targets;
-        return [...new Set(visibleImages.flatMap((image) => CATEGORY_TARGET[image.category] || []))];
-    }, [kindConfig.targets, visibleImages]);
     const adaptProductSpeech = targets.some((target) => target === "product" || target === "apparel");
-
-    // 读到时长或替换目标变化时向后台要推荐方案，并把模型选择器切到推荐模型。
     useEffect(() => {
-        if (!autoModel || clipMs < 3950) return;
+        if (!routeInput) return;
         const controller = new AbortController();
         const timer = window.setTimeout(() => {
-            previewVideoReplicationRoute({ durationMs: Math.round(clipMs), videoType: targets.join(","), replaceMode: kindConfig.id }, controller.signal)
-                .then((value) => {
-                    if (controller.signal.aborted) return;
-                    setRouted({ key: routeKey, route: value, error: value.recommended ? "" : value.reason });
-                    const ref = value.recommended?.model;
-                    if (!ref) return;
-                    const key = (ref.modelKey || "").replace(/^models\//, "");
-                    const match = selectableModelsByCapability(config, "video").find((model) =>
-                        ref.logicalModelId
-                            ? logicalModelIDForConfig({ ...config, model }) === ref.logicalModelId
-                            : !logicalModelIDForConfig({ ...config, model }) && resolveModelChannel(config, model)?.id === ref.channelId && modelOptionName(model).replace(/^models\//, "") === key,
-                    );
-                    if (match && match !== selectedModel) setModel(match);
-                })
-                .catch((error) => {
-                    if (!controller.signal.aborted) setRouted({ key: routeKey, route: null, error: errorText(error, "自动选模型失败，请手动选择模型") });
-                });
+            previewVideoReplicationRoute(routeInput, controller.signal)
+                .then((route) => { if (!controller.signal.aborted) setRouted({ input: routeInput, route }); })
+                .catch((error) => { if (!controller.signal.aborted) setRouted({ input: routeInput, error: errorText(error, "暂时无法获取推荐方案") }); });
         }, 300);
         return () => {
             window.clearTimeout(timer);
             controller.abort();
         };
-        // selectedModel 不进依赖：切到推荐模型后不需要重新请求。
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [autoModel, routeKey, config]);
+    }, [routeInput]);
 
     const missing = useMemo(() => {
         if (!selectedModel) return "暂无可用的视频模型";
         if (!video) return "请上传参考视频";
         if (video.uploading) return "参考视频上传中";
         if (!clipMs) return "正在读取参考视频时长";
+        if (routeIssue) return routeIssue;
         if (voiceSegmentSeconds < 4) return "模型参考时长不足，请减少音色或更换模型";
         if (visibleImages.some((image) => !image.resourceId && !image.error)) return "素材上传中";
         const materialError = replacementMaterialError(kindConfig, visibleImages);
@@ -692,6 +672,7 @@ export function useEcommerceVideo() {
         notes,
         publicConfig?.maxReferenceSeconds,
         referenceMode.mode,
+        routeIssue,
         rhythmUi,
         selectedModel,
         slotImages,
@@ -1028,7 +1009,8 @@ export function useEcommerceVideo() {
         autoModel,
         setAutoModel,
         route,
-        routeError: autoModel && routed.key === routeKey ? routed.error : "",
+        routeIssue,
+        planSeconds,
         ratio,
         setRatio,
         ratios,

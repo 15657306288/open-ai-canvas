@@ -668,26 +668,24 @@ export function EcommerceVideoComposer({ state }: { state: EcommerceVideoState }
                 ) : null}
                 <Section title="模型与参数">
                     <label className="ecv-auto-model">
-                        <Switch size="small" checked={state.autoModel} onChange={state.setAutoModel} />
+                        <Switch aria-label="按选区时长自动选模型" size="small" checked={state.autoModel} onChange={state.setAutoModel} />
                         <span>
                             <strong>自动选模型</strong>
-                            <small>按参考视频时长推荐模型、分段和参考视频切分</small>
+                            <small>{state.autoModel ? "按选区时长和替换对象匹配；手动选模型可退出自动模式。" : "使用手动选择的模型。"}</small>
                         </span>
                     </label>
                     {state.autoModel && state.route?.recommended ? (
-                        <div className="ecv-route-card">
-                            <strong>
-                                推荐 {state.route.recommended.label} · {state.route.recommended.track === "reference" ? "参考视频复刻" : "脚本复刻"}
-                                {state.route.recommended.faceSafe ? " · 不卡人脸" : ""}
-                            </strong>
+                        <div className="ecv-route-card" role="status">
+                            <strong>{state.route.recommended.label} · {state.editMode ? "参考视频复刻" : "脚本复刻"}</strong>
                             <span>
-                                原片 {state.route.sourceSeconds} 秒 → {state.route.recommended.tasks} 段生成（{(state.route.recommended.taskSeconds || []).join(" + ")} 秒）
-                                {state.route.recommended.clipsPerTask > 1 ? ` · 每段原片切成 ${state.route.recommended.clipsPerTask} 个参考视频上传` : ""}
+                                {state.trim ? "裁剪选区" : "参考视频"} {state.route.sourceSeconds} 秒，预计分 {state.planSeconds.length} 段生成
+                                {state.planSeconds.length ? `（${state.planSeconds.join(" + ")} 秒）` : ""}
+                                {state.editMode && state.route.recommended.clipsPerTask > 1 ? `；每段最多使用 ${state.route.recommended.clipsPerTask} 个原片片段` : ""}
                             </span>
                             <small>{state.route.reason}</small>
                         </div>
                     ) : null}
-                    {state.autoModel && state.routeError ? <p className="ecv-mode-note">{state.routeError}</p> : null}
+                    {state.autoModel && state.routeIssue ? <p className="ecv-mode-note" role="status">{state.routeIssue}</p> : null}
                     <div className="ecv-params">
                         <div className="ecv-param">
                             <small>模型</small>
@@ -704,7 +702,7 @@ export function EcommerceVideoComposer({ state }: { state: EcommerceVideoState }
                                 placeholder="暂无可用视频模型"
                                 onChange={(value: string) => {
                                     // 手动选模型即退出自动选模型，以用户的选择为准。
-                                    if (value !== state.selectedModel) state.setAutoModel(false);
+                                    state.setAutoModel(false);
                                     state.setModel(value);
                                 }}
                             />
@@ -727,11 +725,11 @@ export function EcommerceVideoComposer({ state }: { state: EcommerceVideoState }
                         </label>
                     </div>
                     {kindConfig.canvas === "resolution" && state.ratio ? <p className="ecv-hint">画面比例跟随参考视频：{state.ratio}</p> : null}
-                    {state.selectedModel ? (
+                    {state.selectedModel && (!state.autoModel || state.route) ? (
                         state.editMode ? (
-                            <p className="ecv-mode-note is-edit">原片编辑：以参考视频为底片，场景、手部动作和运镜保持原样，只替换你的商品 / 人物</p>
+                            <p className="ecv-mode-note is-edit">参考视频复刻：以原片为底片替换目标，尽量保留动作和运镜。</p>
                         ) : (
-                            <p className="ecv-mode-note">脚本复刻：当前模型不能读取参考视频，后台按反推出的逐秒动作、运镜和物理节奏脚本复刻，并用首尾帧接力保持连贯；画面结构接近原片但不会逐帧一致，想保留原视频画面只换商品，请换用支持参考视频的模型</p>
+                            <p className="ecv-mode-note">脚本复刻：根据原片的动作和分镜重新生成，画面不会逐帧一致。</p>
                         )
                     ) : null}
                 </Section>

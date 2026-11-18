@@ -53,6 +53,31 @@ func makeReplicationClip(t *testing.T, ffmpegBin, path string, segments int, seg
 	}
 }
 
+func TestVideoReplicationAnalysisTrimPreservesSource(t *testing.T) {
+	bin := requireVideoReplicationFFmpeg(t)
+	for _, tc := range []struct{ w, h, wantW, wantH int }{{2160, 3840, 720, 1280}, {640, 360, 640, 360}} {
+		t.Run(fmt.Sprintf("%dx%d", tc.w, tc.h), func(t *testing.T) {
+			ctx := context.Background()
+			path := filepath.Join(t.TempDir(), "source.mp4")
+			if out, err := exec.Command(bin, "-loglevel", "error", "-f", "lavfi", "-i", fmt.Sprintf("color=s=%dx%d:r=4:d=2", tc.w, tc.h), "-f", "lavfi", "-i", "sine=d=2", "-c:v", "libx264", "-preset", "ultrafast", "-threads", "2", "-c:a", "aac", path).CombinedOutput(); err != nil {
+				t.Fatalf("生成本地素材：%v %s", err, out)
+			}
+			trim, err := trimVideoReplicationFile(ctx, bin, path, 500, 1500)
+			if err != nil {
+				t.Fatal(err)
+			}
+			proxy, err := probeVideoReplicationFile(ctx, trim)
+			if err != nil || proxy.Width != tc.wantW || proxy.Height != tc.wantH || !proxy.HasAudio || proxy.DurationMs < 950 || proxy.DurationMs > 1100 {
+				t.Fatalf("分析代理：%+v，%v", proxy, err)
+			}
+			source, err := probeVideoReplicationFile(ctx, path)
+			if err != nil || source.Width != tc.w || source.Height != tc.h || source.DurationMs < 1950 {
+				t.Fatalf("原片：%+v，%v", source, err)
+			}
+		})
+	}
+}
+
 func TestVideoReplicationFFmpegPipelineOnRealVideos(t *testing.T) {
 	ffmpegBin := requireVideoReplicationFFmpeg(t)
 	dir := t.TempDir()

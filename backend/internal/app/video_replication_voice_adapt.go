@@ -36,6 +36,11 @@ func videoReplicationAdaptSubtitles(videoType string, params VideoReplicationPar
 	return videoReplicationHasSubtitles(analysis) && (params.RewriteVoice || videoReplicationHasTarget(videoType, VideoReplicationTypeProduct) || videoReplicationHasTarget(videoType, VideoReplicationTypeApparel))
 }
 
+// 只为实际开启的改写补取原文；调用时 RewriteVoice 已按模型出声能力适配。
+func videoReplicationNeedsRewriteSource(videoType string, params VideoReplicationParameters, analysis *VideoReplicationAnalysis) bool {
+	return params.RewriteVoice || (params.Subtitles && videoReplicationAdaptSubtitles(videoType, params, analysis))
+}
+
 // 改写稿缺失或本段容不下时必须停在规划阶段，不能把原商品文案混入新商品视频。
 func videoReplicationAdaptedLine(original, rewritten string, maxChars, segment int) (string, error) {
 	if strings.TrimSpace(original) == "" {

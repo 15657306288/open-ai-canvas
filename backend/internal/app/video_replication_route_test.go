@@ -6,6 +6,32 @@ import (
 	"testing"
 )
 
+func TestVideoReplicationRefreshProjectShotSeconds(t *testing.T) {
+	unsupported := false
+	for _, tc := range []struct {
+		name    string
+		profile *VideoCapabilityConfig
+		want    []int
+	}{
+		{"enum", &VideoCapabilityConfig{Duration: VideoDurationConfig{Selection: "enum", Values: []int{13, 3, 11, 13, 70}}}, []int{11, 13}},
+		{"range", &VideoCapabilityConfig{Duration: VideoDurationConfig{Selection: "range", Min: 2, Max: 65, Step: 10}}, []int{12, 22, 32, 42, 52}},
+		{"unsupported", &VideoCapabilityConfig{DurationSupported: &unsupported, Duration: VideoDurationConfig{Selection: "enum", Values: []int{5}}}, []int{12}},
+		{"missing", nil, []int{12}},
+		{"invalid", &VideoCapabilityConfig{}, []int{12}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			params := VideoReplicationParameters{ShotSeconds: []int{12}, MaxVideoTasks: 1, AutoEstimate: 2}
+			refreshVideoReplicationShotSeconds(&params, tc.profile)
+			if !reflect.DeepEqual(params.ShotSeconds, tc.want) || params.MaxVideoTasks != 1 || params.AutoEstimate != 2 {
+				t.Fatalf("刷新后档位 %v，任务上限 %d，授权积分 %v", params.ShotSeconds, params.MaxVideoTasks, params.AutoEstimate)
+			}
+			if tc.name == "enum" && snapVideoReplicationSeconds(12, params.ShotSeconds) == 12 {
+				t.Fatal("不能吸附到后台已排除的 12 秒")
+			}
+		})
+	}
+}
+
 func routeTestModels() (short, long, script videoReplicationRouteModel) {
 	seconds := func(low, high int) []int {
 		values := []int{}
