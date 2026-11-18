@@ -132,7 +132,7 @@ describe("生成副作用跨标签租约", () => {
             expect(owner.status).toBe("claimed");
             if (owner.status !== "claimed") throw new Error("Expected a claimed lease");
             await realm.invoke("complete", "materialize:no-lock:0", "no-lock", { materializedAssetId: "saved-without-web-locks" }, owner.binding);
-            await expect(realm.invoke("claim", "materialize:no-lock:0", "no-lock")).resolves.toEqual({
+            expect(await realm.invoke("claim", "materialize:no-lock:0", "no-lock")).toEqual({
                 status: "completed",
                 result: { materializedAssetId: "saved-without-web-locks" },
             });
@@ -152,7 +152,7 @@ describe("生成副作用跨标签租约", () => {
             expect(owner.status).toBe("claimed");
             if (owner.status !== "claimed") throw new Error("Expected a claimed lease");
             await realm.invoke("complete", "materialize:fallback:0", "fallback", {}, owner.binding);
-            await expect(realm.invoke("claim", "materialize:fallback:0", "fallback")).resolves.toEqual({ status: "completed", result: {} });
+            expect(await realm.invoke("claim", "materialize:fallback:0", "fallback")).toEqual({ status: "completed", result: {} });
             expect(harness.lockRequests).toBe(0);
         } finally {
             harness.dispose();

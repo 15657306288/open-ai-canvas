@@ -127,6 +127,8 @@ func TestVideoDepthAdmissionUsesOwnedSourceAndServerMeasurements(t *testing.T) {
 func TestVideoDepthStubPersistsTemporaryResultAndMeasuresDuration(t *testing.T) {
 	allowLoopbackProviderTest(t)
 	s, db := newMediaRecoveryTestService(t)
+	// 用已初始化的密钥测试结果持久化；首次发布密钥由独立用例覆盖。
+	s.dataDir = channelTestDataDir(t)
 	s.coordinator = platform.NewCoordinatorWithRedis(nil, "video-depth-test")
 	s.platform = platform.New(s.repo, s.coordinator, platformHost{svc: s})
 	center, err := newPluginRuntime(s.dataDir)
