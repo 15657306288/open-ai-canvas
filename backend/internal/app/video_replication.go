@@ -150,6 +150,14 @@ type VideoReplicationSourceShot struct {
 	Subtitle           string `json:"subtitle,omitempty"`
 	Voiceover          string `json:"voiceover,omitempty"`
 	SpeechDelivery     string `json:"speechDelivery,omitempty"`
+	// 超细粒度反推（结构与外观解耦）：逐秒节拍、肌肉+眼神表情、转身方向角度、遮挡卖点的物体、布料运动、音效与英文运动提示词。
+	Beats           string `json:"beats,omitempty"`
+	MicroExpression string `json:"microExpression,omitempty"`
+	Turn            string `json:"turn,omitempty"`
+	Occlusion       string `json:"occlusion,omitempty"`
+	Fabric          string `json:"fabric,omitempty"`
+	Sound           string `json:"sound,omitempty"`
+	MotionPrompt    string `json:"motionPrompt,omitempty"`
 }
 
 type VideoReplicationVideoAnalysis struct {

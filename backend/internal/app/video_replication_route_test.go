@@ -2,6 +2,7 @@ package app
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -133,5 +134,29 @@ func TestVideoReplicationRouteTaskSeconds(t *testing.T) {
 	}
 	if got := videoReplicationRouteTaskSeconds(33_000, 15, []int{5, 10, 15}); len(got) != 3 {
 		t.Fatalf("33s over 15s tasks should be 3 tasks: %v", got)
+	}
+}
+
+func TestVideoReplicationScriptDirectiveUsesOverlappingBeats(t *testing.T) {
+	detail := map[string]any{
+		"beats":        []any{map[string]any{"t": "0.0-1.0", "action": "人物向前迈步", "face": "眉骨微抬，看向镜头", "camera": "手持跟拍轻微上下起伏", "physics": "大衣下摆延迟摆动"}},
+		"turn":         "逆时针 180°（1.0–2.2 秒）",
+		"motionPrompt": "Handheld camera follows; the subject steps forward and turns 180 degrees counter-clockwise, coat hem swinging with delay.",
+	}
+	shot := VideoReplicationSourceShot{StartMs: 0, EndMs: 3000, Camera: "手持跟拍"}
+	videoReplicationShotDecompileFields(&shot, detail)
+	other := VideoReplicationSourceShot{StartMs: 3000, EndMs: 6000, Action: "不应出现"}
+	analysis := &VideoReplicationAnalysis{Videos: []VideoReplicationVideoAnalysis{{Shots: []VideoReplicationSourceShot{shot, other}}}}
+	text := videoReplicationScriptDirective(analysis, 0, 3000)
+	for _, want := range []string{"[0.0-1.0] 人物向前迈步", "逆时针 180°", "Motion: Handheld camera"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("directive missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "不应出现") {
+		t.Fatalf("directive leaked a non-overlapping shot:\n%s", text)
+	}
+	if videoReplicationScriptDirective(nil, 0, 3000) != "" {
+		t.Fatal("nil analysis must yield no directive")
 	}
 }

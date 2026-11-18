@@ -486,7 +486,7 @@ func (s *Service) understandVideoReplicationShots(ctx context.Context, cfg ecomm
 			transcript = "语音识别未发现人声台词"
 		}
 	}
-	system := "你是资深广告片导演与分镜师。请实际观看提供的完整视频并聆听音轨，按时间顺序分析动作、运镜、场景、字幕和声音，输出严格 JSON。不识别或猜测真实人物身份。不确定的细节明确写无法判断。"
+	system := strings.TrimSpace(videoReplicationDecompileSystem) + "\n请实际观看提供的完整视频并聆听音轨，按时间顺序分析。"
 	system += videoReplicationDeliveryAnalysisRule
 	prompt := fmt.Sprintf(`附件按 V1、V2 顺序提供完整参考视频（保留原有音轨），请完整理解时间线。以下是 ffmpeg 检测得到的镜头时间，仅用于对齐 ref；界面预览帧索引为 %s，预览帧不代替视频输入。
 镜头列表：%s
@@ -494,7 +494,7 @@ func (s *Service) understandVideoReplicationShots(ctx context.Context, cfg ecomm
 请输出 JSON：
 {"overall":{"scenes":"场景数量与概括","people":"出镜人物数量","products":"出现的商品数量","voiceType":"on_camera(人物对镜口播)/narration(画外旁白)/dialogue(多人对话)/music(纯背景音乐)/silent(无声)/unknown 之一，结合语音文本与画面中人物是否对镜说话判断","speakerCount":"说话人数推断","music":"背景音乐判断","soundEffects":"音效判断","marketing":"营销结构（如 痛点-卖点-证明-行动号召）","speakers":[{"id":"S1","label":"说话人称呼，如 出镜女主播 / 画外旁白","gender":"男/女/不确定","age":"年龄段","tone":"语气语速","onCamera":true}]},
 "summary":{"structure":"整体镜头结构与叙事顺序","rhythm":"节奏（慢/中/快及依据）","editingPace":"剪辑节奏与平均镜头时长","style":"视觉风格","mood":"氛围","hook":"开场钩子","subtitles":"字幕形式与内容概括，没有则写无","voiceover":"口播/旁白推断，无法判断写无法判断"},
-"shots":[{"ref":"V1-S1","shotSize":"景别","camera":"运镜","scene":"场景","action":"主体动作","personAction":"人物动作与表情神态（如微笑、眨眼、看向镜头、开口说话），无人物写无","productDisplay":"商品展示方式","lighting":"光线","composition":"构图","subtitle":"画面字幕原文，没有写空串","voiceover":"这个镜头时间段内音轨里人物说出的台词原文（逐字听写，不改写、不总结；背景音乐歌词不算），没有人声写空串"}],
+"shots":[{"ref":"V1-S1","shotSize":"景别","camera":"运镜","scene":"场景","action":"主体动作","personAction":"人物动作与表情神态（如微笑、眨眼、看向镜头、开口说话），无人物写无","productDisplay":"商品展示方式","lighting":"光线","composition":"构图","subtitle":"画面字幕原文，没有写空串","voiceover":"这个镜头时间段内音轨里人物说出的台词原文（逐字听写，不改写、不总结；背景音乐歌词不算），没有人声写空串","beats":[{"t":"0.0-0.8","action":"肢体与走位","face":"肌肉+眼神","camera":"摄影机物理运动","physics":"布料/物体/头发变化"}],"microExpression":"本镜头表情变化（肌肉+眼神）","turn":"转身方向与角度及起止秒，没有写空串","occlusion":"遮挡卖点的物体，没有写空串","fabric":"材质运动方式","sound":"音效与节拍点","motionPrompt":"English motion-only prompt"}],
 "recommendation":{"camera":"推荐运镜（一句话）","rhythm":"慢节奏/正常/快速/跟随参考视频 之一","lighting":"自然光/柔光/电影光/商业棚拍 之一或组合","mood":"推荐氛围（一句话）"}}
 shots 必须包含所有镜头，按视频时间线实际观察动作、运镜、声音与字幕，不要从静态图片猜测。`, strings.Join(imageOrder, "、"), string(timingJSON), transcript)
 	prompt += `
@@ -559,6 +559,7 @@ shots 必须包含所有镜头，按视频时间线实际观察动作、运镜�
 			shot.PersonAction, shot.ProductDisplay, shot.Lighting, shot.Composition = stringValue(detail["personAction"]), stringValue(detail["productDisplay"]), stringValue(detail["lighting"]), stringValue(detail["composition"])
 			shot.Subtitle, shot.Voiceover = stringValue(detail["subtitle"]), stringValue(detail["voiceover"])
 			shot.SpeechDelivery = videoReplicationClipRunes(strings.TrimSpace(stringValue(detail["speechDelivery"])), 300)
+			videoReplicationShotDecompileFields(shot, detail)
 		}
 	}
 	analysis.Summary = result.Summary

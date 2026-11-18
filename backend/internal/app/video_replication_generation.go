@@ -237,6 +237,11 @@ func (s *Service) submitVideoReplication(project *model.VideoReplicationProject,
 		}
 	} else {
 		chain := plan.Continuity == "tail_frame"
+		// 脚本复刻（模型不接收参考视频）：逐段带上原片的逐秒反推，靠文字还原动作、运镜和物理节奏。
+		var scriptAnalysis *VideoReplicationAnalysis
+		if !videoReplicationEditMode(params) {
+			scriptAnalysis = videoReplicationSavedAnalysis(project)
+		}
 		for index, shot := range storyboard.Shots {
 			if chain && len(active) > 0 {
 				break
@@ -261,6 +266,9 @@ func (s *Service) submitVideoReplication(project *model.VideoReplicationProject,
 					shotPrompt += "\n" + rule
 				}
 				shotPrompt += "\n" + videoReplicationReferenceOnlyRule("商品参考图", *storyboard)
+			}
+			if directive := videoReplicationScriptDirective(scriptAnalysis, shot.SourceStartMs, shot.SourceEndMs); directive != "" {
+				shotPrompt += "\n" + directive
 			}
 			target := videoReplicationTarget{shotID: shot.ID, index: index, seconds: snapVideoReplicationSeconds(shot.DurationSec, params.ShotSeconds), prompt: videoReplicationWithUserDirectiveWithin(videoReplicationPromptBudgetFor(params).clip(shotPrompt), brief, storyboard.Changes, videoReplicationPromptBudgetFor(params))}
 			if videoReplicationEditMode(params) && shot.SourceEndMs > shot.SourceStartMs {
