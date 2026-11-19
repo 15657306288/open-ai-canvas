@@ -91,39 +91,107 @@
         <div id="root"></div>
         <script>
             // 放在 #root 之后：外链样式加载完、首帧绘制前才执行，启动信号从这一刻对齐 performance.now()。
-            document.getElementById("root").style.setProperty("--boot-signal-clock", performance.now() + "ms");
-            // 入口或其依赖失败时 React 尚未挂载，路由错误页无法接管；提供不依赖外链资源的退出入口。
-            var bootRoot = document.getElementById("root");
-            var bootTimer = setTimeout(function () {
-                if (bootRoot.childNodes.length) return;
-                var notice = document.createElement("section");
-                notice.id = "boot-recovery";
-                notice.setAttribute("role", "alert");
-                notice.style.cssText = "position:fixed;inset:0;display:grid;align-content:center;justify-items:center;gap:16px;padding:24px;background:inherit;font:16px/1.6 sans-serif;text-align:center";
-                var title = document.createElement("strong");
-                title.textContent = "页面资源加载时间过长";
-                var detail = document.createElement("p");
-                detail.textContent = "部分启动资源未能加载，请重试。此操作不会清除浏览器中的画布缓存。";
-                var retry = document.createElement("button");
-                retry.type = "button";
-                retry.textContent = "重新加载";
-                retry.style.cssText = "padding:10px 24px;border:1px solid currentColor;border-radius:8px;background:transparent;color:inherit;font:inherit;cursor:pointer";
-                retry.onclick = function () {
-                    var url = new URL(location.href);
-                    url.searchParams.set("__chunk_recovery", String(Date.now()));
-                    location.replace(url.toString());
-                };
-                notice.append(title, detail, retry);
-                document.body.appendChild(notice);
-            }, 20000);
-            var bootObserver = new MutationObserver(function () {
-                if (!bootRoot.childNodes.length) return;
-                clearTimeout(bootTimer);
-                bootObserver.disconnect();
-                var notice = document.getElementById("boot-recovery");
-                if (notice) notice.remove();
-            });
-            bootObserver.observe(bootRoot, { childList: true });
+            var bootSignalRoot = document.getElementById("root");
+            if (bootSignalRoot) bootSignalRoot.style.setProperty("--boot-signal-clock", performance.now() + "ms");
+
+            (function () {
+                var bootRoot = document.getElementById("root");
+                if (!bootRoot) return;
+
+                // 与 chunk-recovery.ts 共用同一套标记：URL query 或 sessionStorage 任一存在，
+                // 都说明已经自动恢复过一次——再次失败立即提示，而不是继续重载造成循环。
+                var recovered = false;
+                try {
+                    recovered = new URLSearchParams(location.search).has("__chunk_recovery")
+                        || sessionStorage.getItem("canvas:chunk-recovery") === "1";
+                } catch (e) {}
+
+                var mounted = false;      // React 已挂载
+                var noticeShown = false;  // 兜底提示已显示
+                var timers = [];
+                var bootObserver = null;
+
+                function clearTimers() {
+                    for (var i = 0; i < timers.length; i++) clearTimeout(timers[i]);
+                    timers = [];
+                }
+
+                function onMounted() {
+                    if (mounted) return;
+                    mounted = true;
+                    clearTimers();
+                    var old = document.getElementById("boot-recovery");
+                    if (old && old.parentNode) old.parentNode.removeChild(old);
+                    if (bootObserver) bootObserver.disconnect();
+                }
+
+                function showNotice(titleText, detailText) {
+                    if (mounted || noticeShown) return;
+                    noticeShown = true;
+                    var notice = document.createElement("section");
+                    notice.id = "boot-recovery";
+                    notice.setAttribute("role", "alert");
+                    notice.style.cssText = "position:fixed;inset:0;display:grid;align-content:center;justify-items:center;gap:16px;padding:24px;background:inherit;font:16px/1.6 sans-serif;text-align:center";
+                    var title = document.createElement("strong");
+                    title.textContent = titleText;
+                    var detail = document.createElement("p");
+                    detail.textContent = detailText;
+                    var retry = document.createElement("button");
+                    retry.type = "button";
+                    retry.textContent = "重新加载";
+                    retry.style.cssText = "padding:10px 24px;border:1px solid currentColor;border-radius:8px;background:transparent;color:inherit;font:inherit;cursor:pointer";
+                    retry.onclick = function () {
+                        // 清掉自动恢复 guard，让重载后仍保有一次自动恢复机会。
+                        try { sessionStorage.removeItem("canvas:chunk-recovery"); } catch (e) {}
+                        var url = new URL(location.href);
+                        url.searchParams.set("__chunk_recovery", String(Date.now()));
+                        location.replace(url.toString());
+                    };
+                    notice.append(title, detail, retry);
+                    document.body.appendChild(notice);
+                }
+
+                // 只有捕获到真实资源错误信号，才走"资源失败"快速提示；纯慢链路不误报。
+                // 动态 import 的 chunk 失败：
+                window.addEventListener("vite:preloadError", function () { onResourceError(); });
+                // 静态 script/link 失败（捕获阶段才能拿到）：
+                window.addEventListener("error", function (e) {
+                    var t = e && e.target;
+                    if (t && (t.tagName === "SCRIPT" || t.tagName === "LINK")) onResourceError();
+                }, true);
+
+                function onResourceError() {
+                    if (mounted || noticeShown) return;
+                    // 首次错误：给 chunk-recovery 的自动整页恢复留一个短窗口（它内部会 location.replace）。
+                    // 已恢复过：说明自动恢复已用尽，立即提示，不再反复重载。
+                    var delay = recovered ? 0 : 1800;
+                    timers.push(setTimeout(function () {
+                        if (mounted || noticeShown) return;
+                        if (bootRoot.childNodes.length) { onMounted(); return; }
+                        showNotice(
+                            "部分资源加载失败",
+                            "启动所需资源未能加载" + (recovered ? "，已自动重试仍未成功" : "") + "。请检查网络后重试；此操作不会清除浏览器中的画布缓存。"
+                        );
+                    }, delay));
+                }
+
+                // 纯慢链路兜底：没有明确错误信号时给足宽限，且措辞是"网络慢"而非"资源坏"，避免误导。
+                timers.push(setTimeout(function () {
+                    if (mounted || noticeShown) return;
+                    if (bootRoot.childNodes.length) { onMounted(); return; }
+                    showNotice(
+                        "连接速度较慢",
+                        "页面仍在加载中，请稍候。若长时间无响应，可尝试重新加载；此操作不会清除浏览器中的画布缓存。"
+                    );
+                }, 45000));
+
+                // React 挂载即清理所有计时器与提示（启动扫光原地继续）。
+                bootObserver = new MutationObserver(function () {
+                    if (bootRoot.childNodes.length) onMounted();
+                });
+                bootObserver.observe(bootRoot, { childList: true });
+                if (bootRoot.childNodes.length) onMounted();
+            })();
         </script>
         <script type="module" src="/src/main.tsx"></script>
     </body>

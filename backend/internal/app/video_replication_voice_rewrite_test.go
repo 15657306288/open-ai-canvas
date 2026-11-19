@@ -142,6 +142,41 @@ func TestVideoReplicationSilentProductSubtitlesAreAdaptedWithoutVoice(t *testing
 	}
 }
 
+// 保留原声 + 不出声模型（generateAudio=false）时不会改写口播，画面里有字幕但没提取到文字也应继续规划，
+// 不能被误判为“无法按新商品改写”。这正是线上 2026-11-18 B 类失败的成因：requestedRewrite 用的是
+// adaptVoice 之前的原始 rewriteVoice=true，与“实际不改写”自相矛盾。
+func TestVideoReplicationNeedsRewriteSource(t *testing.T) {
+	withSubtitles := &VideoReplicationAnalysis{
+		Summary: VideoReplicationSummary{Subtitles: "画面有字幕"},
+		Videos:  []VideoReplicationVideoAnalysis{{DurationMs: 5000, HasAudio: true, Shots: []VideoReplicationSourceShot{{StartMs: 0, EndMs: 5000}}}},
+		Voice:   &VideoReplicationVoice{ASRAvailable: true, Type: "music"},
+	}
+	// 线上失败参数：不出声、保留原声、不开字幕，但保存了 rewriteVoice=true。
+	params := VideoReplicationParameters{GenerateAudio: false, AudioMode: "keep", RewriteVoice: true, Subtitles: false}
+	adapted := params
+	adapted.RewriteVoice = videoReplicationAdaptVoice("product", adapted, "")
+	if adapted.RewriteVoice {
+		t.Fatal("generateAudio=false must adapt rewriteVoice to false")
+	}
+	if videoReplicationNeedsRewriteSource("product", adapted, withSubtitles) {
+		t.Fatal("keeping original audio without subtitles must not require source text")
+	}
+
+	// 开了字幕、换商品时确实要改字幕 -> 需要原文。
+	withSubs := params
+	withSubs.Subtitles = true
+	if !videoReplicationNeedsRewriteSource("product", withSubs, withSubtitles) {
+		t.Fatal("subtitle rewrite on product replacement must require source text")
+	}
+
+	// 真要改写口播（会生成音频）时仍然需要原文，防止旧商品文案混入。
+	speech := VideoReplicationParameters{GenerateAudio: true, AudioMode: "replace", RewriteVoice: true}
+	speech.RewriteVoice = videoReplicationAdaptVoice("product", speech, "")
+	if !videoReplicationNeedsRewriteSource("product", speech, withSubtitles) {
+		t.Fatal("voice rewrite must require source text")
+	}
+}
+
 func TestVideoReplicationKnownSpeechWithoutTranscriptStopsBeforePlanning(t *testing.T) {
 	for _, voiceType := range []string{"on_camera", "narration", "dialogue"} {
 		analysis := &VideoReplicationAnalysis{

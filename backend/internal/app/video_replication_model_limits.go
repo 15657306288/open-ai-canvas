@@ -1,6 +1,7 @@
 package app
 
 import (
+	"sort"
 	"strings"
 	"unicode/utf8"
 )
@@ -41,7 +42,53 @@ func (s *Service) applyVideoReplicationModelLimits(userID string, params *VideoR
 		params.MaxReferenceAudioSeconds = refs.MaxAudioDuration
 	}
 	params.PromptMaxChars = refs.PromptMaxChars
+	// 单段时长档位也按后台能力配置重写：管理员可以用 enum 排除上游实际不支持的个别时长
+	// （例如 yuxibox seedance2.5-flash-官转 声明 5–30 整秒，但上游单独拒绝 12 秒）。
+	// 旧项目里存的过期 ShotSeconds 因此在开始/再次生成时被刷新，不必等前端重建项目。
+	if shotSeconds := videoReplicationDurationSecondsFromProfile(profile); len(shotSeconds) > 0 {
+		params.ShotSeconds = shotSeconds
+	}
 	return true
+}
+
+// videoReplicationDurationSecondsFromProfile 把模型能力配置的 duration 展开成允许的单段秒数列表。
+// enum 直接取 values；range 按 min/max/step 展开。durationSupported=false 或配置不可用时返回 nil（不重写）。
+func videoReplicationDurationSecondsFromProfile(profile *VideoCapabilityConfig) []int {
+	if profile == nil {
+		return nil
+	}
+	if profile.DurationSupported != nil && !*profile.DurationSupported {
+		return nil
+	}
+	duration := profile.Duration
+	var result []int
+	switch duration.Selection {
+	case "enum":
+		seen := make(map[int]bool, len(duration.Values))
+		for _, value := range duration.Values {
+			if value >= videoReplicationMinSegmentSeconds && value <= 60 && !seen[value] {
+				seen[value] = true
+				result = append(result, value)
+			}
+		}
+	case "range":
+		step := duration.Step
+		if step <= 0 {
+			step = 1
+		}
+		if duration.Min > 0 && duration.Max >= duration.Min {
+			for value := duration.Min; value <= duration.Max && value <= 60; value += step {
+				if value >= videoReplicationMinSegmentSeconds {
+					result = append(result, value)
+				}
+			}
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	sort.Ints(result)
+	return result
 }
 
 // videoReplicationElementLimit 是元素替换清单最多几条：模型每段能收的参考图减去替换目标（商品 / 人物……各至少一张），

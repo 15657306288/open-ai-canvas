@@ -356,6 +356,20 @@ func videoReplicationAutoSegments(video VideoReplicationVideoAnalysis, maxSecond
 	return segments
 }
 
+// videoReplicationNeedsRewriteSource 判断这次是否真的要改写文案（口播或字幕），决定是否必须拿到参考视频的原文台词/字幕。
+// params.RewriteVoice 必须是已经过 videoReplicationAdaptVoice 适配之后的值：
+//   - 模型不生成音频（generateAudio=false）时 adaptVoice 会归零 RewriteVoice：成片沿用原音轨，口播改写并不发生，
+//     此时画面里即使有字幕/口播但没提取到文字，也不该拦——没有改写动作就不需要原文；
+//   - 字幕改写只有在用户开启了 subtitles、且场景确实要改字幕时才需要原文。
+//
+// 这样既避免"选了不出声的模型 + 保留原声"被误判为改写失败，又防止真正改写时把旧商品文案混进新视频。
+func videoReplicationNeedsRewriteSource(videoType string, params VideoReplicationParameters, analysis *VideoReplicationAnalysis) bool {
+	if params.RewriteVoice {
+		return true
+	}
+	return params.Subtitles && videoReplicationAdaptSubtitles(videoType, params, analysis)
+}
+
 // planVideoReplicationAutoStoryboard 为每个分段写出逐段复刻的画面描述：内容、人物动作、运镜、构图与节奏和参考视频这一段一致，
 // 只替换用户选择的目标，并遵守用户补充要求。分段数量与时长由切点算法决定，不交给模型。
 func (s *Service) planVideoReplicationAutoStoryboard(ctx context.Context, cfg ecommerceProviderConfig, project *model.VideoReplicationProject, params VideoReplicationParameters, assets []model.VideoReplicationAsset, analysis *VideoReplicationAnalysis) (*VideoReplicationStoryboard, error) {
@@ -365,6 +379,8 @@ func (s *Service) planVideoReplicationAutoStoryboard(ctx context.Context, cfg ec
 	primary := analysis.Videos[0]
 	requestedRewrite := params.RewriteVoice || videoReplicationHasTarget(project.VideoType, VideoReplicationTypeProduct) || videoReplicationHasTarget(project.VideoType, VideoReplicationTypeApparel)
 	params.RewriteVoice = videoReplicationAdaptVoice(project.VideoType, params, project.Prompt)
+	// 只有"这次确实会改写文案"才需要原文台词/字幕。传入的 params.RewriteVoice 已是 adaptVoice 之后的值。
+	needsRewriteSource := videoReplicationNeedsRewriteSource(project.VideoType, params, analysis)
 	segmentSeconds := videoReplicationVoiceSegmentSeconds(params, len(videoReplicationVoiceAudios(assets, videoReplicationMaxVoiceAudios)))
 	if segmentSeconds == 0 {
 		return nil, BadAuthRequest("模型参考时长不足以同时接收原片和音色，请减少音色或更换模型")
@@ -404,10 +420,10 @@ func (s *Service) planVideoReplicationAutoStoryboard(ctx context.Context, cfg ec
 		hasSourceLines = hasSourceLines || strings.TrimSpace(segment.Lines) != ""
 		hasSourceSubtitles = hasSourceSubtitles || strings.TrimSpace(segment.Subtitle) != ""
 	}
-	if requestedRewrite && videoReplicationHasSubtitles(analysis) && !hasSourceLines && !hasSourceSubtitles {
+	if needsRewriteSource && videoReplicationHasSubtitles(analysis) && !hasSourceLines && !hasSourceSubtitles {
 		return nil, BadAuthRequest("参考视频有字幕，但没有取得可用文字，无法按新商品改写；请重新分析，未提交视频生成")
 	}
-	if requestedRewrite && !hasSourceLines && (params.AudioMode != "mute" || videoReplicationHasSubtitles(analysis)) && (videoReplicationOnCameraSpeech(analysis) || videoReplicationNarrationOnly(analysis)) {
+	if needsRewriteSource && !hasSourceLines && (params.AudioMode != "mute" || videoReplicationHasSubtitles(analysis)) && (videoReplicationOnCameraSpeech(analysis) || videoReplicationNarrationOnly(analysis)) {
 		return nil, BadAuthRequest("参考视频已检测到口播或旁白，但没有取得可用台词，无法按新商品改写；请重新分析，未提交视频生成")
 	}
 	if requestedRewrite && params.AudioMode != "mute" && !params.GenerateAudio {
