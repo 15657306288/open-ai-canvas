@@ -1,0 +1,264 @@
+/* 图片 / 视频创作方式导航与空态总览。
+   只使用工作台 token；模式卡是选择块，不承担生成按钮的主操作职责。 */
+
+.wbv-mode-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-2);
+}
+
+.wbv-mode-card,
+.wbv-overview-card {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+    border: 0;
+    border-radius: var(--r-md);
+    background: var(--wb-muted);
+    color: var(--wb-ink-2);
+    text-align: left;
+    cursor: pointer;
+    transition:
+        background-color var(--wb-motion),
+        color var(--wb-motion);
+}
+
+.wbv-mode-card {
+    min-height: 34px;
+    padding: 0 var(--space-2);
+    font-size: var(--fs-caption);
+    font-weight: 500;
+}
+
+.wbv-mode-card:hover,
+.wbv-overview-card:hover {
+    background: var(--wb-hover);
+    color: var(--wb-ink);
+}
+
+.wbv-mode-card[aria-pressed="true"],
+.wbv-overview-card[aria-pressed="true"] {
+    background: var(--wb-selected-bg);
+    box-shadow: inset 0 0 0 1px var(--wb-selected-line);
+    color: var(--wb-selected-fg);
+}
+
+.wbv-mode-icon {
+    display: grid;
+    flex: 0 0 auto;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border-radius: var(--r-xs);
+    background: color-mix(in srgb, var(--wb-panel) 72%, transparent);
+}
+
+.wbv-mode-icon svg {
+    width: 14px;
+    height: 14px;
+    stroke-width: 1.75;
+}
+
+.wbv-mode-detail {
+    display: grid;
+    gap: var(--space-3);
+    padding: var(--space-3);
+    border-radius: var(--r-lg);
+    background: var(--wb-muted);
+}
+
+.wbv-mode-copy {
+    display: grid;
+    gap: 2px;
+}
+
+.wbv-mode-copy strong {
+    color: var(--wb-ink);
+    font-size: var(--fs-body);
+    font-weight: 600;
+}
+
+.wbv-mode-copy p {
+    margin: 0;
+    color: var(--wb-ink-2);
+    font-size: var(--fs-caption);
+    line-height: var(--lh-body);
+}
+
+.wbv-mode-steps {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin: 0;
+    padding: 0;
+    color: var(--wb-ink-2);
+    font-size: var(--fs-label);
+    list-style: none;
+}
+
+.wbv-mode-steps li {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+}
+
+.wbv-mode-steps li > span {
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    border-radius: var(--r-full);
+    background: var(--wb-panel);
+    color: var(--wb-ink-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.wbv-mode-action {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-width: 0;
+}
+
+.wbv-mode-action small {
+    overflow: hidden;
+    color: var(--wb-ink-3);
+    font-size: var(--fs-label);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.wbv-overview {
+    display: grid;
+    gap: var(--space-5);
+    align-content: start;
+    width: min(860px, 100%);
+    min-height: 100%;
+    margin: 0 auto;
+    padding: max(var(--space-8), 8vh) var(--space-4) var(--space-8);
+}
+
+.wbv-overview-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+.wbv-overview-icon {
+    display: grid;
+    flex: 0 0 auto;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    border-radius: var(--r-lg);
+    background: var(--wb-muted);
+    color: var(--wb-ink);
+}
+
+.wbv-overview-icon svg {
+    width: 22px;
+    height: 22px;
+    stroke-width: 1.75;
+}
+
+.wbv-overview-head h2 {
+    margin: 0;
+    color: var(--wb-ink);
+    font-size: var(--fs-title);
+    font-weight: 600;
+    letter-spacing: var(--ls-title);
+}
+
+.wbv-overview-head p {
+    margin: 2px 0 0;
+    color: var(--wb-ink-2);
+    font-size: var(--fs-body);
+}
+
+.wbv-overview-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3);
+}
+
+.wbv-overview-card {
+    min-height: 84px;
+    padding: var(--space-3);
+    background: var(--wb-panel);
+}
+
+.wbv-overview-card > svg {
+    flex: 0 0 auto;
+    width: 14px;
+    height: 14px;
+    margin-left: auto;
+    color: var(--wb-ink-3);
+}
+
+.wbv-overview-card-icon {
+    display: grid;
+    flex: 0 0 auto;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border-radius: var(--r-md);
+    background: var(--wb-muted);
+    color: var(--wb-ink);
+}
+
+.wbv-overview-card-icon svg {
+    width: 18px;
+    height: 18px;
+    stroke-width: 1.75;
+}
+
+.wbv-overview-card-copy {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+}
+
+.wbv-overview-card-copy strong {
+    color: var(--wb-ink);
+    font-size: var(--fs-ui);
+    font-weight: 600;
+}
+
+.wbv-overview-card-copy small {
+    display: -webkit-box;
+    overflow: hidden;
+    color: var(--wb-ink-3);
+    font-size: var(--fs-caption);
+    line-height: 1.5;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+.wbv-overview-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    color: var(--wb-ink-3);
+    font-size: var(--fs-caption);
+}
+
+@media (max-width: 640px) {
+    .wbv-mode-grid,
+    .wbv-overview-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .wbv-overview-foot {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .wbv-mode-card,
+    .wbv-overview-card {
+        transition: none;
+    }
+}

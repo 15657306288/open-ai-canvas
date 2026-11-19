@@ -63,6 +63,16 @@ func classifyUserFacingTaskError(raw string) string {
 	if taskErrorIsModeration(raw) {
 		return taskErrorModerationText(raw)
 	}
+	// 部分视频供应商只返回机器码，不带中文原因；VIDEO_CONTENT_REVIEW 已由 taskErrorIsModeration 归为审核终态。
+	if strings.Contains(strings.ToLower(raw), "upstream_timeout") {
+		return "模型服务响应超时，请稍后再试。"
+	}
+	if strings.Contains(strings.ToLower(raw), "video_input_rejected") {
+		if strings.Contains(raw, "模型不存在") || strings.Contains(raw, "未开放") {
+			return "当前视频模型不存在或未开放，请切换模型或联系管理员核对渠道。"
+		}
+		return "当前视频模型拒绝了这组输入，请调整参考素材或切换模型后重试。"
+	}
 	providerMessage := taskErrorStructuredProviderMessage(raw)
 	if providerMessage == "" {
 		providerMessage = taskErrorWrappedProviderMessage(raw)
@@ -184,7 +194,8 @@ func cloudAgentReadableMessage(message string) bool {
 }
 
 func taskErrorIsModeration(value string) bool {
-	return strings.Contains(strings.ToLower(value), "sensitive_words_detected") || strings.Contains(value, "内容审核未通过")
+	lower := strings.ToLower(value)
+	return strings.Contains(lower, "sensitive_words_detected") || strings.Contains(lower, "video_content_review") || strings.Contains(value, "内容审核未通过")
 }
 
 func taskErrorModerationText(raw string) string {

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -107,16 +108,31 @@ func videoReplicationClipKey(params VideoReplicationParameters) string {
 }
 
 // trimVideoReplicationFile 把参考视频的 [start, end) 截成新文件（重新编码，切点精确到帧，保留音轨）。
+// 裁剪产物只用于后续的镜头检测 / 抽帧 / 视频理解，不是最终成片，因此按长边 1280 缩放后再编码：
+// 4K 竖屏素材用原始分辨率 + libx264 crf20 重编码十几秒可能要数分钟并被超时杀掉（错误信息还为空），
+// 缩放后编码量降一个数量级，十几秒的片段通常几秒内完成；关键帧、镜头切点与音轨都不受影响。
 func trimVideoReplicationFile(ctx context.Context, ffmpegBin, input string, startMs, endMs int64) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	output := filepath.Join(filepath.Dir(input), "trimmed.mp4")
 	cmd := exec.CommandContext(ctx, ffmpegBin, "-hide_banner", "-loglevel", "error", "-nostdin",
 		"-ss", fmt.Sprintf("%.3f", float64(startMs)/1000), "-i", input, "-t", fmt.Sprintf("%.3f", float64(endMs-startMs)/1000),
-		"-map", "0:v:0", "-map", "0:a:0?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+		"-vf", "scale='if(gt(iw,ih),1280,-2)':'if(gt(iw,ih),-2,1280)'",
+		"-map", "0:v:0", "-map", "0:a:0?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
 		"-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", "-y", output)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("裁剪参考视频失败：%s", clipText(strings.TrimSpace(string(out)), 300))
+		detail := strings.TrimSpace(string(out))
+		// 进程被 context 超时 / 取消时 ffmpeg 往往没有任何输出，detail 为空会让错误提示只剩“失败：”一片空白。
+		if detail == "" {
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				detail = "裁剪超时（视频分辨率过高或时长过长）"
+			} else if ctx.Err() != nil {
+				detail = "裁剪被取消：" + ctx.Err().Error()
+			} else {
+				detail = err.Error()
+			}
+		}
+		return "", fmt.Errorf("裁剪参考视频失败：%s", clipText(detail, 300))
 	}
 	return output, nil
 }

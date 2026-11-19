@@ -41,6 +41,9 @@ func TestContentModerationFailureRequiresExactProviderCode(t *testing.T) {
 	if !isContentModerationFailure(`{"code":"sensitive_words_detected"}`) {
 		t.Fatal("expected moderation error to be detected")
 	}
+	if !isContentModerationFailure(`{"code":"VIDEO_CONTENT_REVIEW"}`) {
+		t.Fatal("expected video review rejection to be detected")
+	}
 	if isContentModerationFailure("上游 HTTP 400") {
 		t.Fatal("generic HTTP 400 must remain retryable")
 	}

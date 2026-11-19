@@ -20,13 +20,20 @@ import (
 var builtinCatalogJSON []byte
 
 type builtinToolSeed struct {
-	Key        string `json:"key"`
-	Kind       string `json:"kind"`
-	CategoryID string `json:"categoryId"`
-	Name       string `json:"name"`
-	Focus      string `json:"focus"`
-	InputOne   string `json:"inputOne"`
-	InputTwo   string `json:"inputTwo"`
+	Key                string   `json:"key"`
+	Kind               string   `json:"kind"`
+	CategoryID         string   `json:"categoryId"`
+	Name               string   `json:"name"`
+	Focus              string   `json:"focus"`
+	InputOne           string   `json:"inputOne"`
+	InputOneRequired   *bool    `json:"inputOneRequired,omitempty"`
+	InputOneMaxCount   int      `json:"inputOneMaxCount,omitempty"`
+	InputOneMediaTypes []string `json:"inputOneMediaTypes,omitempty"`
+	InputTwo           string   `json:"inputTwo"`
+	InputTwoRequired   *bool    `json:"inputTwoRequired,omitempty"`
+	InputTwoMinCount   int      `json:"inputTwoMinCount,omitempty"`
+	InputTwoMaxCount   int      `json:"inputTwoMaxCount,omitempty"`
+	InputTwoMediaTypes []string `json:"inputTwoMediaTypes,omitempty"`
 }
 
 // EnsureBuiltinCatalog seeds missing records without changing administrator
@@ -106,26 +113,49 @@ func builtinToolConfig(entry builtinToolSeed, index int) (json.RawMessage, json.
 		if name == "" || builtinTextInput(name) {
 			continue // Script/shot descriptions belong in the prompt, not an image upload slot.
 		}
-		key, minCount := "reference-main", 1
+		key, required, minCount, maxCount, mediaTypes := "reference-main", true, 1, entry.InputOneMaxCount, entry.InputOneMediaTypes
 		if i == 1 {
-			key, minCount = "reference-support", 0
+			key, required, minCount, maxCount, mediaTypes = "reference-support", false, entry.InputTwoMinCount, entry.InputTwoMaxCount, entry.InputTwoMediaTypes
 		}
-		mediaType := KindImage
-		if strings.Contains(name, "视频") {
-			mediaType = KindVideo
+		if i == 0 && entry.InputOneRequired != nil {
+			required = *entry.InputOneRequired
+			if !required {
+				minCount = 0
+			}
 		}
-		contract.Slots = append(contract.Slots, ReferenceSlot{Key: key, Name: name, MediaTypes: []string{mediaType}, ResourceKind: "asset", MinCount: minCount, MaxCount: 4, Required: i == 0})
+		if i == 1 && entry.InputTwoRequired != nil {
+			required = *entry.InputTwoRequired
+			if required && minCount == 0 {
+				minCount = 1
+			}
+		}
+		if maxCount <= 0 {
+			maxCount = 4
+		}
+		if minCount < 0 {
+			return nil, nil, fmt.Errorf("tool %s has a negative minimum input count", entry.Key)
+		}
+		if len(mediaTypes) == 0 {
+			mediaTypes = inferredSeedMediaTypes(name)
+		}
+		mediaTypes, err := normalizeSeedMediaTypes(mediaTypes)
+		if err != nil {
+			return nil, nil, fmt.Errorf("tool %s: %w", entry.Key, err)
+		}
+		contract.Slots = append(contract.Slots, ReferenceSlot{Key: key, Name: name, MediaTypes: mediaTypes, ResourceKind: "asset", MinCount: minCount, MaxCount: maxCount, Required: required})
 	}
 	capability, err := json.Marshal(map[string]any{
 		"supportedModes": []string{entry.Kind}, "searchKeywords": []string{entry.Name, entry.CategoryID, entry.Focus},
-		"surfaces": []string{"workbench"}, "recommended": index < 12 || entry.Key == "product-hero-motion", "recommendationOrder": index + 1,
+		"surfaces": []string{"workbench"}, "recommended": index < 12 || builtinRecommendedKeys[entry.Key], "recommendationOrder": index + 1,
 		"inputContract": contract,
 	})
 	if err != nil {
 		return nil, nil, err
 	}
 	inputs := entry.InputOne
-	if entry.InputTwo != "" {
+	if entry.InputTwo != "" && entry.InputTwoRequired != nil && *entry.InputTwoRequired {
+		inputs += "，并提供" + entry.InputTwo
+	} else if entry.InputTwo != "" {
 		inputs += "；可补充" + entry.InputTwo
 	}
 	guide, err := json.Marshal(map[string]any{
@@ -137,6 +167,54 @@ func builtinToolConfig(entry builtinToolSeed, index int) (json.RawMessage, json.
 		},
 	})
 	return capability, guide, err
+}
+
+// builtinRecommendedKeys 是排在目录前 12 项之外、仍需进入"推荐"分类的内置工具：
+// 视频板块的四种创作方式、AI 生图板块的八条创作路径，以及商品英雄运镜。
+var builtinRecommendedKeys = map[string]bool{
+	"ai-main-image":             true,
+	"ai-sku-image":              true,
+	"ai-detail-page":            true,
+	"ai-image-edit":             true,
+	"ai-product-suite":          true,
+	"ai-product-fission":        true,
+	"ai-interior-render":        true,
+	"ai-interior-tools":         true,
+	"product-hero-motion":       true,
+	"director-creation":         true,
+	"prompt-video":              true,
+	"script-framework-remix":    true,
+	"subject-replacement-remix": true,
+}
+
+func inferredSeedMediaTypes(name string) []string {
+	if strings.Contains(name, "音频") {
+		return []string{"audio"}
+	}
+	if strings.Contains(name, "视频") || strings.Contains(name, "原片") {
+		return []string{"video"}
+	}
+	return []string{"image"}
+}
+
+func normalizeSeedMediaTypes(values []string) ([]string, error) {
+	seen := map[string]bool{}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		if value != "image" && value != "video" && value != "audio" {
+			return nil, fmt.Errorf("unsupported input media type %q", value)
+		}
+		seen[value] = true
+		result = append(result, value)
+	}
+	if len(result) == 0 {
+		return nil, fmt.Errorf("input media types cannot be empty")
+	}
+	return result, nil
 }
 
 func builtinTextInput(name string) bool {

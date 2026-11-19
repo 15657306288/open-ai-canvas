@@ -27,6 +27,7 @@ const REASON_MESSAGES: Record<string, string> = {
     drama_budget_exhausted: "这部短剧已达到预算上限（含画布精修花费），请在短剧设置里提高预算后再生成。",
     rate_limited: "请求过于频繁，请稍后再试。",
     timeout: "模型服务响应超时，请稍后再试。",
+    upstream_timeout: "模型服务响应超时，请稍后再试。",
     bad_gateway: "模型服务暂时不可用，请稍后再试。",
     unavailable: "模型服务暂时不可用，请稍后再试。",
     upstream_dns_failed: "模型服务暂时不可用，请稍后再试。",
@@ -139,7 +140,8 @@ export function generationErrorCode(error: unknown) {
 
 export function isContentModerationError(value: unknown) {
     const text = value instanceof Error ? value.message : String(value || "");
-    return text.toLowerCase().includes(CONTENT_MODERATION_ERROR_CODE) || text.includes("内容审核未通过");
+    const lower = text.toLowerCase();
+    return lower.includes(CONTENT_MODERATION_ERROR_CODE) || lower.includes("video_content_review") || text.includes("内容审核未通过");
 }
 
 export function unchangedModeratedPrompt(metadata: { errorDetails?: string; generationErrorCode?: string; failedPromptFingerprint?: string } | undefined, prompt: string) {

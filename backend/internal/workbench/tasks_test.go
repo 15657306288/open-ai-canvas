@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"strings"
 	"testing"
 
 	"yingce/backend/internal/model"
@@ -119,5 +120,30 @@ func TestToolRequiresPromptDefaultsAndOverride(t *testing.T) {
 	optionalPrompt := &model.WorkbenchTool{CapabilityJSON: `{"inputContract":{"promptRequired":false}}`}
 	if toolRequiresPrompt(optionalPrompt) {
 		t.Fatal("tool configured for optional prompts must allow an empty prompt")
+	}
+}
+
+func TestResolveVideoTaskRejectsUndersizedReferenceImages(t *testing.T) {
+	s, db, _ := newWorkbenchTest(t)
+	for _, resource := range []model.Resource{
+		{ID: "large", UserID: "user", Kind: "image", Status: model.ResourceStatusReady, Width: 1024, Height: 768},
+		{ID: "short", UserID: "user", Kind: "image", Status: model.ResourceStatusReady, Width: 466, Height: 295},
+		{ID: "unknown", UserID: "user", Kind: "image", Status: model.ResourceStatusReady},
+	} {
+		if err := db.Create(&resource).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	ref := func(id string) TaskReference { return TaskReference{ResourceID: id, Kind: "image", Role: "reference"} }
+
+	_, err := s.ResolveTask("user", TaskInput{Kind: KindVideo, Prompt: "Animate", Model: "video-model", ChannelID: "channel", References: []TaskReference{ref("large"), ref("short")}})
+	if err == nil || !strings.Contains(err.Error(), "第 2 张参考图为 466×295 像素") {
+		t.Fatalf("undersized reference error = %v", err)
+	}
+	if _, err := s.ResolveTask("user", TaskInput{Kind: KindVideo, Prompt: "Animate", Model: "video-model", ChannelID: "channel", References: []TaskReference{ref("large"), ref("unknown")}}); err != nil {
+		t.Fatalf("reference with known-good or unknown size rejected: %v", err)
+	}
+	if _, err := s.ResolveTask("user", TaskInput{Kind: KindImage, Prompt: "Edit", Model: "image-model", ChannelID: "channel", References: []TaskReference{{ResourceID: "short", Kind: "image"}}}); err != nil {
+		t.Fatalf("image task must not apply the video size floor: %v", err)
 	}
 }

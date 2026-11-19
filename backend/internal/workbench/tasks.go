@@ -3,6 +3,7 @@ package workbench
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -141,6 +142,7 @@ func (s *Service) ResolveTask(userID string, req TaskInput) (*TaskResolution, er
 	}
 	refs := make([]TaskReference, 0, len(req.References))
 	frameRoles := map[string]bool{}
+	imageOrdinal := 0
 	for _, ref := range req.References {
 		if strings.TrimSpace(ref.ResourceID) == "" || !validReferenceKind(ref.Kind) {
 			return nil, kernel.BadAuthRequest("参考素材无效")
@@ -158,6 +160,12 @@ func (s *Service) ResolveTask(userID string, req TaskInput) (*TaskResolution, er
 		resource, err := s.repo.ResourceForUser(userID, strings.TrimSpace(ref.ResourceID))
 		if err != nil || resource.Status != model.ResourceStatusReady || resource.Kind != ref.Kind {
 			return nil, kernel.BadAuthRequest("参考素材不存在、未就绪或类型不匹配")
+		}
+		if resource.Kind == "image" {
+			imageOrdinal++
+			if req.Kind == KindVideo && imageBelowVideoReferenceMinimum(resource.Width, resource.Height) {
+				return nil, kernel.BadAuthRequest(fmt.Sprintf("第 %d 张参考图为 %d×%d 像素，视频模型要求宽高均不小于 %d 像素，请放大或补边后重新上传", imageOrdinal, resource.Width, resource.Height, videoReferenceImageMinEdge))
+			}
 		}
 		refs = append(refs, TaskReference{ResourceID: resource.ID, Kind: resource.Kind, Role: role, SlotKey: strings.TrimSpace(ref.SlotKey)})
 	}
@@ -244,6 +252,14 @@ func (s *Service) ResolveTask(userID string, req TaskInput) (*TaskResolution, er
 		workbenchSnapshot["presetPrompt"] = preset.PromptTemplate
 	}
 	return &TaskResolution{TaskType: map[string]string{KindImage: "canvas_image", KindVideo: "canvas_video"}[req.Kind], Operation: operation, Input: input, Parameters: parameters, Prompt: strings.TrimSpace(req.Prompt), Model: modelName, LogicalModelID: logicalModelID, ChannelID: channelID, Tool: tool, Preset: preset}, nil
+}
+
+// videoReferenceImageMinEdge 是视频模型对参考图宽高的共同下限；低于它的图片会被上游以
+// task_failed 拒绝，因此在准入阶段拦截。尺寸未知（旧素材为 0）时交给上游判断。
+const videoReferenceImageMinEdge = 300
+
+func imageBelowVideoReferenceMinimum(width, height int) bool {
+	return width > 0 && height > 0 && (width < videoReferenceImageMinEdge || height < videoReferenceImageMinEdge)
 }
 
 func videoOperation(refs []TaskReference) string {
