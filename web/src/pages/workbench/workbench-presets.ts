@@ -79,6 +79,7 @@ export const WORKBENCH_SCENE_FACETS: Record<WorkbenchKind, SceneFacet[]> = {
         { key: "detail", label: "细节特写", keywords: ["微距", "细节", "特写", "微光", "滴管", "喷雾", "热气"] },
         { key: "usage", label: "使用演示", keywords: ["使用", "开箱", "冲煮", "功能", "演示"] },
         { key: "ads", label: "短视频投放", keywords: ["钩子", "竖屏", "对照", "短片"] },
+        { key: "creation", label: "创作复刻", keywords: ["导演创作", "提示词成片", "复刻"] },
     ],
 };
 
@@ -110,12 +111,6 @@ export function workbenchPageCategories(tools: WorkbenchTool[]) {
     const known = PAGE_CATEGORY_ORDER.filter((id) => (id === "recommended" ? hasRecommended : present.has(id)));
     const unknown = [...present].filter((id) => !PAGE_CATEGORY_ORDER.includes(id));
     return [...known, ...unknown].map((value) => ({ value, label: value === "recommended" ? "推荐" : workbenchCategoryLabel(value) }));
-}
-
-/** 快捷场景：后台标为推荐的电商工具优先，其次电商与商品分类。 */
-export function workbenchQuickTools(tools: WorkbenchTool[], limit = 6) {
-    const score = (tool: WorkbenchTool) => (tool.recommended ? 0 : 2) + (tool.categoryId === "ecommerce" || tool.categoryId === "product" ? 0 : 1);
-    return [...tools].sort((a, b) => score(a) - score(b) || (a.recommendationOrder ?? a.sortOrder) - (b.recommendationOrder ?? b.sortOrder)).slice(0, limit);
 }
 
 export type SceneTone = "product" | "people" | "scene" | "detail" | "marketing" | "video" | "creative";

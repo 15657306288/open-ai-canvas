@@ -1,5 +1,5 @@
 import { Button, Dropdown, Progress, Select, Switch } from "antd";
-import { ArrowRight, ArrowUp, Check, ChevronDown, ChevronUp, Clapperboard, FolderOpen, ImagePlus, Images, LayoutGrid, Megaphone, Mic, Palette, PenLine, ScanSearch, ShoppingBag, UserRound, X } from "lucide-react";
+import { ArrowUp, Check, ChevronDown, ChevronUp, Clapperboard, FolderOpen, ImagePlus, Images, LayoutGrid, Megaphone, Mic, Palette, PenLine, ScanSearch, ShoppingBag, UserRound, X } from "lucide-react";
 import { useEffect, useState, type DragEvent, type ReactNode } from "react";
 
 import { AntTooltip as Tooltip } from "@/components/ui/base/tooltip/ant-tooltip";
@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import type { WorkbenchKind, WorkbenchPromptPreset, WorkbenchReferenceSlot, WorkbenchTool } from "@/services/api/workbench";
 
 import { workbenchMediaLabel } from "./workbench-catalog";
-import { workbenchRatioUsage, workbenchSceneTone, workbenchToolSubtitle, type InspirationGroup, type SceneTone } from "./workbench-presets";
+import { workbenchRatioUsage, workbenchSceneTone, type InspirationGroup, type SceneTone } from "./workbench-presets";
 
 export type WorkbenchReference = {
     id: string;
@@ -56,71 +56,6 @@ export function ComposerSection({ title, hint, aside, children, className }: { t
             </header>
             {children}
         </section>
-    );
-}
-
-export function SceneSection({
-    kind,
-    tool,
-    quickTools,
-    loading,
-    error,
-    onOpenLibrary,
-    onChoose,
-    onRetry,
-}: {
-    kind: WorkbenchKind;
-    tool: WorkbenchTool | null;
-    quickTools: WorkbenchTool[];
-    loading: boolean;
-    error: string;
-    onOpenLibrary: () => void;
-    onChoose: (tool: WorkbenchTool | null) => void;
-    onRetry: () => void;
-}) {
-    const subtitle = tool ? workbenchToolSubtitle(tool) : kind === "image" ? "不套用场景模板，直接描述想要的商品画面" : "不套用场景模板，直接描述镜头里发生什么";
-    return (
-        <ComposerSection
-            title="出品场景"
-            hint={tool ? undefined : "自动套用模板与素材要求"}
-            aside={
-                <Button size="small" type="text" className="wb-text-action" onClick={onOpenLibrary}>
-                    全部场景
-                    <ArrowRight className="size-3.5" />
-                </Button>
-            }
-        >
-            <button type="button" className="wb-scene-current" onClick={onOpenLibrary} aria-haspopup="dialog" title={tool ? `${tool.name}\n${subtitle}` : "选择出品场景"}>
-                <SceneGlyph tool={tool} kind={kind} size="lg" />
-                <span className="wb-scene-current-copy">
-                    <strong>{tool?.name || "自由创作"}</strong>
-                    <small>{subtitle}</small>
-                </span>
-                <span className="wb-scene-current-switch">更换</span>
-            </button>
-            {error ? (
-                <div className="wb-inline-error" role="alert">
-                    <span>{error}</span>
-                    <Button size="small" onClick={onRetry}>
-                        重试
-                    </Button>
-                </div>
-            ) : loading ? (
-                <div className="wb-scene-chips is-loading" aria-hidden>
-                    {Array.from({ length: 4 }, (_, index) => (
-                        <span key={index} className="wb-skeleton-chip" />
-                    ))}
-                </div>
-            ) : quickTools.length ? (
-                <div className="wb-scene-chips" role="group" aria-label="常用场景">
-                    {quickTools.map((item) => (
-                        <button key={item.id} type="button" className="wb-chip" aria-pressed={item.id === tool?.id} title={workbenchToolSubtitle(item) || item.name} onClick={() => onChoose(item.id === tool?.id ? null : item)}>
-                            {item.name}
-                        </button>
-                    ))}
-                </div>
-            ) : null}
-        </ComposerSection>
     );
 }
 
@@ -272,6 +207,8 @@ export function ReferenceSection({
     onRemove,
     onRoleChange,
     onClear,
+    mediaTitle,
+    mediaNoun,
 }: {
     kind: WorkbenchKind;
     tool: WorkbenchTool | null;
@@ -283,9 +220,13 @@ export function ReferenceSection({
     onRemove: (reference: WorkbenchReference) => void;
     onRoleChange: (reference: WorkbenchReference, role: WorkbenchReference["role"]) => void;
     onClear: () => void;
+    mediaTitle?: string;
+    mediaNoun?: string;
 }) {
     const slots = tool?.inputContract?.slots || [];
     const mediaHint = kind === "image" ? "支持拖拽、粘贴截图" : "图片 / 视频 / 音频，支持拖拽";
+    const sectionTitle = mediaTitle || (kind === "image" ? "商品素材" : "参考素材");
+    const mediaLabel = mediaNoun || (kind === "image" ? "商品图" : "参考素材");
     const clearAction = references.length ? (
         <Button size="small" type="text" className="wb-text-action" onClick={onClear}>
             清空
@@ -308,19 +249,19 @@ export function ReferenceSection({
     if (!slots.length) {
         if (unslottedLimit <= 0) {
             return (
-                <ComposerSection title={kind === "image" ? "商品素材" : "参考素材"} hint="当前模型不接受参考素材">
+                <ComposerSection title={sectionTitle} hint="当前模型不接受参考素材">
                     <p className="wb-muted-note">换一个支持参考图的模型后，可以上传商品原图保持外观一致。</p>
                 </ComposerSection>
             );
         }
         return (
-            <ComposerSection title={kind === "image" ? "商品素材" : "参考素材"} hint={`${references.length} / ${unslottedLimit} · ${mediaHint}`} aside={clearAction}>
-                {renderGroup(references, { limit: unslottedLimit, label: kind === "image" ? "上传商品图" : "上传参考素材", detail: kind === "image" ? "白底或实拍图，外观越清晰越好" : "图片可设为首帧或尾帧" })}
+            <ComposerSection title={sectionTitle} hint={`${references.length} / ${unslottedLimit} · ${mediaHint}`} aside={clearAction}>
+                {renderGroup(references, { limit: unslottedLimit, label: `上传${mediaLabel}`, detail: kind === "image" ? (mediaNoun ? `用于${mediaNoun}的清晰图片` : "白底或实拍图，外观越清晰越好") : "图片可设为首帧或尾帧" })}
             </ComposerSection>
         );
     }
     return (
-        <ComposerSection title="商品素材" hint={mediaHint} aside={clearAction}>
+        <ComposerSection title={sectionTitle} hint={mediaHint} aside={clearAction}>
             <div className="wb-slot-list">
                 {slots.map((slot) => {
                     const items = references.filter((reference) => reference.slotKey === slot.key);

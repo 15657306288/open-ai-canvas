@@ -1,18 +1,21 @@
 import { Button, Dropdown, Input } from "antd";
-import { ArrowUpRight, CircleAlert, Clapperboard, Copy, Download, Ellipsis, ImageOff, ImagePlus, LoaderCircle, Maximize2, Play, RefreshCw, RotateCcw, Search, SquarePen, X } from "lucide-react";
+import { CircleAlert, Clapperboard, Copy, Download, Ellipsis, ImageOff, ImagePlus, LoaderCircle, Maximize2, Play, RefreshCw, RotateCcw, Search, SquarePen, X } from "lucide-react";
 import { memo, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
-import { WorkspaceNoResultsState, WorkspaceState } from "@/components/layout/workspace-state";
+import { WorkspaceNoResultsState } from "@/components/layout/workspace-state";
 import { SegmentedControl } from "@/components/ui/base/segmented-control/segmented-control";
 import { AntTooltip as Tooltip } from "@/components/ui/base/tooltip/ant-tooltip";
 import { RelativeTime } from "@/components/ui/product/relative-time";
+import { generationErrorMessage } from "@/lib/generation-error";
 import { cn } from "@/lib/utils";
 import type { GenerationTask } from "@/services/api/task-center";
-import type { WorkbenchKind, WorkbenchTool } from "@/services/api/workbench";
+import type { WorkbenchKind } from "@/services/api/workbench";
 
 import type { WorkbenchOutput } from "./workbench-batches";
-import { SceneGlyph } from "./workbench-composer";
-import { workbenchToolSubtitle } from "./workbench-presets";
+import { ImageStudioOverview, type ImageStudioMode, type ImageStudioModeId } from "./image-studio";
+import { isModeratedFailure } from "./workbench-input";
+import type { StudioMode } from "./studio-modes";
+import { VideoStudioOverview, type VideoStudioMode, type VideoStudioModeId } from "./video-studio";
 
 export type GalleryTile =
     | { type: "output"; key: string; output: WorkbenchOutput; task: GenerationTask }
@@ -218,21 +221,29 @@ function ProgressTile({ tile, actions, busy }: { tile: Extract<GalleryTile, { ty
     );
 }
 
-function FailedTile({ task, actions, busy }: { task: GenerationTask; actions: GalleryActions; busy: boolean }) {
+function FailedTile({ task, batch, actions, busy }: { task: GenerationTask; batch: GalleryBatch; actions: GalleryActions; busy: boolean }) {
     const cancelled = task.status === "cancelled";
+    const moderated = isModeratedFailure(task);
+    const reason = !cancelled && task.error ? generationErrorMessage(task.error) : "";
     return (
         <div className={cn("wb-tile is-failed", cancelled && "is-cancelled")}>
             <span className="wb-tile-state">
                 <CircleAlert />
                 <strong>{cancelled ? "已取消" : "生成失败"}</strong>
-                {!cancelled && task.error ? (
-                    <small className="wb-tile-error" title={task.error}>
-                        {task.error}
+                {reason ? (
+                    <small className="wb-tile-error" title={reason}>
+                        {reason}
                     </small>
                 ) : null}
-                <Button size="small" icon={busy ? <LoaderCircle className="wb-spin" /> : <RotateCcw />} disabled={busy} onClick={() => actions.retryTask(task)}>
-                    重新生成
-                </Button>
+                {moderated ? (
+                    <Button size="small" icon={<SquarePen />} onClick={() => actions.reuse(batch)}>
+                        修改后再生成
+                    </Button>
+                ) : (
+                    <Button size="small" icon={busy ? <LoaderCircle className="wb-spin" /> : <RotateCcw />} disabled={busy} onClick={() => actions.retryTask(task)}>
+                        重新生成
+                    </Button>
+                )}
             </span>
         </div>
     );
@@ -253,7 +264,7 @@ const BatchCard = memo(function BatchCard({ batch, kind, actions, busyTaskIds }:
                 : `${counts.total} ${unit}`;
     const menuItems = [
         ...(counts.active ? [{ key: "cancel", label: "取消未完成的任务" }] : []),
-        ...(counts.failed ? [{ key: "retry", label: "重新生成失败项" }] : []),
+        ...(batch.tasks.some((task) => (task.status === "failed" || task.status === "cancelled") && !isModeratedFailure(task)) ? [{ key: "retry", label: "重新生成失败项" }] : []),
         ...(batch.resumable ? [{ key: "resume", label: `继续提交剩余 ${batch.resumable} 个` }] : []),
         ...(batch.localOnly && !batch.submitting ? [{ key: "dismiss", label: "移除这组记录" }] : []),
     ];
@@ -335,7 +346,7 @@ const BatchCard = memo(function BatchCard({ batch, kind, actions, busyTaskIds }:
                     ) : tile.type === "active" ? (
                         <ProgressTile key={tile.key} tile={tile} actions={actions} busy={busyTaskIds.has(tile.task.id)} />
                     ) : tile.type === "failed" ? (
-                        <FailedTile key={tile.key} task={tile.task} actions={actions} busy={busyTaskIds.has(tile.task.id)} />
+                        <FailedTile key={tile.key} task={tile.task} batch={batch} actions={actions} busy={busyTaskIds.has(tile.task.id)} />
                     ) : tile.type === "loading" ? (
                         <div key={tile.key} className="wb-tile is-active" aria-busy="true">
                             <span className="wb-tile-shimmer" aria-hidden />
@@ -363,13 +374,13 @@ export function WorkbenchGallery({
     query,
     busyTaskIds,
     actions,
-    quickTools,
     historyCapped,
     onFilterChange,
     onQueryChange,
     onRefresh,
     onOpenLibrary,
-    onChooseTool,
+    studioMode,
+    onStudioModeChange,
 }: {
     kind: WorkbenchKind;
     batches: GalleryBatch[];
@@ -378,13 +389,13 @@ export function WorkbenchGallery({
     query: string;
     busyTaskIds: ReadonlySet<string>;
     actions: GalleryActions;
-    quickTools: WorkbenchTool[];
     historyCapped: boolean;
     onFilterChange: (filter: GalleryFilter) => void;
     onQueryChange: (query: string) => void;
     onRefresh: () => void;
     onOpenLibrary: () => void;
-    onChooseTool: (tool: WorkbenchTool) => void;
+    studioMode?: string;
+    onStudioModeChange?: (mode: StudioMode) => void;
 }) {
     const visible = batches.filter((batch) => galleryBatchMatches(batch, filter, query));
     // 筛选计数按批次统计，与筛选结果一致；生成中的作品数单独按张 / 条显示。
@@ -447,33 +458,11 @@ export function WorkbenchGallery({
                         ))}
                     </div>
                 ) : !batches.length ? (
-                    <div className="wb-empty">
-                        <WorkspaceState
-                            compact
-                            icon="assets"
-                            title={kind === "image" ? "上传商品图，一次生成整套商品图" : "用一张商品图，批量生成商品视频"}
-                            description={kind === "image" ? "选好出品场景，上传商品原图，设置数量后生成。主图、场景图、模特图按批次保存在这里。" : "选好镜头场景，上传商品首帧，一次可并行生成多条。生成的视频按批次保存在这里。"}
-                            action={
-                                <Button type="primary" onClick={onOpenLibrary}>
-                                    选择出品场景
-                                </Button>
-                            }
-                        />
-                        {quickTools.length ? (
-                            <div className="wb-empty-scenes" role="group" aria-label="常用场景">
-                                {quickTools.slice(0, 3).map((tool) => (
-                                    <button key={tool.id} type="button" className="wb-empty-scene" onClick={() => onChooseTool(tool)}>
-                                        <SceneGlyph tool={tool} kind={kind} />
-                                        <span className="wb-empty-scene-copy">
-                                            <strong>{tool.name}</strong>
-                                            <small>{workbenchToolSubtitle(tool)}</small>
-                                        </span>
-                                        <ArrowUpRight />
-                                    </button>
-                                ))}
-                            </div>
-                        ) : null}
-                    </div>
+                    kind === "video" ? (
+                        <VideoStudioOverview selectedMode={(studioMode as VideoStudioModeId) || "quick"} onModeChange={(mode) => onStudioModeChange?.(mode as VideoStudioMode)} onOpenLibrary={onOpenLibrary} />
+                    ) : (
+                        <ImageStudioOverview selectedMode={(studioMode as ImageStudioModeId) || "main"} onModeChange={(mode) => onStudioModeChange?.(mode as ImageStudioMode)} onOpenLibrary={onOpenLibrary} />
+                    )
                 ) : !visible.length ? (
                     <WorkspaceNoResultsState
                         compact

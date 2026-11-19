@@ -56,7 +56,7 @@ export default function AuthDialog({ navigate }: { navigate: (to: string) => voi
                 <AuthDialogStage />
                 <div className="auth-dialog-form">
                     <div className="auth-dialog-form-inner">
-                        <AuthPanel variant="dialog" view={view} onViewChange={setView} next={next ?? currentPath()} onAuthenticated={finish} />
+                        <AuthPanel variant="dialog" view={view} onViewChange={setView} next={next ?? currentPath()} wechatRegistration={new URLSearchParams(window.location.search).get("wechat_register") === "1"} onAuthenticated={finish} />
                     </div>
                 </div>
             </div>

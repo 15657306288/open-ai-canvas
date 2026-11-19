@@ -11,6 +11,7 @@ import { SegmentedControl } from "@/components/ui/base/segmented-control/segment
 import { AntTooltip as Tooltip } from "@/components/ui/base/tooltip/ant-tooltip";
 import { AppModal } from "@/components/ui/product/app-modal/app-modal";
 import { normalizeCanvasNodeMentionTokens, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
+import { readUploadImageSize } from "@/lib/canvas/canvas-file-upload";
 import { audioUploadTitleFromFileName } from "@/lib/audio-upload-title";
 import { createClientUUID } from "@/lib/client-id";
 import { togglePromptPhrase } from "@/lib/prompt-phrases";
@@ -44,11 +45,13 @@ import {
     type WorkbenchOutput,
     type WorkbenchTaskGroup,
 } from "./workbench-batches";
-import { ChoiceChips, ComposerFooter, ComposerSection, CountStepper, PromptSection, ReferenceSection, SceneSection, SwitchRow, videoRatioOptions, type WorkbenchReference } from "./workbench-composer";
+import { ChoiceChips, ComposerFooter, ComposerSection, CountStepper, PromptSection, ReferenceSection, SwitchRow, videoRatioOptions, type WorkbenchReference } from "./workbench-composer";
+import { findImageStudioTool, IMAGE_STUDIO_MODES, ImageStudioModeSection, type ImageStudioMode, type ImageStudioModeId } from "./image-studio";
 import { WorkbenchGallery, type GalleryActions, type GalleryBatch, type GalleryFilter, type GalleryTile } from "./workbench-gallery";
-import { missingWorkbenchInput, workbenchPromptRequired, workbenchVideoOperation } from "./workbench-input";
-import { isModelIdLike, WORKBENCH_INSPIRATIONS, WORKBENCH_SPEC_TIPS, workbenchQuickTools, workbenchRatioUsage } from "./workbench-presets";
+import { isModeratedFailure, missingWorkbenchInput, videoReferenceImageSizeIssue, workbenchPromptRequired, workbenchVideoOperation } from "./workbench-input";
+import { isModelIdLike, WORKBENCH_INSPIRATIONS, WORKBENCH_SPEC_TIPS, workbenchRatioUsage } from "./workbench-presets";
 import { SceneLibraryModal } from "./workbench-scene-library";
+import { findVideoStudioTool, VIDEO_STUDIO_MODES, VideoStudioModeSection, type VideoStudioMode, type VideoStudioModeId } from "./video-studio";
 import { WorkbenchViewer } from "./workbench-viewer";
 import "./workbench.css";
 
@@ -165,6 +168,8 @@ export function WorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     const [directoryError, setDirectoryError] = useState("");
     const [libraryOpen, setLibraryOpen] = useState(false);
     const [tool, setTool] = useState<WorkbenchTool | null>(null);
+    const [imageStudioMode, setImageStudioMode] = useState<ImageStudioModeId>("main");
+    const [videoStudioMode, setVideoStudioMode] = useState<VideoStudioModeId>("quick");
     const [preset, setPreset] = useState<WorkbenchPromptPreset | null>(null);
     const [presetPending, setPresetPending] = useState<WorkbenchPromptPreset | null>(null);
     const [prompt, setPrompt] = useState("");
@@ -230,7 +235,6 @@ export function WorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     const plan = useMemo(() => planWorkbenchBatch(kind, requestedCount, maxOutputsPerTask), [kind, maxOutputsPerTask, requestedCount]);
     const promptMaxChars = kind === "image" ? imageProfile?.references.promptMaxChars || 32000 : videoProfile?.references.promptMaxChars || 8000;
     const unslottedLimit = kind === "image" ? imageProfile?.references.maxImages || 0 : (videoProfile?.references.maxImages || 0) + (videoProfile?.references.maxVideos || 0) + (videoProfile?.references.maxAudios || 0);
-    const quickTools = useMemo(() => workbenchQuickTools(tools), [tools]);
     const promptRequired = workbenchPromptRequired(tool);
     const missingInput = missingWorkbenchInput(tool, references);
     const kindLabel = kind === "image" ? "图片" : "视频";
@@ -715,6 +719,51 @@ export function WorkbenchPage({ kind }: { kind: WorkbenchKind }) {
         setMobileTab("compose");
     };
 
+    const chooseVideoStudioMode = (mode: VideoStudioMode) => {
+        setVideoStudioMode(mode.id);
+        setMobileTab("compose");
+        if (!mode.toolName) {
+            setUploadSlotKey(undefined);
+            setTool(null);
+            setLibraryOpen(true);
+            const params = new URLSearchParams(searchParams);
+            params.delete("tool");
+            params.delete("preset");
+            setSearchParams(params, { replace: true });
+            switchToolPrompt(null);
+            return;
+        }
+        const next = findVideoStudioTool(mode, tools);
+        if (!next) {
+            message.info("该创作方式的模板还在加载，请稍后再选");
+            return;
+        }
+        chooseTool(next);
+    };
+
+    const chooseImageStudioMode = (mode: ImageStudioMode) => {
+        setImageStudioMode(mode.id);
+        setMobileTab("compose");
+        const next = findImageStudioTool(mode, tools);
+        if (!next) {
+            message.info("该创作方式的模板还在加载，请稍后再选");
+            return;
+        }
+        chooseTool(next);
+    };
+
+    useEffect(() => {
+        if (!tool) return;
+        const matched = IMAGE_STUDIO_MODES.find((mode) => mode.toolName === tool.name);
+        if (matched) setImageStudioMode(matched.id);
+    }, [tool]);
+
+    useEffect(() => {
+        if (!tool) return;
+        const matched = VIDEO_STUDIO_MODES.find((mode) => mode.toolName === tool.name);
+        if (matched) setVideoStudioMode(matched.id);
+    }, [tool]);
+
     useEffect(() => {
         const toolId = searchParams.get("tool");
         if (!toolId || !tools.length) return;
@@ -821,7 +870,14 @@ export function WorkbenchPage({ kind }: { kind: WorkbenchKind }) {
             accepted.map(async ({ reference, file }) => {
                 if (!file) return;
                 try {
-                    const resource = await uploadResourceFile(file, reference.kind, { fileName: file.name }, (uploaded, total) => {
+                    // 尺寸随上传一起保存，服务端据此在提交视频任务前拦截过小的参考图。
+                    const size = reference.kind === "image" ? await readUploadImageSize(file).catch(() => undefined) : undefined;
+                    const sizeIssue = kind === "video" ? videoReferenceImageSizeIssue(size) : "";
+                    if (sizeIssue) {
+                        setReferences((current) => current.map((item) => (item.id === reference.id ? { ...item, uploading: false, error: sizeIssue } : item)));
+                        return;
+                    }
+                    const resource = await uploadResourceFile(file, reference.kind, { fileName: file.name, ...size }, (uploaded, total) => {
                         setReferences((current) => current.map((item) => (item.id === reference.id ? { ...item, progress: total ? (uploaded / total) * 100 : 0 } : item)));
                     });
                     setReferences((current) => current.map((item) => (item.id === reference.id ? { ...item, resourceId: resource.id, uploading: false, progress: 100 } : item)));
@@ -1316,7 +1372,7 @@ export function WorkbenchPage({ kind }: { kind: WorkbenchKind }) {
             });
         },
         retryFailed: async (batch) => {
-            const failed = batch.tasks.filter((task) => task.status === "failed" || task.status === "cancelled");
+            const failed = batch.tasks.filter((task) => (task.status === "failed" || task.status === "cancelled") && !isModeratedFailure(task));
             let retried = 0;
             for (const task of failed) {
                 if (!(await retryTask(task, false))) break;
@@ -1500,12 +1556,18 @@ export function WorkbenchPage({ kind }: { kind: WorkbenchKind }) {
                         </Tooltip>
                     </header>
                     <div className="wb-composer-scroll">
-                        <SceneSection kind={kind} tool={tool} quickTools={quickTools} loading={directoryLoading} error={directoryError} onOpenLibrary={() => setLibraryOpen(true)} onChoose={chooseTool} onRetry={() => loadDirectory()} />
+                        {kind === "video" ? (
+                            <VideoStudioModeSection tools={tools} selectedMode={videoStudioMode} onModeChange={chooseVideoStudioMode} onOpenLibrary={() => setLibraryOpen(true)} />
+                        ) : (
+                            <ImageStudioModeSection tools={tools} selectedMode={imageStudioMode} onModeChange={chooseImageStudioMode} onOpenLibrary={() => setLibraryOpen(true)} />
+                        )}
                         <ReferenceSection
                             kind={kind}
                             tool={tool}
                             references={references}
                             unslottedLimit={unslottedLimit}
+                            mediaTitle={kind === "image" && (imageStudioMode === "interior" || imageStudioMode === "interiorTools") ? "空间素材" : undefined}
+                            mediaNoun={kind === "image" && (imageStudioMode === "interior" || imageStudioMode === "interiorTools") ? "空间照片" : undefined}
                             onPick={(slotKey) => {
                                 setUploadSlotKey(slotKey);
                                 window.setTimeout(() => fileRef.current?.click(), 0);
@@ -1614,7 +1676,6 @@ export function WorkbenchPage({ kind }: { kind: WorkbenchKind }) {
                     query={query}
                     busyTaskIds={busyTaskIds}
                     actions={galleryActions}
-                    quickTools={quickTools}
                     historyCapped={tasks.length >= 100}
                     onFilterChange={setFilter}
                     onQueryChange={setQuery}
@@ -1627,7 +1688,8 @@ export function WorkbenchPage({ kind }: { kind: WorkbenchKind }) {
                         setMobileTab("compose");
                         setLibraryOpen(true);
                     }}
-                    onChooseTool={chooseTool}
+                    studioMode={kind === "image" ? imageStudioMode : videoStudioMode}
+                    onStudioModeChange={kind === "image" ? (mode) => chooseImageStudioMode(mode as ImageStudioMode) : (mode) => chooseVideoStudioMode(mode as VideoStudioMode)}
                 />
             </div>
 

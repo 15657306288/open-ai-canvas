@@ -158,5 +158,7 @@ func normalizedProviderErrorCode(value any) string {
 }
 
 func isContentModerationFailure(value string) bool {
-	return strings.Contains(strings.ToLower(value), contentModerationErrorCode)
+	lower := strings.ToLower(value)
+	// VIDEO_CONTENT_REVIEW 是视频供应商的审核拒绝码，与 sensitive_words_detected 同属不可原样重试的终态。
+	return strings.Contains(lower, contentModerationErrorCode) || strings.Contains(lower, "video_content_review")
 }
