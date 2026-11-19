@@ -6,6 +6,7 @@ import type { ModelCapabilityChoice as EditableCapability } from "@/components/m
 import type { ChannelModelFormValues as FormValues } from "./channel-model-editor-form";
 import { normalizeUpstreamModelKey, priceTierAmountsComplete } from "./channel-model-price-tier-form";
 import { CreditCostFields } from "./credit-cost-fields";
+import { ImageUsagePriceFields } from "./image-usage-price-fields";
 import { priceCurrencyUnit } from "@/services/api/user-groups";
 import { Select } from "@/components/ui/base/select";
 import { ImageParameterInput } from "@/components/image-parameter-fields";
@@ -131,7 +132,7 @@ export function PriceTierFields({
                                         <Select options={[{ label: "任意分辨率", value: "*" }, ...resolutionOptions.map((value) => ({ label: value.toUpperCase(), value: normalizeTierResolution(value) }))]} />
                                     </Form.Item>
                                 ) : null}
-                                {isVideo && video?.processing ? (
+                                {isVideo && video?.processing && video.defaultOperation !== "depth" ? (
                                     <Form.Item className="mb-0" name={[index, "fpsBand"]} label="输出帧率档" tooltip="视频处理按输出帧率分档计价；保持原帧率时按 ≤30fps 档预扣">
                                         <Select options={fpsBandOptions} />
                                     </Form.Item>
@@ -184,12 +185,15 @@ export function PriceTierFields({
                                     className="w-full"
                                     options={[
                                         { label: "按次", value: "fixed_request" },
+                                        ...(isImage ? [{ label: "图片用量", value: "image_usage" }] : []),
                                         { label: "按秒", value: "per_second", disabled: !isDurationPriced },
                                         { label: isVideo ? "视频 Token" : "Token", value: "token", disabled: !tokenEnabled },
                                     ]}
                                 />
                             </Form.Item>
-                            {billingMode === "token" ? (
+                            {billingMode === "image_usage" ? (
+                                <ImageUsagePriceFields index={index} form={form} unit={priceUnit} />
+                            ) : billingMode === "token" ? (
                                 isVideo ? (
                                     <Form.Item className="admin-price-tier-unit-price mb-0" name={[index, "outputTokenPrice"]} label={`${priceUnit} / 百万视频 Token`} rules={[{ required: requirePrice, message: "请输入视频 Token 价格" }]}>
                                         <InputNumber className="w-full" min={0} max={1_000_000} precision={6} step={0.1} />
@@ -311,7 +315,8 @@ const fpsBandOptions = [
 function operationOptions(capability: EditableCapability | undefined) {
     const options = [{ label: "任意生成方式", value: "*" }];
     if (capability === "image") return [...options, { label: "文生图", value: "text_to_image" }, { label: "图生图", value: "image_to_image" }];
-    if (capability === "video") return [...options, { label: "文生视频", value: "text_to_video" }, { label: "图生视频", value: "image_to_video" }, { label: "视频生视频", value: "video_to_video" }, { label: "画质增强", value: "enhance" }];
+    if (capability === "video")
+        return [...options, { label: "文生视频", value: "text_to_video" }, { label: "图生视频", value: "image_to_video" }, { label: "视频生视频", value: "video_to_video" }, { label: "画质增强", value: "enhance" }, { label: "相对深度", value: "depth" }];
     if (capability === "text") return [...options, { label: "文本生成", value: "text_generation" }];
     return options;
 }

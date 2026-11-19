@@ -64,6 +64,17 @@ func DefaultImageCapabilityConfig(protocol string, modelName string) *ImageCapab
 		image.TransparentBackground.Supported = false
 		image.ResponseFormat.Supported = false
 		image.OutputFormat.Supported = false
+		if modelName == seedream55Model {
+			image.References.MaxImages = 10
+			presets := seedream55ImagePresets()
+			var values []string
+			for _, preset := range presets {
+				values = append(values, preset.Size)
+			}
+			image.Size = ImageSizeConfig{Parameter: "size", Values: values, Default: "2048x2048", AllowCustom: true, Presets: presets}
+			image.Resolution = ImageResolutionConfig{Supported: true, Values: []string{"1k", "1.5k", "2k"}, Default: "2k"}
+			image.MaxOutputs = 1
+		}
 	case model.ChannelInterfaceVolcengineJiMengImage:
 		image.References.MaxImages = 14
 		image.References.MaskSupported = false
@@ -175,11 +186,38 @@ func DefaultModelCapabilityConfigForModel(protocol string, modelName string) *Mo
 	case model.ChannelInterfaceGeminiVeo:
 		video.Duration = VideoDurationConfig{Selection: "enum", Values: []int{4, 6, 8}, Default: 6}
 		video.Resolutions = []string{"720p", "1080p"}
+	case model.ChannelInterfaceType("wenew-h3-video"):
+		video.Operations = append(video.Operations, "reference_to_video")
+		video.References.MaxImages = 9
+		video.References.MaxAudios = 3
+		video.References.MaxAudioBytes = 15 * 1024 * 1024
+		video.References.MaxAudioDuration = 15
+		video.Duration = VideoDurationConfig{Selection: "range", Min: 4, Max: 15, Step: 1, Default: 5}
+		video.Ratios = []string{"21:9", "16:9", "4:3", "1:1", "3:4", "9:16"}
+		video.DefaultRatio = "16:9"
+		video.Resolutions = []string{"768p", "1080p"}
+		video.DefaultResolution = "768p"
+		// H3 固定输出有声视频，专业任务接口不接受 audio 开关。
+		video.GenerateAudio = VideoBooleanConfig{}
+		video.Watermark = VideoBooleanConfig{}
 	case model.ChannelInterfaceVolcengineArkVideo, model.ChannelInterfaceVolcengineArkAgentPlanVideo:
 		video.Operations = append(video.Operations, "reference_to_video", "audio_to_video")
 		video.References.MaxVideos, video.References.MaxAudios = 3, 3
 		video.References.MaxVideoBytes, video.References.MaxAudioBytes = 200*1024*1024, 15*1024*1024
 		video.References.MaxVideoDuration, video.References.MaxAudioDuration = 15, 15
+		video.GenerateAudio = VideoBooleanConfig{Supported: true, Default: true}
+		video.Watermark = VideoBooleanConfig{Supported: true, Default: false}
+		video.Resolutions = []string{"480p", "720p", "1080p"}
+	case model.ChannelInterfaceType("volcengine-ark-seedance-25"):
+		video.Operations = append(video.Operations, "reference_to_video", "audio_to_video")
+		video.References.MaxImages = 30
+		video.References.MaxVideos, video.References.MaxAudios = 10, 10
+		video.References.MaxImageBytes = 30 * 1024 * 1024
+		video.References.MaxVideoBytes, video.References.MaxAudioBytes = 200*1024*1024, 15*1024*1024
+		video.References.MaxVideoDuration, video.References.MaxAudioDuration = 30, 30
+		video.Duration = VideoDurationConfig{Selection: "range", Min: 4, Max: 30, Step: 1, Default: 5}
+		video.Ratios = []string{"adaptive", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"}
+		video.DefaultRatio = "adaptive"
 		video.GenerateAudio = VideoBooleanConfig{Supported: true, Default: true}
 		video.Watermark = VideoBooleanConfig{Supported: true, Default: false}
 		video.Resolutions = []string{"480p", "720p", "1080p"}
@@ -229,6 +267,15 @@ func DefaultModelCapabilityConfigForModel(protocol string, modelName string) *Mo
 		video.Watermark = VideoBooleanConfig{}
 		video.Operations, video.DefaultOperation = []string{VideoProcessingOperationEnhance}, VideoProcessingOperationEnhance
 		video.Processing = &VideoProcessingConfig{FPSPolicy: VideoProcessingFPSKeepSource, MaxSourceSeconds: DefaultVideoProcessingMaxSourceSeconds}
+	case model.ChannelInterfaceType(VolcengineMediaKitVideoDepthProtocol):
+		video.References = VideoReferenceConfig{PromptMaxChars: DefaultVideoPromptMaxChars, MaxVideos: 1, MaxVideoDuration: MediaKitDepthMaxSourceSeconds}
+		video.Duration = VideoDurationConfig{Selection: "range", Min: 1, Max: MediaKitDepthMaxSourceSeconds, Step: 1, Default: 5}
+		video.Ratios, video.DefaultRatio = []string{}, ""
+		video.Resolutions, video.DefaultResolution = []string{}, ""
+		video.GenerateAudio = VideoBooleanConfig{}
+		video.Watermark = VideoBooleanConfig{}
+		video.Operations, video.DefaultOperation = []string{VideoProcessingOperationDepth}, VideoProcessingOperationDepth
+		video.Processing = &VideoProcessingConfig{FPSPolicy: VideoProcessingFPSKeepSource, MaxSourceSeconds: MediaKitDepthMaxSourceSeconds}
 	}
 	return &ModelCapabilityConfig{Version: 1, Text: text, Image: DefaultImageCapabilityConfig(protocol, modelName), Video: video}
 }

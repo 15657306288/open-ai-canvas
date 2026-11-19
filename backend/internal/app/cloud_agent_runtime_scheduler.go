@@ -214,7 +214,14 @@ func (s *Service) advanceCloudAgent(run *model.CloudAgentExecution) (err error) 
 		}
 		return s.terminateCloudAgent(run, "Agent 运行状态损坏，本轮已停止")
 	}
-	// 单步边界每次推进都重新解析：管理员改配置后，正在跑的这一轮下一步就用新值。
+	if err := s.cloudAgentCheckSkillExecution(run.UserID, &state, nil, ""); err != nil {
+		var appErr *AppError
+		if errors.As(err, &appErr) && (appErr.Status == 401 || appErr.Status == 403) {
+			return s.terminateCloudAgent(run, appErr.Message)
+		}
+		return err
+	}
+	// 单步边界每次推进都重新解析：管理员改配置后，正在跑的这一轮下一步就用新值.
 	state.StepLimits, err = s.cloudAgentStepLimits()
 	if err != nil {
 		return err
@@ -585,13 +592,17 @@ func (s *Service) terminateCloudAgent(run *model.CloudAgentExecution, message st
 }
 
 func (s *Service) failCloudAgent(run *model.CloudAgentExecution, state *cloudAgentRuntime, message string) error {
-	return s.repo.MutateCloudAgent(run.UserID, run.ID, run.Revision, func(current *model.CloudAgentExecution, _ *repository.Repository) error {
+	err := s.repo.MutateCloudAgent(run.UserID, run.ID, run.Revision, func(current *model.CloudAgentExecution, _ *repository.Repository) error {
 		current.Status = "failed"
 		current.FailureMessage = truncateRunes(message, 1000)
 		cloudAgentDropInterjections(run.ID, "本轮已结束："+truncateRunes(message, 120), state)
 		state.event(run.ID, "run_failed", map[string]any{"text": message})
 		return cloudAgentSave(current, state)
 	})
+	if agentStorageCapacityError(err) {
+		return s.terminateCloudAgent(run, message)
+	}
+	return err
 }
 
 // failCloudAgentAdmission records deterministic tool admission failures in the
