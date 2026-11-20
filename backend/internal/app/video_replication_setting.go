@@ -128,7 +128,7 @@ func (s *Service) resolveVideoReplicationProvider(userID string, ref EcommerceAg
 	if err := access.requireChannel(channelID); err != nil {
 		return providerConfig{}, err
 	}
-	return s.resolveProviderConfig(providerConfig{ChannelID: channelID, ChannelModelKey: modelKey, Model: modelKey})
+	return s.resolveProviderConfig(providerConfig{ChannelID: channelID, ChannelModelKey: modelKey, Model: modelKey}, nil)
 }
 
 type VideoReplicationAdminCheck struct {
