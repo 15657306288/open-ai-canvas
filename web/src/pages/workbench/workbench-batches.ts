@@ -24,9 +24,9 @@ export function workbenchBatchLimit(kind: WorkbenchKind, maxOutputsPerTask: numb
  * 图片优先让单个任务一次出多张（少占账号并发、少一次上游往返），模型只支持单张时才拆成多个任务；
  * 视频固定一条一个任务。
  */
-export function planWorkbenchBatch(kind: WorkbenchKind, requested: number, maxOutputsPerTask: number) {
+export function planWorkbenchBatch(kind: WorkbenchKind, requested: number, maxOutputsPerTask: number, mode?: "fission" | "sku") {
     const total = Math.max(1, Math.floor(requested) || 1);
-    if (kind === "video") return Array.from({ length: total }, () => 1);
+    if (kind === "video" || mode === "fission" || mode === "sku") return Array.from({ length: total }, () => 1);
     const chunk = Math.max(1, Math.min(total, Math.floor(maxOutputsPerTask) || 1));
     const plan: number[] = [];
     for (let remaining = total; remaining > 0; remaining -= chunk) plan.push(Math.min(chunk, remaining));
@@ -239,6 +239,8 @@ export type WorkbenchTaskReferenceSnapshot = {
 };
 
 export type WorkbenchTaskSnapshot = {
+    interiorStage?: "clear" | "render";
+    maskResourceId?: string;
     kind: WorkbenchKind;
     toolId?: string;
     toolName?: string;
@@ -273,6 +275,8 @@ export function workbenchTaskSnapshot(task: GenerationTask): WorkbenchTaskSnapsh
     const presetName = typeof metadata.workbenchPresetName === "string" ? metadata.workbenchPresetName : undefined;
     return {
         kind,
+        ...(snapshot.interiorStage === "clear" || snapshot.interiorStage === "render" ? { interiorStage: snapshot.interiorStage } : {}),
+        ...(typeof snapshot.maskResourceId === "string" ? { maskResourceId: snapshot.maskResourceId } : {}),
         ...(typeof snapshot.toolId === "string" ? { toolId: snapshot.toolId } : typeof metadata.workbenchToolId === "string" ? { toolId: metadata.workbenchToolId } : {}),
         ...(toolName ? { toolName } : {}),
         ...(typeof snapshot.presetId === "string" ? { presetId: snapshot.presetId } : typeof metadata.workbenchPresetId === "string" ? { presetId: metadata.workbenchPresetId } : {}),

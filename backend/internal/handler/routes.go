@@ -143,6 +143,19 @@ func RegisterTaskRoutes(r *gin.RouterGroup, svc *service.Service) {
 		}
 		streamTaskTextEvents(c, svc, user.ID, c.Param("id"), after, initial)
 	})
+	r.GET("/tasks/:id/retry-quote", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		amount, err := svc.QuoteTaskRetry(user.ID, c.Param("id"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"amountMicrocredits": amount})
+	})
 	r.POST("/tasks/:id/retry", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
 		if err != nil {

@@ -96,6 +96,9 @@ export type CreateWorkbenchTaskInput = {
     }>;
     /** 一次提交拆成多个任务时共用的批次标识，只用于列表分组，不影响准入和计费。 */
     batch?: WorkbenchTaskBatch;
+    maskResourceId?: string;
+    interiorStage?: "clear" | "render";
+    parentTaskId?: string;
 };
 
 export type WorkbenchTaskBatch = { id: string; index: number; count: number };

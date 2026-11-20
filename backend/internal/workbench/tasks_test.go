@@ -7,6 +7,28 @@ import (
 	"yingce/backend/internal/model"
 )
 
+func TestWorkbenchMaskResourceOwnership(t *testing.T) {
+	s, db, _ := newWorkbenchTest(t)
+	for _, id := range []string{"source", "mask", "foreign"} {
+		owner := "user"
+		if id == "foreign" {
+			owner = "other"
+		}
+		if err := db.Create(&model.Resource{ID: id, UserID: owner, Kind: "image", MimeType: "image/png", Status: model.ResourceStatusReady}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	req := TaskInput{Kind: KindImage, Prompt: "edit", Model: "image", ChannelID: "channel", MaskResourceID: "mask", References: []TaskReference{{ResourceID: "source", Kind: "image"}}}
+	resolved, err := s.ResolveTask("user", req)
+	if err != nil || resolved.Input["mask"].(map[string]any)["storageKey"] != "resource:mask" {
+		t.Fatalf("mask not resolved: %v", err)
+	}
+	req.MaskResourceID = "foreign"
+	if _, err := s.ResolveTask("user", req); err == nil {
+		t.Fatal("accepted foreign mask")
+	}
+}
+
 func TestResolveVideoTaskOperationUsesReferenceRoles(t *testing.T) {
 	s, db, _ := newWorkbenchTest(t)
 	for _, resource := range []model.Resource{

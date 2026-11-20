@@ -351,6 +351,10 @@ export function queryTaskTextReplay(id: string, after = 0) {
     return http.get<TaskTextReplay>(`/tasks/${encodeURIComponent(id)}/text-deltas`, { params: { after } });
 }
 
+export function quoteGenerationTaskRetry(id: string) {
+    return http.get<{ amountMicrocredits: number }>(`/tasks/${encodeURIComponent(id)}/retry-quote`);
+}
+
 export function retryGenerationTask(id: string) {
     // 重试会在服务端预占/结算积分，与 cancel 对齐派发钱包事件，顶栏余额才不会停留在旧值。
     return http.post<GenerationTask>(`/tasks/${encodeURIComponent(id)}/retry`).then((task) => {

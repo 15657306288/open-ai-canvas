@@ -36,7 +36,7 @@ export const IMAGE_STUDIO_MODES: ImageStudioMode[] = [
     {
         id: "edit",
         label: "图片修改",
-        description: "上传原图，描述要改什么；局部涂抹和精细修图交给画布编辑。",
+        description: "在原图上涂抹修改区域，再填写修改要求。",
         steps: ["上传原图", "写修改说明", "生成修改图"],
         toolName: "AI 图片修改",
         icon: Brush,

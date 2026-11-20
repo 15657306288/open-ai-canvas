@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"strings"
 
 	"yingce/backend/internal/assets"
@@ -116,6 +117,23 @@ func (s *Service) CreateWorkbenchTask(userID string, req WorkbenchTaskInput, tra
 	resolved, err := s.workbenchDomain().ResolveTask(userID, req)
 	if err != nil {
 		return nil, err
+	}
+	if req.InteriorStage == "render" {
+		parent, err := s.repo.TaskForUser(userID, req.ParentTaskID)
+		if err != nil || parent.Status != "succeeded" || parent.Type != "canvas_image" {
+			return nil, BadAuthRequest("清空任务未完成或不属于当前账号")
+		}
+		var prior struct {
+			Metadata struct {
+				Workbench struct {
+					InteriorStage string `json:"interiorStage"`
+				} `json:"workbench"`
+			} `json:"metadata"`
+		}
+		resourceID, _ := taskOutputResource(parent.ResultJSON, parent.Type)
+		if json.Unmarshal([]byte(parent.InputJSON), &prior) != nil || prior.Metadata.Workbench.InteriorStage != "clear" || resourceID != req.References[0].ResourceID {
+			return nil, BadAuthRequest("请选择这个清空任务的实际产物")
+		}
 	}
 	providerConfig, err := s.resolveWorkbenchProviderConfig(userID, req.Kind, resolved.Operation, resolved.Model, resolved.LogicalModelID, resolved.ChannelID, resolved.Parameters, resolved.Input)
 	if err != nil {

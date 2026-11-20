@@ -73,6 +73,13 @@ func TestOrdinaryFailedAndCancelledTasksKeepRetryIdentity(t *testing.T) {
 			t.Fatal(err)
 		}
 
+		if _, err := s.QuoteTaskRetry(task.UserID, task.ID); err != nil {
+			t.Fatal(err)
+		}
+		stored, err := s.repo.Task(task.ID)
+		if err != nil || stored.Status != status || stored.RouteRun != 3 || stored.BillingOrderID != "" {
+			t.Fatalf("quote changed task: %+v %v", stored, err)
+		}
 		retried, err := s.RetryTask(task.UserID, task.ID)
 		if err != nil {
 			t.Fatalf("ordinary %s task should remain retryable: %v", status, err)

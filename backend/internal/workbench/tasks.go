@@ -26,6 +26,9 @@ type TaskInput struct {
 	Parameters         map[string]any  `json:"parameters,omitempty"`
 	References         []TaskReference `json:"references,omitempty"`
 	Batch              *TaskBatch      `json:"batch,omitempty"`
+	MaskResourceID     string          `json:"maskResourceId,omitempty"`
+	InteriorStage      string          `json:"interiorStage,omitempty"`
+	ParentTaskID       string          `json:"parentTaskId,omitempty"`
 
 	// ProviderOptions 只供后端内部调用方按协议命名空间附加厂商字段（例如原片编辑时 TopView 的 duration=-1），
 	// 不从浏览器 JSON 读取，避免用户绕过参数白名单。
@@ -214,6 +217,26 @@ func (s *Service) ResolveTask(userID string, req TaskInput) (*TaskResolution, er
 	}
 	metadata["workbench"] = workbenchSnapshot
 	input := map[string]any{"mode": req.Kind, "prompt": strings.TrimSpace(req.Prompt), "config": providerConfig, "metadata": metadata}
+	if req.MaskResourceID != "" {
+		if req.Kind != KindImage || len(refs) != 1 || refs[0].Kind != "image" {
+			return nil, kernel.BadAuthRequest("局部修改需要一张原图")
+		}
+		mask, err := s.repo.ResourceForUser(userID, req.MaskResourceID)
+		if err != nil || mask.Status != model.ResourceStatusReady || mask.Kind != "image" || mask.MimeType != "image/png" {
+			return nil, kernel.BadAuthRequest("请选择可用的 PNG 蒙版")
+		}
+		input["mask"] = map[string]any{"resourceId": mask.ID, "storageKey": "resource:" + mask.ID, "type": "image/png"}
+		workbenchSnapshot["maskResourceId"] = mask.ID
+	}
+	if req.InteriorStage != "" || req.ParentTaskID != "" {
+		if req.Kind != KindImage || len(refs) != 1 || refs[0].Kind != "image" || (req.InteriorStage != "clear" && req.InteriorStage != "render") || (req.InteriorStage == "render") != (req.ParentTaskID != "") || parameters["count"] != 1 {
+			return nil, kernel.BadAuthRequest("旧房装修每阶段需要一张空间图，效果图必须确认清空图")
+		}
+		workbenchSnapshot["interiorStage"] = req.InteriorStage
+		if req.ParentTaskID != "" {
+			workbenchSnapshot["parentTaskId"] = req.ParentTaskID
+		}
+	}
 	if len(refs) > 0 {
 		imageRefs, videoRefs, audioRefs := []map[string]any{}, []map[string]any{}, []map[string]any{}
 		for _, ref := range refs {

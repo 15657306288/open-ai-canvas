@@ -390,6 +390,12 @@ func publicWorkbenchInput(input map[string]any) map[string]any {
 		result["presetId"] = presetID
 	}
 	result["references"] = publicWorkbenchReferences(snapshot["references"], input)
+	if stage := stringValue(snapshot["interiorStage"]); stage == "clear" || stage == "render" {
+		result["interiorStage"] = stage
+	}
+	if mask := stringValue(snapshot["maskResourceId"]); mask != "" {
+		result["maskResourceId"] = mask
+	}
 	if batch, ok := snapshot["batch"].(map[string]any); ok {
 		id := strings.TrimSpace(stringValue(batch["id"]))
 		index, indexOK := workbenchBatchInteger(batch["index"])

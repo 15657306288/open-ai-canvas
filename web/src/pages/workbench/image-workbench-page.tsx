@@ -26,7 +26,7 @@ import { resolveBrowserMediaDownloadHref, startBrowserDownload } from "@/service
 import { prepareBackendGenerationTask } from "@/services/api/generation-task";
 import { quoteModel } from "@/services/api/logical-models";
 import { resourceStorageKey, uploadResourceFile } from "@/services/api/resources";
-import { cancelGenerationTask, createGenerationTask, queryGenerationTask, retryGenerationTask, type GenerationTask } from "@/services/api/task-center";
+import { cancelGenerationTask, createGenerationTask, queryGenerationTask, quoteGenerationTaskRetry, retryGenerationTask, type GenerationTask } from "@/services/api/task-center";
 import { capabilitySupportedModes, createWorkbenchTask, listWorkbenchTasks, listWorkbenchTools, resolveWorkbenchResourceURL, type WorkbenchKind, type WorkbenchPromptPreset, type WorkbenchReferenceSlot, type WorkbenchTool } from "@/services/api/workbench";
 import { useCreationPreferencesStore } from "@/stores/use-creation-preferences-store";
 import { logicalModelIDForConfig, modelDisplayName, modelOptionName, resolveModelChannel, resolveModelRequestConfig, selectableModelsByCapability, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
@@ -53,6 +53,8 @@ import { isModelIdLike, WORKBENCH_INSPIRATIONS, WORKBENCH_SPEC_TIPS, workbenchRa
 import { SceneLibraryModal } from "./workbench-scene-library";
 import { findVideoStudioTool, VIDEO_STUDIO_MODES, VideoStudioModeSection, type VideoStudioMode, type VideoStudioModeId } from "./video-studio";
 import { WorkbenchViewer } from "./workbench-viewer";
+import { StudioMaskEditor } from "./studio-mask-editor";
+import { createEcommerceProject, emptyEcommerceDraft, saveEcommerceProject } from "@/services/api/ecommerce";
 import "./workbench.css";
 
 export { filterWorkbenchTools } from "./workbench-presets";
@@ -68,6 +70,10 @@ type MediaKind = WorkbenchReference["kind"];
 
 /** 提交那一刻冻结的请求；“继续提交剩余”使用同一份参数，不受之后编辑影响。 */
 type BatchRequest = {
+    slotPrompts?: string[];
+    maskResourceId?: string;
+    interiorStage?: "clear" | "render";
+    parentTaskId?: string;
     kind: WorkbenchKind;
     route: "workbench" | "tasks";
     prompt: string;
@@ -169,6 +175,12 @@ export function WorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     const [libraryOpen, setLibraryOpen] = useState(false);
     const [tool, setTool] = useState<WorkbenchTool | null>(null);
     const [imageStudioMode, setImageStudioMode] = useState<ImageStudioModeId>("main");
+    const [skuText, setSkuText] = useState("");
+    const [skuMaster, setSkuMaster] = useState("");
+    const [oldRoom, setOldRoom] = useState(false);
+    const [parent, setParent] = useState<{ task: string; resource: string } | null>(null);
+    const [mask, setMask] = useState<{ source: string; id: string } | null>(null);
+    const [editingMask, setEditingMask] = useState(false);
     const [videoStudioMode, setVideoStudioMode] = useState<VideoStudioModeId>("quick");
     const [preset, setPreset] = useState<WorkbenchPromptPreset | null>(null);
     const [presetPending, setPresetPending] = useState<WorkbenchPromptPreset | null>(null);
@@ -230,9 +242,20 @@ export function WorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     const imageProfile = profile.image;
     const videoProfile = profile.video;
     const maxOutputsPerTask = kind === "image" ? Math.max(1, imageProfile?.maxOutputs || 1) : 1;
-    const batchLimit = workbenchBatchLimit(kind, maxOutputsPerTask, activeTaskLimit);
-    const requestedCount = Math.min(batchLimit, Math.max(1, Math.floor(count) || 1));
-    const plan = useMemo(() => planWorkbenchBatch(kind, requestedCount, maxOutputsPerTask), [kind, maxOutputsPerTask, requestedCount]);
+    const mode = kind === "image" ? IMAGE_STUDIO_MODES.find((item) => item.toolName === tool?.name)?.id : undefined;
+    const source = references.length === 1 ? references[0].resourceId : undefined;
+    const skuBatch = mode === "sku" && Boolean(source && source === skuMaster);
+    const specs = skuText
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+    const interior = mode === "interior" && oldRoom;
+    const confirmed = interior && parent && parent.resource === source ? parent : null;
+    const split = skuBatch ? "sku" : mode === "fission" ? "fission" : undefined;
+    const activeMask = mode === "edit" && source && source === mask?.source ? mask.id : undefined;
+    const batchLimit = workbenchBatchLimit(kind, split ? 1 : maxOutputsPerTask, activeTaskLimit);
+    const requestedCount = interior ? 1 : skuBatch ? Math.max(1, specs.length) : Math.min(batchLimit, Math.max(1, Math.floor(count) || 1));
+    const plan = useMemo(() => planWorkbenchBatch(kind, Math.min(requestedCount, batchLimit), maxOutputsPerTask, split), [kind, maxOutputsPerTask, requestedCount, batchLimit, split]);
     const promptMaxChars = kind === "image" ? imageProfile?.references.promptMaxChars || 32000 : videoProfile?.references.promptMaxChars || 8000;
     const unslottedLimit = kind === "image" ? imageProfile?.references.maxImages || 0 : (videoProfile?.references.maxImages || 0) + (videoProfile?.references.maxVideos || 0) + (videoProfile?.references.maxAudios || 0);
     const promptRequired = workbenchPromptRequired(tool);
@@ -706,6 +729,11 @@ export function WorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     };
 
     const chooseTool = (next: WorkbenchTool | null) => {
+        setSkuMaster("");
+        setParent(null);
+        setMask(null);
+        setEditingMask(false);
+        setOldRoom(false);
         reassignReferences(next);
         setUploadSlotKey(undefined);
         setTool(next);
@@ -979,23 +1007,40 @@ export function WorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     const settingsError = mediaSettingIssues(composerConfig, kind, selectedModel)
         .map((item) => item.message)
         .join("；");
-    const disabledReason = settingsError
-        ? settingsError
-        : !selectedModel
-          ? `先选择${kindLabel}模型`
-          : missingInput
-            ? `请上传“${missingInput.name || "必填素材"}”`
-            : references.some((reference) => reference.uploading)
-              ? "素材上传中，请稍候"
-              : references.some((reference) => reference.error)
-                ? "请移除上传失败的素材"
-                : promptRequired && !prompt.trim()
-                  ? "请填写画面描述"
-                  : undefined;
+    const stageError =
+        skuBatch && (!specs.length || specs.length > batchLimit)
+            ? `每行一个 SKU，本批可提交 1 至 ${batchLimit} 行`
+            : interior && !source
+              ? "请选择一张空间照片"
+              : activeMask && !imageProfile?.references.maskSupported
+                ? "请选择支持蒙版编辑的模型"
+                : undefined;
+    const disabledReason =
+        stageError ||
+        (settingsError
+            ? settingsError
+            : !selectedModel
+              ? `先选择${kindLabel}模型`
+              : missingInput
+                ? `请上传“${missingInput.name || "必填素材"}”`
+                : references.some((reference) => reference.uploading)
+                  ? "素材上传中，请稍候"
+                  : references.some((reference) => reference.error)
+                    ? "请移除上传失败的素材"
+                    : promptRequired && !prompt.trim() && !skuBatch && !(interior && !confirmed)
+                      ? "请填写画面描述"
+                      : undefined);
 
     const buildBatchRequest = (): BatchRequest | string => {
-        if (settingsError) return settingsError;
-        const submittedPrompt = normalizeCanvasNodeMentionTokens(prompt.trim(), promptReferences);
+        if (stageError || settingsError) return stageError || settingsError;
+        const description = normalizeCanvasNodeMentionTokens(prompt.trim(), promptReferences);
+        const submittedPrompt = skuBatch
+            ? "按已确认母版替换 SKU 规格文字"
+            : interior && !confirmed
+              ? "清空房间的家具与杂物，保留空间结构、门窗、镜头角度和光线。只生成空房照片。"
+              : confirmed
+                ? `使用已确认的清空图，保持镜头与建筑结构，生成装修效果图。${description}`
+                : description;
         if (promptRequired && !submittedPrompt) return "请填写画面描述";
         const missing = missingWorkbenchInput(tool, references);
         if (missing) return `请上传“${missing.name || "必填素材"}”`;
@@ -1034,7 +1079,13 @@ export function WorkbenchPage({ kind }: { kind: WorkbenchKind }) {
             ...(videoRequest ? { videoModel: selectedModel, size: videoRequest.ratio, videoSeconds: videoRequest.seconds, vquality: videoRequest.resolution.replace(/p$/i, "") } : {}),
         };
         const readyReferences = references.filter((reference) => reference.resourceId);
+        if (interior && !(logicalModelId || channel?.scope === "system")) return "分阶段装修请选择平台图片模型";
+        const slotPrompts = skuBatch ? specs.map((spec) => `以已确认母版为准，仅将规格栏文字替换为 ${JSON.stringify(spec)}。保留商品、背景、构图、卖点和其他文字，不增加元素。`) : undefined;
+        if (slotPrompts?.some((item) => item.length > promptMaxChars)) return "规格文字过长，请缩短后重试";
         return {
+            slotPrompts,
+            maskResourceId: activeMask,
+            ...(interior ? { interiorStage: confirmed ? "render" : "clear", parentTaskId: confirmed?.task } : {}),
             kind,
             route: logicalModelId || channel?.scope === "system" ? "workbench" : "tasks",
             prompt: submittedPrompt,
@@ -1050,12 +1101,16 @@ export function WorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     };
 
     const createBatchTask = async (request: BatchRequest, batchPlan: number[], index: number, batchId: string) => {
+        if (request.slotPrompts) request = { ...request, prompt: request.slotPrompts[index] };
         const batch = { id: batchId, index, count: batchPlan.length };
         const outputs = batchPlan[index] || 1;
         const parameters = request.kind === "image" ? { ...request.parameters, count: outputs } : request.parameters;
         const referenceSnapshot = request.references.map((reference) => ({ resourceId: reference.resourceId!, kind: reference.kind, role: reference.role, ...(reference.slotKey ? { slotKey: reference.slotKey } : {}) }));
         if (request.route === "workbench") {
             const created = await createWorkbenchTask({
+                maskResourceId: request.maskResourceId,
+                interiorStage: request.interiorStage,
+                parentTaskId: request.parentTaskId,
                 kind: request.kind,
                 ...(request.toolId ? { toolId: request.toolId } : {}),
                 ...(request.presetId ? { presetId: request.presetId } : {}),
@@ -1077,6 +1132,7 @@ export function WorkbenchPage({ kind }: { kind: WorkbenchKind }) {
             ...(reference.slotKey ? { slotKey: reference.slotKey } : {}),
         });
         const taskInput = await prepareBackendGenerationTask({
+            ...(request.maskResourceId ? { mask: { id: request.maskResourceId, storageKey: resourceStorageKey(request.maskResourceId), name: "mask.png", type: "image/png", dataUrl: "" } } : {}),
             mode: request.kind,
             prompt: request.prompt,
             config: request.kind === "image" ? { ...request.generationConfig, count: String(outputs) } : request.generationConfig,
@@ -1140,7 +1196,7 @@ export function WorkbenchPage({ kind }: { kind: WorkbenchKind }) {
             message.warning(request);
             return;
         }
-        const batchPlan = planWorkbenchBatch(kind, requestedCount, maxOutputsPerTask);
+        const batchPlan = plan;
         const parameters = kind === "image" ? { ...request.parameters, count: requestedCount } : request.parameters;
         const local: LocalBatch = {
             id: createClientUUID(),
@@ -1200,6 +1256,11 @@ export function WorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     const retryTask = async (task: GenerationTask, notify = true) => {
         markTaskBusy(task.id, true);
         try {
+            if (kind === "image" && creditsEnabled) {
+                const quote = await quoteGenerationTaskRetry(task.id);
+                const approved = await modal.confirm({ title: "重新生成这个任务？", content: `预计预占 ${quote.amountMicrocredits / 1_000_000} 积分，其他作品不变。`, okText: "重新生成", cancelText: "取消" });
+                if (!approved) return false;
+            }
             applyTaskUpdate(await retryGenerationTask(task.id));
             if (notify) message.success("已重新提交");
             pollKickRef.current();
@@ -1279,6 +1340,7 @@ export function WorkbenchPage({ kind }: { kind: WorkbenchKind }) {
             })),
         );
         setReferences(restoredReferences);
+        setMask(snapshot.maskResourceId && restoredReferences[0]?.resourceId ? { source: restoredReferences[0].resourceId, id: snapshot.maskResourceId } : null);
         const params = new URLSearchParams(searchParams);
         if (restoredTool) params.set("tool", restoredTool.id);
         else params.delete("tool");
@@ -1316,6 +1378,32 @@ export function WorkbenchPage({ kind }: { kind: WorkbenchKind }) {
 
     const useAsReference = async (output: WorkbenchOutput) => {
         if (!output.resourceId) return;
+        if (interior || mode === "sku") {
+            const resource = output.resourceId;
+            try {
+                if (interior && workbenchTaskSnapshot(await queryGenerationTask(output.taskId))?.interiorStage !== "clear") {
+                    message.warning("请选择旧房清空阶段的结果");
+                    return;
+                }
+                const previewUrl = await resolveWorkbenchResourceURL(resource, "thumbnail");
+                if (!previewUrl) throw new Error("图片暂不可用");
+                modal.confirm({
+                    title: interior ? "确认这张清空图并进入装修？" : "用这张图片作为 SKU 母版？",
+                    content: <img alt="待确认图片" style={{ maxWidth: "100%", maxHeight: 260 }} src={previewUrl} />,
+                    onOk: () => {
+                        clearReferences();
+                        appendReferences([{ resourceId: resource, name: interior ? "已确认清空图" : "已确认母版", kind: "image", previewUrl }]);
+                        if (interior) setParent({ task: output.taskId, resource });
+                        else setSkuMaster(resource);
+                        setViewer(null);
+                        setMobileTab("compose");
+                    },
+                });
+            } catch (e) {
+                message.error(errorMessage(e, "无法确认作品"));
+            }
+            return;
+        }
         const accepted = await addResourceReferences([{ resourceId: output.resourceId, kind: "image", name: "生成结果" }]);
         if (accepted.length) {
             message.success("已加入商品素材，可继续调整描述再生成");
@@ -1578,6 +1666,79 @@ export function WorkbenchPage({ kind }: { kind: WorkbenchKind }) {
                             onRoleChange={(reference, role) => setReferences((current) => withUniqueFrameRole(current, reference.id, role))}
                             onClear={clearReferences}
                         />
+                        {mode === "edit" && (
+                            <ComposerSection title="局部修改">
+                                <Button disabled={!source || !imageProfile?.references.maskSupported} onClick={() => setEditingMask(true)}>
+                                    {activeMask ? "重新涂抹" : "涂抹修改区域"}
+                                </Button>
+                                {activeMask && <Button onClick={() => setMask(null)}>移除蒙版</Button>}
+                                {!imageProfile?.references.maskSupported && <p>当前模型不支持局部编辑</p>}
+                            </ComposerSection>
+                        )}
+                        {editingMask && source && mode === "edit" && (
+                            <StudioMaskEditor
+                                key={source}
+                                source={source}
+                                close={() => setEditingMask(false)}
+                                save={(id) => {
+                                    setMask({ source, id });
+                                    setEditingMask(false);
+                                }}
+                            />
+                        )}
+                        {mode === "sku" && (
+                            <ComposerSection title="SKU 规格">
+                                <Button disabled={!source} onClick={() => setSkuMaster(skuBatch ? "" : source!)}>
+                                    {skuBatch ? "返回母版生成" : "确认当前素材为母版"}
+                                </Button>
+                                {skuBatch && <textarea aria-label="SKU 规格，每行一条" placeholder="每行一条规格，如：500 mL / 两瓶装" value={skuText} onChange={(e) => setSkuText(e.target.value)} />}
+                            </ComposerSection>
+                        )}
+                        {mode === "interior" && (
+                            <ComposerSection title="装修阶段">
+                                <label>
+                                    <input
+                                        type="checkbox"
+                                        checked={oldRoom}
+                                        onChange={(e) => {
+                                            setOldRoom(e.target.checked);
+                                            setParent(null);
+                                        }}
+                                    />{" "}
+                                    旧房先清空
+                                </label>
+                                {interior && <p>{confirmed ? "已确认清空图 · 下一步生成装修效果图" : "先生成清空图，再在作品中选择「用作参考」确认"}</p>}
+                            </ComposerSection>
+                        )}
+                        {mode === "suite" && (
+                            <ComposerSection title="套图规划">
+                                <Button
+                                    loading={busy}
+                                    disabled={!features.ecommerceEnabled || !references.length || references.some((r) => !r.resourceId || r.error || r.uploading)}
+                                    onClick={async () => {
+                                        setBusy(true);
+                                        try {
+                                            const draft = {
+                                                ...emptyEcommerceDraft(),
+                                                imageType: "set",
+                                                count: requestedCount,
+                                                instruction: prompt,
+                                                imageModel: selectedModel,
+                                                references: references.map((r, i) => ({ resourceId: r.resourceId!, role: i === 0 ? ("primary" as const) : ("detail" as const), name: r.name })),
+                                            };
+                                            const saved = await saveEcommerceProject(await createEcommerceProject(), draft, null);
+                                            navigate(`/ecommerce?project=${encodeURIComponent(saved.id)}`);
+                                        } catch (e) {
+                                            message.error(errorMessage(e, "无法创建套图规划"));
+                                        } finally {
+                                            setBusy(false);
+                                        }
+                                    }}
+                                >
+                                    交给商品 Agent 规划
+                                </Button>
+                            </ComposerSection>
+                        )}
                         <PromptSection
                             kind={kind}
                             tool={tool}
@@ -1663,7 +1824,7 @@ export function WorkbenchPage({ kind }: { kind: WorkbenchKind }) {
                             {selectedModel ? <p className="wb-muted-note">{WORKBENCH_SPEC_TIPS[kind]}</p> : null}
                         </ComposerSection>
                         <ComposerSection title="生成数量" hint={limitHint ? `${countHint} · ${limitHint}` : countHint}>
-                            <CountStepper kind={kind} value={requestedCount} max={batchLimit} onChange={changeCount} />
+                            {interior || skuBatch ? <span>{requestedCount} 张</span> : <CountStepper kind={kind} value={requestedCount} max={batchLimit} onChange={changeCount} />}
                         </ComposerSection>
                     </div>
                     <ComposerFooter kind={kind} count={requestedCount} taskCount={plan.length} estimate={estimateLabel} busy={busy} disabledReason={disabledReason} onSubmit={() => void submit()} />

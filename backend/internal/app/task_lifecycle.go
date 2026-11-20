@@ -31,6 +31,22 @@ func (s *Service) taskLifecycle() *taskLifecycleCoordinator {
 }
 
 func (w *taskLifecycleCoordinator) retryTask(userID string, id string) (*model.Task, error) {
+	return w.prepareRetry(userID, id, w.enqueueRetry)
+}
+
+// QuoteTaskRetry runs the same eligibility and pricing checks without persisting the order.
+func (s *Service) QuoteTaskRetry(userID, id string) (int64, error) {
+	var amount int64
+	_, err := s.taskLifecycle().prepareRetry(userID, id, func(_ string, task *model.Task, order *model.BillingOrder) (*model.Task, error) {
+		if order != nil {
+			amount = order.AmountMicrocredits
+		}
+		return task, nil
+	})
+	return amount, err
+}
+
+func (w *taskLifecycleCoordinator) prepareRetry(userID, id string, complete func(string, *model.Task, *model.BillingOrder) (*model.Task, error)) (*model.Task, error) {
 	s := w.service
 	if s.IsDraining() {
 		return nil, &AppError{Status: 503, Code: 503, Message: "服务正在维护，暂不接受任务重试", Retryable: true}
@@ -84,6 +100,11 @@ func (w *taskLifecycleCoordinator) retryTask(userID string, id string) (*model.T
 	if err != nil {
 		return nil, err
 	}
+	return complete(userID, task, billingOrder)
+}
+
+func (w *taskLifecycleCoordinator) enqueueRetry(userID string, task *model.Task, billingOrder *model.BillingOrder) (*model.Task, error) {
+	s := w.service
 	policy, err := s.RuntimePolicy()
 	if err != nil {
 		return nil, err
