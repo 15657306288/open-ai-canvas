@@ -197,7 +197,11 @@ func (s *Service) failPiRunner(runID, userID string, cause error) {
 			if decodeErr == nil {
 				state.LastError = cause.Error()
 				cloudAgentDropInterjections(runID, "本轮已结束："+truncateRunes(cause.Error(), 120), &state)
-				state.event(runID, "run_failed", map[string]any{"error": cause.Error()})
+				payload := map[string]any{"text": cause.Error()}
+				if agentModelErrorReason(cause) == agentModelFailureSubmission {
+					payload["reason"], payload["taskId"] = string(agentModelFailureSubmission), state.ActiveTaskID
+				}
+				state.event(runID, "run_failed", payload)
 				return cloudAgentSave(current, &state)
 			}
 			return nil
@@ -291,7 +295,7 @@ func (s *Service) runCloudAgentPiSession(ctx context.Context, userID, runID stri
 		return fmt.Errorf("decode state: %w", err)
 	}
 
-	if err := s.cloudAgentCheckSkillExecution(userID, &runtimeState, nil, ""); err != nil {
+	if err := s.RequireSkillAccess(userID); err != nil {
 		return err
 	}
 
@@ -331,7 +335,7 @@ func (s *Service) runCloudAgentPiSession(ctx context.Context, userID, runID stri
 		return fmt.Errorf("load session: %w", sessionErr)
 	}
 
-	if err := s.cloudAgentCheckSkillExecution(userID, &runtimeState, &canonical, sessionJSONL); err != nil {
+	if err := s.RequireSkillAccess(userID); err != nil {
 		return err
 	}
 

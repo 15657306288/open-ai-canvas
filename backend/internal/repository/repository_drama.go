@@ -28,11 +28,11 @@ func (r *Repository) DramaProduction(projectID string) (*model.DramaProduction, 
 }
 
 // RunningDramaProductions 返回需要调度循环推进的项目：运行中的项目，以及暂停或已完成但仍有已派发任务的项目。
-// 后者只回收任务结果（已付费的视频、尾帧、参考图下载），不再派发新工作。
+// 后者只回收任务结果并处理显式请求的成片拼接，不再派发模型生成。
 // 含“上游已成功、本地保存失败且仍有恢复检查点”的失败作业，避免暂停后项目掉出调度、已出图无法落库。
 func (r *Repository) RunningDramaProductions(limit int) ([]model.DramaProduction, error) {
 	var productions []model.DramaProduction
-	pending := r.db.Model(&model.DramaJob{}).Select("project_id").Where("status = ?", model.DramaJobRunning)
+	pending := r.db.Model(&model.DramaJob{}).Select("project_id").Where("status = ? OR (kind = ? AND status = ?)", model.DramaJobRunning, model.DramaJobCompose, model.DramaJobQueued)
 	recoverable := r.db.Model(&model.DramaJob{}).Select("project_id").Where(
 		"status = ? AND updated_at > ? AND task_id IN (?)",
 		model.DramaJobFailed,
@@ -293,7 +293,7 @@ func dramaEpisodeHasVideo(tx *gorm.DB, projectID string, episode model.DramaEpis
 	checks := []*gorm.DB{
 		tx.Model(&model.DramaSegment{}).Where("project_id = ? AND episode_id = ? AND video_resource_id <> ''", projectID, episode.ID),
 		tx.Model(&model.DramaTake{}).Where("project_id = ? AND ((kind = ? AND owner_id IN (?)) OR (kind = ? AND owner_id = ?))", projectID, "video", segments, "final", episode.ID),
-		tx.Model(&model.DramaJob{}).Where("project_id = ? AND episode_id = ? AND kind IN ? AND status = ?", projectID, episode.ID, []string{model.DramaJobSegmentVideo, model.DramaJobRender}, model.DramaJobSucceeded),
+		tx.Model(&model.DramaJob{}).Where("project_id = ? AND episode_id = ? AND kind IN ? AND status = ?", projectID, episode.ID, []string{model.DramaJobSegmentVideo, model.DramaJobRender, model.DramaJobCompose}, model.DramaJobSucceeded),
 	}
 	for _, check := range checks {
 		var count int64
@@ -402,7 +402,13 @@ func refreshDramaSegmentAfterShotChange(tx *gorm.DB, shot model.DramaShot) error
 	if err := tx.Where("episode_id = ? AND segment_index = ?", shot.EpisodeID, shot.SegmentIndex).First(&segment).Error; err != nil {
 		return err
 	}
-	if err := invalidateDramaSegment(tx, segment, map[string]any{"prompt_status": promptStatusAfterInputChange(segment.PromptStatus), "video_prompt_override": ""}, true); err != nil {
+	fields := map[string]any{"prompt_status": promptStatusAfterInputChange(segment.PromptStatus)}
+	if strings.TrimSpace(segment.VideoPromptOverride) != "" || strings.TrimSpace(segment.VideoPrompt) != "" {
+		fields["prompt_status"] = model.DramaPromptConflict
+		fields["prompt_error"] = "镜头数量已变化，原提示词已保留。请核对并保存完整提示词，也可选择 AI 重新撰写。"
+	}
+	if err := invalidateDramaSegment(tx, segment, fields, true); err != nil {
+
 		return err
 	}
 	if err := tx.Model(&model.DramaEpisode{}).Where("id = ?", shot.EpisodeID).Update("duration_ms", tx.Model(&model.DramaShot{}).Select("COALESCE(SUM(duration_ms),0)").Where("episode_id = ?", shot.EpisodeID)).Error; err != nil {
@@ -653,7 +659,70 @@ func (r *Repository) CreateDramaJobs(jobs []model.DramaJob) error {
 	if len(jobs) == 0 {
 		return nil
 	}
-	return r.db.Create(&jobs).Error
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		batch := make([]model.DramaJob, 0, len(jobs))
+		for _, job := range jobs {
+			if job.Kind == model.DramaJobRender {
+				if err := queueDramaRender(tx, &job, 0, false); err != nil {
+					return err
+				}
+			} else {
+				batch = append(batch, job)
+			}
+		}
+		if len(batch) == 0 {
+			return nil
+		}
+		return tx.Create(&batch).Error
+	})
+}
+
+func (r *Repository) QueueDramaComposition(job *model.DramaJob, revision int64, complete bool) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		return queueDramaRender(tx, job, revision, complete)
+	})
+}
+
+// 自动调度与用户请求可能同时入队；锁住同一集后再判断是否需要新的渲染。
+func queueDramaRender(tx *gorm.DB, job *model.DramaJob, revision int64, complete bool) error {
+	var episode model.DramaEpisode
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("id", "revision", "stage", "error", "final_resource_id").First(&episode, "project_id = ? AND id = ?", job.ProjectID, job.EpisodeID).Error; err != nil {
+		return err
+	}
+	var active []model.DramaJob
+	if err := tx.Select("kind", "status", "payload_json").Where("episode_id = ? AND kind IN ? AND status IN ?", episode.ID, []string{model.DramaJobRender, model.DramaJobCompose}, []string{model.DramaJobQueued, model.DramaJobRunning}).Find(&active).Error; err != nil {
+		return err
+	}
+	if job.Kind == model.DramaJobRender {
+		if episode.Stage != model.DramaEpisodeRender || episode.Error != "" || len(active) > 0 {
+			return nil
+		}
+		return tx.Create(job).Error
+	}
+	if episode.Revision != revision {
+		return ErrDramaJobChanged
+	}
+	for _, existing := range active {
+		if existing.Kind == model.DramaJobRender && existing.Status == model.DramaJobQueued {
+			continue
+		}
+		var payload struct{ Revision int64 }
+		if err := json.Unmarshal([]byte(existing.PayloadJSON), &payload); err != nil {
+			return err
+		}
+		if payload.Revision == revision {
+			return nil
+		}
+	}
+	if err := tx.Model(&model.DramaJob{}).Where("episode_id = ? AND kind = ? AND status = ?", episode.ID, model.DramaJobRender, model.DramaJobQueued).Updates(map[string]any{"status": model.DramaJobCanceled, "updated_at": time.Now()}).Error; err != nil {
+		return err
+	}
+	if complete && (episode.Stage == model.DramaEpisodeDone || episode.Stage == model.DramaEpisodeRender) {
+		if err := tx.Model(&episode).Updates(map[string]any{"stage": model.DramaEpisodeRender, "error": "", "final_stale": episode.FinalResourceID != ""}).Error; err != nil {
+			return err
+		}
+	}
+	return tx.Create(job).Error
 }
 
 func (r *Repository) SaveDramaJob(job *model.DramaJob) error {
@@ -965,6 +1034,10 @@ func (r *Repository) UpdateDramaCastFields(id string, fields map[string]any) err
 // 待撰写或撰写中的退回待撰写，由调度按新素材自动写；失败保持失败，等用户重试。
 func promptStatusAfterInputChange(current string) string {
 	switch current {
+	case model.DramaPromptConflict:
+		return model.DramaPromptConflict
+	case model.DramaPromptReview:
+		return model.DramaPromptConflict
 	case model.DramaMediaReady, model.DramaMediaStale:
 		return model.DramaMediaStale
 	case model.DramaMediaFailed:
@@ -1002,12 +1075,12 @@ func (r *Repository) SaveDramaSegmentEdits(segment model.DramaSegment, fields ma
 		if current.Revision != segment.Revision {
 			return ErrDramaSegmentEditConflict
 		}
-		values := map[string]string{"reference_cast_ids_json": current.ReferenceCastIDsJSON, "reference_images_json": current.ReferenceImagesJSON, "audio_cast_ids_json": current.AudioCastIDsJSON, "video_prompt_override": current.VideoPromptOverride}
+		values := map[string]string{"reference_cast_ids_json": current.ReferenceCastIDsJSON, "reference_images_json": current.ReferenceImagesJSON, "audio_cast_ids_json": current.AudioCastIDsJSON, "video_prompt_override": current.VideoPromptOverride, "prompt_status": current.PromptStatus, "prompt_error": current.PromptError}
 		changed, referencesChanged := false, false
 		for key, value := range fields {
 			if values[key] != value {
 				changed = true
-				if key != "video_prompt_override" {
+				if key == "reference_cast_ids_json" || key == "reference_images_json" || key == "audio_cast_ids_json" {
 					referencesChanged = true
 				}
 			}
@@ -1015,7 +1088,7 @@ func (r *Repository) SaveDramaSegmentEdits(segment model.DramaSegment, fields ma
 		if !changed {
 			return nil
 		}
-		if referencesChanged {
+		if _, explicitStatus := fields["prompt_status"]; referencesChanged && !explicitStatus {
 			fields["prompt_status"] = promptStatusAfterInputChange(current.PromptStatus)
 		}
 		return invalidateDramaSegment(tx, current, fields, true)
@@ -1166,7 +1239,7 @@ func (r *Repository) DramaSegmentStats(projectID string) (map[string]DramaSegmen
 	var rows []DramaSegmentStat
 	err := r.db.Model(&model.DramaSegment{}).Select(`episode_id,
 		COUNT(*) AS total,
-		SUM(CASE WHEN (prompt_status = 'ready' OR video_prompt_override <> '') THEN 1 ELSE 0 END) AS prompt_ready,
+		SUM(CASE WHEN prompt_status = 'ready' OR (prompt_status = 'stale' AND video_prompt_override <> '') THEN 1 ELSE 0 END) AS prompt_ready,
 		SUM(CASE WHEN video_status = 'ready' THEN 1 ELSE 0 END) AS video_ready,
 		SUM(CASE WHEN video_resource_id <> '' THEN 1 ELSE 0 END) AS video_generated,
 		SUM(CASE WHEN prompt_status = 'failed' OR video_status = 'failed' THEN 1 ELSE 0 END) AS failed`).
@@ -1276,24 +1349,36 @@ func invalidateDramaSegment(tx *gorm.DB, segment model.DramaSegment, fields map[
 	if err := tx.Model(&model.DramaEpisode{}).Where("id = ?", segment.EpisodeID).Updates(map[string]any{"stage": stage, "approved": false, "final_stale": true, "error": "", "revision": gorm.Expr("revision + 1"), "updated_at": time.Now()}).Error; err != nil {
 		return err
 	}
-	jobs := tx.Model(&model.DramaJob{}).Where("episode_id = ? AND status = ? AND kind IN ?", segment.EpisodeID, "queued", []string{"segment_prompt", "segment_video", "render"})
+	jobs := tx.Model(&model.DramaJob{}).Where("episode_id = ? AND status = ? AND kind IN ?", segment.EpisodeID, "queued", []string{"segment_prompt", "segment_video", model.DramaJobRender, model.DramaJobCompose})
 	if !cascade {
-		jobs = jobs.Where("shot_id = ? OR kind = ?", segment.ID, model.DramaJobRender)
+		jobs = jobs.Where("shot_id = ? OR kind IN ?", segment.ID, []string{model.DramaJobRender, model.DramaJobCompose})
 	}
 	return jobs.Updates(map[string]any{"status": "canceled", "updated_at": time.Now()}).Error
 }
 
-func (r *Repository) UpdateDramaShotScript(shot model.DramaShot, fields map[string]any) error {
+var ErrDramaSegmentChanged = errors.New("drama segment changed")
+
+func (r *Repository) UpdateDramaShotScript(shot model.DramaShot, fields map[string]any, expected model.DramaSegment, promptFields map[string]any) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		var segment model.DramaSegment
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND project_id = ?", expected.ID, shot.ProjectID).First(&segment).Error; err != nil {
+			return err
+		}
+		if segment.Revision != expected.Revision {
+			return ErrDramaSegmentChanged
+		}
+		var current model.DramaShot
+		if err := tx.Where("id = ? AND project_id = ?", shot.ID, shot.ProjectID).First(&current).Error; err != nil {
+			return err
+		}
+		if !current.UpdatedAt.Equal(shot.UpdatedAt) {
+			return ErrDramaSegmentChanged
+		}
 		fields["updated_at"] = time.Now()
 		if err := tx.Model(&model.DramaShot{}).Where("id = ? AND project_id = ?", shot.ID, shot.ProjectID).Updates(fields).Error; err != nil {
 			return err
 		}
-		var segment model.DramaSegment
-		if err := tx.Where("episode_id = ? AND segment_index = ?", shot.EpisodeID, shot.SegmentIndex).First(&segment).Error; err != nil {
-			return err
-		}
-		if err := invalidateDramaSegment(tx, segment, map[string]any{"prompt_status": promptStatusAfterInputChange(segment.PromptStatus), "video_prompt_override": ""}, true); err != nil {
+		if err := invalidateDramaSegment(tx, segment, promptFields, true); err != nil {
 			return err
 		}
 		return tx.Model(&model.DramaEpisode{}).Where("id = ?", shot.EpisodeID).Update("duration_ms", tx.Model(&model.DramaShot{}).Select("COALESCE(SUM(duration_ms),0)").Where("episode_id = ?", shot.EpisodeID)).Error
@@ -1302,6 +1387,10 @@ func (r *Repository) UpdateDramaShotScript(shot model.DramaShot, fields map[stri
 
 func (r *Repository) RequestDramaSegmentVideos(projectID, episodeID string, indexes []int, modelJSON *string) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		var episode model.DramaEpisode
+		if err := tx.Select("approved").Where("id = ? AND project_id = ?", episodeID, projectID).First(&episode).Error; err != nil {
+			return err
+		}
 		for _, index := range indexes {
 			var segment model.DramaSegment
 			if err := tx.Where("project_id = ? AND episode_id = ? AND segment_index = ?", projectID, episodeID, index).First(&segment).Error; err != nil {
@@ -1318,7 +1407,9 @@ func (r *Repository) RequestDramaSegmentVideos(projectID, episodeID string, inde
 				return err
 			}
 		}
-		return tx.Model(&model.DramaEpisode{}).Where("id = ?", episodeID).Updates(map[string]any{"approved": true, "media_released": true}).Error
+		// 显式生成剧情段只放行本集素材，整集确认状态保持原样：未确认的集不因点了一段就被确认
+		// （否则调度会把其余未生成的段一起排队），已确认的集重做一段也不必重新确认。
+		return tx.Model(&model.DramaEpisode{}).Where("id = ?", episodeID).Updates(map[string]any{"media_released": true, "approved": episode.Approved}).Error
 	})
 }
 

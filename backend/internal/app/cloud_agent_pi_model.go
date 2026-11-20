@@ -127,6 +127,9 @@ func (s *Service) cloudAgentPiModel(ctx context.Context, userID, runID string, p
 		}
 		lastErr = err
 		if !retryable {
+			if agentModelErrorReason(err) == agentModelFailureSubmission {
+				s.failPiRunner(runID, userID, err)
+			}
 			return nil, err
 		}
 		var outputLimitErr *cloudAgentPiOutputLimitError
@@ -205,15 +208,8 @@ func (s *Service) runCloudAgentModelStep(ctx context.Context, userID, runID stri
 		if err != nil {
 			return nil, false, err
 		}
-		if err := s.cloudAgentCheckSkillExecution(userID, &state, nil, ""); err != nil {
+		if err := s.RequireSkillAccess(userID); err != nil {
 			return nil, false, err
-		}
-		for _, message := range messages {
-			if cloudAgentValueHasSkillContext(message) {
-				if err := s.RequireSkillAdministrator(userID); err != nil {
-					return nil, false, err
-				}
-			}
 		}
 		if cloudAgentRunTerminal(run.Status) {
 			return nil, false, fmt.Errorf("run already terminated")
@@ -251,15 +247,12 @@ func (s *Service) runCloudAgentModelStep(ctx context.Context, userID, runID stri
 		// 重启恢复：上一个运行时进程已为这一步建好模型任务（可能已经出结果），
 		// 只是没来得及把结果交回就退出了。运行时对 /model 串行调用，此时仍挂着的
 		// 步骤任务只可能是这种遗留任务：接手等待它的结果，不再建新任务和订单。
-		adopt, released, err := s.adoptCloudAgentPiModelStep(userID, runID, state.ActiveTaskID)
+		adopt, err := s.adoptCloudAgentPiModelStep(userID, state.ActiveTaskID)
 		if err != nil {
 			return nil, false, err
 		}
 		if adopt {
 			break
-		}
-		if released {
-			continue
 		}
 
 		canonical, historyErr := cloudAgentPiCanonicalForModelRequest(messages, state.Canonical)
@@ -358,6 +351,9 @@ func (s *Service) runCloudAgentModelStep(ctx context.Context, userID, runID stri
 	taskID := state.ActiveTaskID
 	task, err := s.waitCloudAgentTask(ctx, taskID)
 	if err != nil {
+		if agentModelErrorReason(err) == agentModelFailureSubmission {
+			return nil, false, err
+		}
 		if ctx.Err() == nil {
 			call, lookupErr := s.repo.LatestAPICallForTask(taskID)
 			if lookupErr != nil {
@@ -384,7 +380,7 @@ func (s *Service) runCloudAgentModelStep(ctx context.Context, userID, runID stri
 			}
 		}
 		if truncated {
-			err = fmt.Errorf("%w: %v", errCloudAgentTruncatedToolArguments, err)
+			err = fmt.Errorf("%w: %w", errCloudAgentTruncatedToolArguments, err)
 		}
 		return nil, retryable, err
 	}
@@ -482,29 +478,19 @@ func cloudAgentPiContextOverflow(call model.ApiCallLog) bool {
 }
 
 // adoptCloudAgentPiModelStep 判断挂着的活动任务能否作为本步结果直接接手。
-// 排队、运行中或已成功的模型步骤直接接手；失败或已取消的先释放，由调用方重新调度。
-// 其它活动任务（运行根任务、上下文压缩）保持原有流程。
-func (s *Service) adoptCloudAgentPiModelStep(userID, runID, taskID string) (adopt, released bool, err error) {
+// 已结束的步骤也交回原结果，由同一个重试判定处理。
+func (s *Service) adoptCloudAgentPiModelStep(userID, taskID string) (bool, error) {
+	if taskID == "" {
+		return false, nil
+	}
 	task, err := s.repo.TaskForUser(userID, taskID)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return false, false, nil
+		return false, nil
 	}
 	if err != nil {
-		return false, false, err
+		return false, err
 	}
-	if task.Operation != cloudAgentStepOperation {
-		return false, false, nil
-	}
-	switch task.Status {
-	case model.TaskStatusQueued, model.TaskStatusRunning, model.TaskStatusSucceeded:
-		return true, false, nil
-	case model.TaskStatusFailed, model.TaskStatusCancelled:
-		if err := s.finishCloudAgentPiModelStep(userID, runID, taskID, "", cloudAgentStepReasoning{}); err != nil {
-			return false, false, err
-		}
-		return false, true, nil
-	}
-	return false, false, nil
+	return task.Operation == cloudAgentStepOperation, nil
 }
 
 func cloudAgentPiCanonicalForModelRequest(messages []map[string]any, existing canonicalAgentRequest) (canonicalAgentRequest, error) {
@@ -617,18 +603,8 @@ func cloudAgentTransientModelFailure(call model.ApiCallLog) bool {
 	if call.StatusCode >= 400 && call.StatusCode < 500 {
 		return false
 	}
-	text := strings.ToLower(strings.TrimSpace(call.ErrorCode + " " + call.Error))
-	for _, marker := range []string{"invalid_request", "authentication", "permission", "forbidden", "model_not_found", "insufficient_quota", "content_policy", "sensitive_words", "safety"} {
-		if strings.Contains(text, marker) {
-			return false
-		}
-	}
-	for _, marker := range []string{"openai_error", "api_error", "server_error", "temporarily_unavailable", "service_unavailable", "overloaded", "gateway_error", "rate_limit", "too_many_requests", "upstream_timeout"} {
-		if strings.Contains(text, marker) {
-			return true
-		}
-	}
-	return false
+	reason := agentModelUpstreamReason(call.StatusCode, call.ErrorCode)
+	return reason == agentModelFailureTransient || reason == agentModelFailureTimeout
 }
 
 // cloudAgentModelTaskRetryable 按上游真实 HTTP 状态和结构化业务错误判断失败是否是临时性的：
@@ -637,6 +613,9 @@ func cloudAgentTransientModelFailure(call model.ApiCallLog) bool {
 func (s *Service) cloudAgentModelTaskRetryable(taskID string) bool {
 	task, err := s.repo.Task(taskID)
 	if err != nil || task == nil || task.Status == model.TaskStatusSucceeded || task.Status == model.TaskStatusCancelled {
+		return false
+	}
+	if agentModelTaskReason(task) == agentModelFailureSubmission {
 		return false
 	}
 	if cloudAgentEmptyModelOutput(task) || cloudAgentStepTimedOut(task) {
@@ -658,9 +637,11 @@ func (s *Service) cloudAgentModelTaskRetryable(taskID string) bool {
 	case status >= 500, status == 429, status == 408:
 		return true
 	case status == 0:
-		// 没有上游响应：连接失败、重置、超时。
-		raw := strings.ToLower(task.Error)
-		return strings.Contains(raw, "timeout") || strings.Contains(raw, "deadline") || strings.Contains(raw, "connection") || strings.Contains(raw, "eof") || strings.Contains(task.Error, "超时")
+		// 没有上游响应：只使用原始 error 链持久化的网络原因。
+		switch agentModelTaskReason(task) {
+		case agentModelFailureTimeout, agentModelFailureReset, agentModelFailureRefused, agentModelFailureEOF:
+			return true
+		}
 	}
 	return false
 }
@@ -823,9 +804,14 @@ func (s *Service) waitCloudAgentTask(ctx context.Context, taskID string) (*model
 				continue
 			}
 			if task.Status != model.TaskStatusSucceeded {
+				reason := agentModelTaskReason(task)
+				if cloudAgentModelOperation(task) && reason == agentModelFailureSubmission {
+					message, _ := cloudAgentModelFailure(task)
+					return nil, agentModelFailure(reason, BadAuthRequest(message))
+				}
 				// 与画布节点同一套失败分类（网络/审核/存储/HTTP 状态/供应商原因），
 				// 原始错误保留在任务中心诊断里，不直接抛给用户。
-				return nil, BadAuthRequest(userFacingTaskFailure(task))
+				return nil, agentModelFailure(reason, BadAuthRequest(userFacingTaskFailure(task)))
 			}
 			return task, nil
 		}

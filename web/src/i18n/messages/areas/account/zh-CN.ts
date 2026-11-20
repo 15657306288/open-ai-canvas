@@ -81,6 +81,7 @@ export const zhCN = {
             filterActive: "有已应用筛选",
             reset: "重置",
             searchAndFilter: "搜索与筛选",
+            clearSearch: "清除搜索词",
         },
         pagination: {
             item: "条",
@@ -249,6 +250,7 @@ export const zhCN = {
             paymentSource: "充值渠道：{{channel}}",
             adminAdjustment: "后台调整",
             signupBonus: "注册奖励",
+            teamTransfer: "团队积分划转",
             checkinBonus: "签到奖励",
             redeem: "兑换码充值",
             referral: "推广返佣",

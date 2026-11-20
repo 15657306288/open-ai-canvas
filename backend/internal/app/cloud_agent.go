@@ -36,7 +36,7 @@ type CloudAgentRequest struct {
 	ChannelID       string                 `json:"channelId,omitempty"`
 	ChannelModelKey string                 `json:"channelModelKey,omitempty"`
 	PermissionMode  string                 `json:"permissionMode"`
-	// PinnedSkillIDs 是用户为对话固定或在本条消息里点名的技能；其他已安装技能由 Agent 按目录自动发现。
+	// PinnedSkillIDs 是用户为对话固定或在本条消息里点名的技能；其他已安装技能可按需检索。
 	PinnedSkillIDs        []string `json:"pinnedSkillIds,omitempty"`
 	ContextScope          []string `json:"contextScope"`
 	FocusNodeIDs          []string `json:"focusNodeIds,omitempty"`
@@ -399,18 +399,11 @@ func (s *Service) CloudAgentRunIfChanged(userID, id string, revision int64, opti
 // is deterministic per user/key. Competing requests may race, but task creation
 // and credit reservation share a transaction: only one can commit.
 func (s *Service) CreateCloudAgentRun(userID string, req CloudAgentRequest, parentID string) (*CloudAgentRun, error) {
-	skillAdmin, err := s.skillDomain().IsAdministrator(userID)
-	if err != nil {
+	if err := s.RequireSkillAccess(userID); err != nil {
 		return nil, err
-	}
-	if !skillAdmin && (len(req.PinnedSkillIDs) > 0 || len(cloudAgentPromptSkillMentions(req.Prompt)) > 0) {
-		return nil, kernel.Forbidden("只有管理员可以使用技能")
 	}
 	if err := validateCloudAgentRequest(&req); err != nil {
 		return nil, err
-	}
-	if userID == "" {
-		return nil, kernel.Unauthorized("请先登录")
 	}
 	// 调用方仍可复用其请求对象；复制页面身份后，本轮后续检查只使用冻结值。
 	if req.PageContext != nil {
@@ -500,9 +493,6 @@ func (s *Service) CreateCloudAgentRun(userID string, req CloudAgentRequest, pare
 		if err != nil {
 			return nil, WrapAppError(409, "上一轮 Agent 历史记录不完整，无法继续对话；请新建对话", err)
 		}
-		if err := s.cloudAgentCheckSkillExecution(userID, &parentState, nil, ""); err != nil {
-			return nil, err
-		}
 		parentStatus = parentExecution.Status
 		inheritedPlan = parentState.Plan
 		if parentRun.Status == "completed" && parentState.PendingConfirmationFingerprint != "" {
@@ -559,9 +549,7 @@ func (s *Service) CreateCloudAgentRun(userID string, req CloudAgentRequest, pare
 	} else {
 		creativeAnchor = cloudAgentCreativeAnchor{Version: 2, UserPrompt: req.Prompt}
 	}
-	// 技能范围（已安装且允许自动使用 + 本轮固定）与记忆快照都在建 run 时冻结：目录进 system，
-	// 固定技能提示和记忆作为有来源的数据消息在每次模型请求前重新插入。
-	skillPool, err := s.cloudAgentBuildSkillPool(userID, req.Prompt, req.PinnedSkillIDs, s.cloudAgentContextBudgetForRequest(req))
+	skillPool, err := s.cloudAgentBuildSkillPool(userID, req.Prompt, req.PinnedSkillIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -588,15 +576,12 @@ func (s *Service) CreateCloudAgentRun(userID string, req CloudAgentRequest, pare
 	if err != nil {
 		return nil, err
 	}
-	system, policy, err := compileCloudAgentPolicies(req, appearance.Canvas.AgentName, &skillPool.Catalog, "", profile, creativeAnchor)
+	system, policy, err := compileCloudAgentPolicies(req, appearance.Canvas.AgentName, "", profile, creativeAnchor)
 	if err != nil {
 		return nil, err
 	}
 	state := cloudAgentState{Version: 1, Request: req, ParentID: parentID, Fingerprint: fingerprint, CreativeAnchor: creativeAnchor, Plan: inheritedPlan, ConfirmationRounds: inheritedConfirmationRounds, ConfirmationFingerprints: inheritedConfirmationFingerprints, Skills: skillPool.Pinned, SkillVersions: skillPool.Versions, SkillHints: skillPool.Hints, Memory: memory, Profile: profile, Policy: policy}
 	canonical := cloudAgentCanonicalFor(system, history, req.Prompt, req, len(profile.Layers) > 0)
-	if !skillAdmin {
-		canonical.Tools = cloudAgentToolsWithoutSkills(canonical.Tools)
-	}
 	if req.PageContext != nil {
 		catalog := map[string]any{"role": "user", "content": cloudAgentPageScopeNotice(nil, req.PageContext), cloudAgentContextSourceKey: "page_context"}
 		last := canonical.Messages[len(canonical.Messages)-1]
@@ -626,9 +611,6 @@ func (s *Service) CreateCloudAgentRun(userID string, req CloudAgentRequest, pare
 			return nil, sessionErr
 		}
 		if sessionErr == nil && session != nil {
-			if err := s.cloudAgentCheckSkillExecution(userID, nil, nil, session.SessionJSONL); err != nil {
-				return nil, err
-			}
 			inherited := cloudAgentInheritablePiSession(parentStatus, session.SessionJSONL)
 			if inherited == "" && session.SessionJSONL != "" {
 				slog.Info("agent continuation starts a fresh runtime session", "parent", parentID, "parentStatus", parentStatus)
@@ -678,7 +660,7 @@ func (s *Service) replayCloudAgentRequest(userID string, req CloudAgentRequest, 
 		}
 		return nil, false, err
 	}
-	if err := s.cloudAgentCheckSkillExecution(userID, &cloudAgentRuntime{Request: state.Request, Skills: state.Skills, SkillVersions: state.SkillVersions, SkillHints: state.SkillHints}, nil, ""); err != nil {
+	if err := s.RequireSkillAccess(userID); err != nil {
 		return nil, true, err
 	}
 	if state.Fingerprint == "" || state.Fingerprint != cloudAgentFingerprint(req, parentID) {

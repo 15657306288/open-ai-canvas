@@ -10,6 +10,8 @@ info:
     （例如 40301 配额、42901 限流）。机器判断请用 `reason`，不要解析 `msg`。
 
     TypeScript 调用面仍是 `web/src/services/api` 的 `http` 模块，不从本规范生成客户端。
+
+    自由画布、素材和资源、创作对话、任务和文本 SSE 在 `/api/teams/{teamId}/workspace` 下使用相同的路径、请求和响应。该前缀只接受有效成员；团队资源不签发公开地址。团队提交任务前须确认报价，只从发起成员的团队额度扣费。
 servers:
   - url: /api
 security:
@@ -18,6 +20,8 @@ tags:
   - name: meta
   - name: auth
   - name: projects
+  - name: teams
+    description: 已登录账号的公司与小组空间、邀请、积分划拨与团队素材。teamsEnabled 默认关闭，关闭后所有团队接口返回 403 team_feature_disabled。
   - name: canvas
   - name: resources
   - name: tasks
@@ -28,7 +32,7 @@ tags:
     description: Agent 个人及平台 MCP 连接、工具发现与市场配置
   - name: admin
   - name: skills
-    description: 仅有效管理员可查看、上传、安装和管理技能；普通用户返回403，旧技能所有者身份不例外。
+    description: 有效登录用户可浏览、读取可见技能并加入自己的技能库使用；上传创建、编辑、GitHub安装或同步、删除及平台管理仅限管理员，旧技能所有者身份不授予管理权限。
   - name: workbench
   - name: dramas
     description: 短剧作品与角色、场景、道具设定
@@ -43,6 +47,118 @@ tags:
   - name: pose-library
     description: 站点姿势库：浏览、选用，管理员导入与图片同步
 paths:
+  /teams:
+    get:
+      tags: [teams]
+      summary: 当前账号已加入的团队及本人角色、成员关系 ID
+      responses: { '200': { description: data 为本人有效成员关系的空间数组，小组另有 parentId 和 parentName } }
+    post:
+      tags: [teams]
+      summary: 创建团队、所有者成员关系和零余额账户
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [name], properties: { name: { type: string, minLength: 1, maxLength: 80 } } } } } }
+      responses: { '200': { description: data 为团队与当前成员关系 } }
+  /teams/credit-overview:
+    get:
+      tags: [teams]
+      summary: 一次读取个人钱包及已加入的所有公司、小组的积分（需开启积分）
+      responses:
+        '200': { description: 'data.personal 为个人可用和冻结，data.spaces[] 含 teamId、name、parentId、parentName、role、availableMicrocredits、reservedMicrocredits 和 poolAvailableMicrocredits。公共池与冻结均不计入成员可用额度。' }
+        '403': { $ref: '#/components/responses/Error' }
+  /teams/{teamId}/groups:
+    parameters: [{ $ref: '#/components/parameters/TeamID' }]
+    post:
+      tags: [teams]
+      summary: 公司所有者创建直属小组及零余额账户
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [name], properties: { name: { type: string, minLength: 1, maxLength: 80 } } } } } }
+      responses: { '200': { description: 含所属公司和所有者成员关系的小组摘要 }, '403': { $ref: '#/components/responses/Error' } }
+  /teams/{teamId}:
+    parameters: [{ $ref: '#/components/parameters/TeamID' }]
+    get: { tags: [teams], summary: 获取自己有权访问的团队, responses: { '200': { description: 团队摘要 } } }
+  /teams/{teamId}/members:
+    parameters: [{ $ref: '#/components/parameters/TeamID' }]
+    get: { tags: [teams], summary: 读取团队成员的公开标识与角色, responses: { '200': { description: 活跃成员清单 } } }
+  /teams/{teamId}/invite-candidates:
+    parameters: [{ $ref: '#/components/parameters/TeamID' }]
+    get:
+      tags: [teams]
+      summary: 所有者按账号精确匹配或显示名称查找可邀请用户
+      parameters: [{ in: query, name: q, required: true, schema: { type: string, minLength: 1, maxLength: 80 } }]
+      responses: { '200': { description: 最多 20 个公开候选，含 id、username、displayName 和邀请状态 } }
+  /teams/{teamId}/invitations:
+    parameters: [{ $ref: '#/components/parameters/TeamID' }]
+    get: { tags: [teams], summary: 所有者查看本团队最近的邀请, responses: { '200': { description: 邀请数组 } } }
+    post:
+      tags: [teams]
+      summary: 向选定的已有账号发送七天有效的邀请
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [inviteeUserId], properties: { inviteeUserId: {type: string} } } } } }
+      responses: { '200': { description: 新建或已存在的同一条待处理邀请 } }
+  /teams/{teamId}/invitations/{id}/revoke:
+    parameters: [{ $ref: '#/components/parameters/TeamID' }, { $ref: '#/components/parameters/TeamRecordID' }]
+    post: { tags: [teams], summary: 所有者撤回待处理邀请, responses: { '200': { description: 撤回后的邀请 }, '409': { $ref: '#/components/responses/Error' } } }
+  /team-invitations:
+    get: { tags: [teams], summary: 当前账号的待处理邀请, responses: { '200': { description: 只含发给本人且未过期的邀请 } } }
+  /team-invitations/{id}/accept:
+    parameters: [{ $ref: '#/components/parameters/TeamRecordID' }]
+    post: { tags: [teams], summary: 本人接受邀请并加入团队, responses: { '200': { description: 已接受的邀请（重复操作不新建账户） }, '409': { $ref: '#/components/responses/Error' } } }
+  /team-invitations/{id}/reject:
+    parameters: [{ $ref: '#/components/parameters/TeamRecordID' }]
+    post: { tags: [teams], summary: 本人拒绝邀请, responses: { '200': { description: 已拒绝的邀请 }, '409': { $ref: '#/components/responses/Error' } } }
+  /teams/{teamId}/members/{membershipId}:
+    parameters: [{ $ref: '#/components/parameters/TeamID' }, { $ref: '#/components/parameters/TeamMembershipID' }]
+    delete: { tags: [teams], summary: 所有者移除成员并回收其可用额度, responses: { '200': { description: 已移除 } } }
+  /teams/{teamId}/leave:
+    parameters: [{ $ref: '#/components/parameters/TeamID' }]
+    post: { tags: [teams], summary: 普通成员退出团队，保留团队内容, responses: { '200': { description: 已退出 }, '409': { $ref: '#/components/responses/Error' } } }
+  /teams/{teamId}/wallet:
+    parameters: [{ $ref: '#/components/parameters/TeamID' }]
+    get: { tags: [teams], summary: 查看本人空间额度和公共待分配积分, responses: { '200': { description: myAccount、poolAvailableMicrocredits 及所有者专属的 pool、members } } }
+  /teams/{teamId}/workspace/tasks/quote:
+    parameters: [{ $ref: '#/components/parameters/TeamID' }]
+    post:
+      tags: [teams, tasks]
+      summary: 使用创建任务的参数估算系统文本模型的积分上限，不创建任务或冻结积分
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateTaskRequest' } } } }
+      responses: { '200': { description: 'data.maxChargeMicrocredits 为按成员模型权限计算的微积分上限' } }
+  /teams/{teamId}/wallet/ledger:
+    parameters: [{ $ref: '#/components/parameters/TeamID' }]
+    get: { tags: [teams], summary: 分页查询团队明细，普通成员仅见本人团队账, responses: { '200': { description: entries、total、page、limit } } }
+  /teams/{teamId}/wallet/fund:
+    parameters: [{ $ref: '#/components/parameters/TeamID' }]
+    post: { tags: [teams], summary: 公司从所有者个人钱包转入，小组从所属公司公共池转入, requestBody: { $ref: '#/components/requestBodies/TeamTransfer' }, responses: { '200': { description: 转账及出入账户 } } }
+  /teams/{teamId}/wallet/withdraw:
+    parameters: [{ $ref: '#/components/parameters/TeamID' }]
+    post: { tags: [teams], summary: 公司转回所有者个人钱包，小组转回所属公司公共池, requestBody: { $ref: '#/components/requestBodies/TeamTransfer' }, responses: { '200': { description: 转账及出入账户 } } }
+  /teams/{teamId}/members/{membershipId}/allocate:
+    parameters: [{ $ref: '#/components/parameters/TeamID' }, { $ref: '#/components/parameters/TeamMembershipID' }]
+    post: { tags: [teams], summary: 所有者划拨团队可用余额给指定成员, requestBody: { $ref: '#/components/requestBodies/TeamTransfer' }, responses: { '200': { description: 转账及出入账户 } } }
+  /teams/{teamId}/members/{membershipId}/reclaim:
+    parameters: [{ $ref: '#/components/parameters/TeamID' }, { $ref: '#/components/parameters/TeamMembershipID' }]
+    post: { tags: [teams], summary: 所有者将成员未冻结余额回收到团队资金池, requestBody: { $ref: '#/components/requestBodies/TeamTransfer' }, responses: { '200': { description: 转账及出入账户 } } }
+  /teams/{teamId}/asset-publications:
+    parameters: [{ $ref: '#/components/parameters/TeamID' }]
+    post:
+      tags: [teams]
+      summary: 把本人已同步的个人素材逐项发布为独立团队版本
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [assetIds, idempotencyKey], properties: { assetIds: { type: array, minItems: 1, maxItems: 20, items: { type: string } }, idempotencyKey: { type: string, maxLength: 128 } } } } } }
+      responses: { '200': { description: data.results 每项含成功的 asset 或带 reason 的 error，批次成功响应不等于每项成功 } }
+  /teams/{teamId}/asset-publications/{publicationId}:
+    parameters: [{ $ref: '#/components/parameters/TeamID' }, { name: publicationId, in: path, required: true, schema: {type: string} }]
+    get: { tags: [teams], summary: 查看发布状态, responses: { '200': { description: 发布记录 } } }
+  /admin/users/{id}/agent-history:
+    delete:
+      tags: [admin]
+      summary: 清理指定账号的全部 Agent 历史
+      description: 不可恢复。只删除 Agent 执行、会话、事件、消息和撤销快照；不删除画布、素材、任务、账务或 MCP 回执。账本和管理审计同事务提交。
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: data.freedBytes 为本次释放的 Agent 历史字节数
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409":
+          description: 该账号有未结束、等待确认、刚预留或尚未收尾的轮次，未清理任何历史
   /admin/system-update:
     get:
       tags: [admin]
@@ -1551,12 +1667,12 @@ paths:
   /skills/presets:
     get:
       tags: [skills]
-      summary: 管理员获取场景技能预设目录
+      summary: 登录用户获取场景技能预设目录
       responses:
         "200":
           description: 标准信封 data 为 presets 数组；预设只引用公开且启用的种子技能
         "401": { $ref: "#/components/responses/Error" }
-        "403": { description: 仅管理员可访问技能预设 }
+        "403": { description: 账号已停用 }
         "500": { $ref: "#/components/responses/Error" }
   /skills/recommendations:
     get:
@@ -1568,7 +1684,7 @@ paths:
             description: "标准信封 data 为 {industries, installedTotal}；每个行业含 industryId、name、description、icon、installedCount 和 skills（skillId、skillName、description、tag、reason、isAdded）。只读目录，不会自动安装",
           }
         "401": { $ref: "#/components/responses/Error" }
-        "403": { description: 仅有效管理员可访问技能 }
+        "403": { description: 账号已停用 }
   /skills/recommendations/{industryId}/install:
     parameters:
       - {
@@ -1600,12 +1716,13 @@ paths:
           }
         "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Error" }
-        "403": { description: 仅有效管理员可访问技能 }
+        "403": { description: 账号已停用 }
         "404": { $ref: "#/components/responses/Error" }
   /skills:
     get:
       tags: [skills]
       summary: 列出技能；在个人技能视图按技能库分类筛选
+      description: 普通有效用户可浏览公开技能和自己的技能库；私有可见性、启用状态及用户关系由服务端校验。
       parameters:
         - {
             in: query,
@@ -1654,10 +1771,11 @@ paths:
             description: 标准信封 data 为 categories、totalCount、uncategorizedCount；分类含 id、name、scope、count,
           }
         "401": { $ref: "#/components/responses/Error" }
-        "403": { description: 仅有效管理员可访问技能 }
+        "403": { description: 账号已停用 }
     post:
       tags: [skills]
       summary: 创建个人或平台技能库分类
+      description: 有效登录用户可创建自己的 personal 分类；platform 分类仅管理员可创建。
       requestBody:
         required: true
         content:
@@ -1684,6 +1802,7 @@ paths:
     delete:
       tags: [skills]
       summary: 删除技能库分类并解除相关技能归类，不删除技能
+      description: 个人分类仅分类所有者可删除；平台分类仅管理员可删除。
       responses:
         "200": { description: "标准信封 data 为 {deleted: true}" }
         "401": { $ref: "#/components/responses/Error" }
@@ -1719,7 +1838,7 @@ paths:
         "200": { description: 标准信封 data.skill 为更新后的技能 }
         "400": { description: mode 无效，或技能未安装（自建技能除外） }
         "401": { $ref: "#/components/responses/Error" }
-        "403": { description: 仅有效管理员可访问技能 }
+        "403": { description: 账号已停用或技能对当前用户不可见 }
         "404": { description: 技能不存在或对当前用户不可见 }
   /skills/{id}/library-category:
     parameters:
@@ -1763,8 +1882,8 @@ paths:
         }
     put:
       tags: [skills]
-      summary: 作者批量写入、重命名或删除技能包文本文件，并生成新的技能版本
-      description: 按顺序应用 operations 后重建 ZIP 与文件清单；SKILL.md 变化时同步 instruction。baseVersionId 必须等于当前版本，否则返回 409 skill_version_conflict，details.currentVersionId 为最新版本。GitHub 技能返回 409 failed_precondition。
+      summary: 管理员作者批量修改技能包文本文件并生成新版本
+      description: 需要当前有效管理员身份且为技能作者，普通用户即使是旧作者也不能修改。按顺序应用 operations 后重建 ZIP 与文件清单；SKILL.md 变化时同步 instruction。baseVersionId 必须等于当前版本，否则返回 409 skill_version_conflict，details.currentVersionId 为最新版本。GitHub 技能返回 409 failed_precondition。
       requestBody:
         required: true
         content:
@@ -2000,7 +2119,17 @@ paths:
           $ref: "#/components/responses/Error"
         "401":
           $ref: "#/components/responses/Error"
+  /canvas-projects:
+    servers: &workspaceContentServers
+      - url: /api
+      - url: /api/teams/{teamId}/workspace
+        variables: { teamId: { default: teamId, description: 当前账号已加入的空间 ID } }
+    get:
+      tags: [canvas]
+      summary: 当前空间的自由画布列表
+      responses: { '200': { $ref: '#/components/responses/Envelope' } }
   /canvas-projects/{id}:
+    servers: *workspaceContentServers
     parameters:
       - in: path
         name: id
@@ -2028,6 +2157,7 @@ paths:
         "404":
           description: 画布不存在或不属于当前用户
   /canvas-projects/{id}/sync-status:
+    servers: *workspaceContentServers
     parameters:
       - in: path
         name: id
@@ -2045,6 +2175,7 @@ paths:
         "404":
           description: 画布不存在或不属于当前用户
   /canvas-projects/{id}/realtime:
+    servers: *workspaceContentServers
     parameters:
       - in: path
         name: id
@@ -2066,6 +2197,7 @@ paths:
         "503":
           description: 实时服务暂不可用，客户端保留 HTTP 同步
   /canvas-projects/{id}/edit-lease:
+    servers: *workspaceContentServers
     parameters:
       - in: path
         name: id
@@ -2111,6 +2243,7 @@ paths:
         "429":
           description: 请求超过频率限制
   /canvas-projects/{id}/operations:
+    servers: *workspaceContentServers
     parameters:
       - in: path
         name: id
@@ -2175,6 +2308,21 @@ paths:
           description: 对象并发冲突、同一 mutationId 对应的请求摘要不同或编辑证明失效（reason 为 canvas_edit_lease_conflict）；原事务不会被覆盖
         "428":
           description: 缺少执行所需的对象基线
+  /features:
+    get:
+      tags: [meta]
+      summary: 登录用户读取功能开放状态
+      responses: { '200': { description: data.features 包括布尔值 teamsEnabled（默认 false）和 creditsEnabled } }
+  /admin/settings/features:
+    get:
+      tags: [admin]
+      summary: 读取功能开关和修改记录
+      responses: { '200': { description: data.features 包含当前功能开关与更新标记 } }
+    patch:
+      tags: [admin]
+      summary: 管理员修改功能开关并记录审计，未提交的字段保持原值
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { teamsEnabled: { type: boolean, default: false }, creditsEnabled: { type: boolean }, welcomeEnabled: { type: boolean } } } } } }
+      responses: { '200': { description: data.features 为保存后的完整设置 }, '403': { $ref: '#/components/responses/Error' } }
   /public/welcome:
     get:
       tags: [meta]
@@ -2236,21 +2384,21 @@ paths:
     get:
       tags: [agent]
       summary: 读取云端 Agent 能力
-      description: 按当前账号角色过滤工具；普通用户 skills=false，tools 不含技能读取、检索与推荐工具。
+      description: 有效登录用户的 skills 为 true，tools 包含技能读取、检索与推荐工具；实际运行仍按当前用户的技能库、偏好与权限裁剪，技能管理不属于 Agent 工具权限。
       responses:
         "200":
           description: 信封 data 包含 version、permissionModes、contextScopes、skills、writeTools、billing、maxHistoryPairs、maxSteps、maxHistoryBytes、capabilitySetVersion、capabilitySetHash、nodeTypes、tools；maxHistoryPairs 为跨轮保留的用户对话轮数，maxSteps 为 0 表示无固定模型调用上限，历史仍受 maxHistoryBytes 限制
   /agent/skills/usage:
     get:
       tags: [agent]
-      summary: 管理员读取自身技能使用统计（由运行日志聚合，只读）
+      summary: 登录用户读取自身技能使用统计（由运行日志聚合，只读）
       responses:
         "200":
           description: 信封 data 含 scannedRuns、searchCalls 与按启用次数降序的 skills；每个技能含 runsEnabled、searchHits、readCalls、readFailures、entryReads、cardReads 与 topCards（最多 5 条最热卡路径）。统计仅覆盖调用方本人最近的运行，且不含任何技能正文
         "401":
           description: 未登录
         "403":
-          description: 仅管理员可读取技能使用统计
+          description: 账号已停用
   /agent/profile:
     get:
       tags: [agent]
@@ -3076,6 +3224,8 @@ paths:
           description: 信封 data.run，包含新一轮 id、conversationId、userPrompt、idempotencyKey、canvasId、status、permissionMode、model 及时间
         "400":
           description: 参数、能力、模型或预算不符合要求，未创建任务
+        "403":
+          description: Agent 历史额度不足时 code=40301、reason=agent_history_capacity_exceeded；购买文件空间不会增加此额度
         "409":
           description: 幂等键已用于不同请求，或画布已有另一轮 Agent 占用。占用拒绝的 reason 为 canvas_agent_busy，details 包含 canvasId 和 agent（runId、status、cleanupPending），用于立即更新占用状态；未创建任务或预留积分，不自动重试。
   /agent/runs/{id}:
@@ -4350,6 +4500,7 @@ paths:
         "400":
           $ref: "#/components/responses/Error"
   /resources:
+    servers: *workspaceContentServers
     get:
       tags: [resources]
       summary: 当前用户资源列表
@@ -4369,6 +4520,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
   /resources/access:
+    servers: *workspaceContentServers
     post:
       tags: [resources]
       summary: 批量签发当前用户资源访问描述
@@ -4413,6 +4565,7 @@ paths:
         "401":
           $ref: "#/components/responses/Error"
   /resources/{id}/file:
+    servers: *workspaceContentServers
     get:
       tags: [resources]
       summary: 读取资源二进制（非 JSON 信封）
@@ -4583,6 +4736,11 @@ paths:
         "403":
           $ref: "#/components/responses/Error"
   /tasks:
+    servers: *workspaceContentServers
+    get:
+      tags: [tasks]
+      summary: 当前空间的生成任务
+      responses: { '200': { $ref: '#/components/responses/Envelope' } }
     post:
       tags: [tasks]
       summary: 创建生成任务
@@ -4617,6 +4775,7 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
   /tasks/{id}/text-events:
+    servers: *workspaceContentServers
     get:
       tags: [tasks]
       summary: 文本任务 SSE
@@ -4633,6 +4792,7 @@ paths:
         "200":
           description: text/event-stream
   /assets:
+    servers: *workspaceContentServers
     get:
       tags: [assets]
       summary: 用户素材库
@@ -4640,10 +4800,11 @@ paths:
         "200":
           $ref: "#/components/responses/Envelope"
   /assets/batch-delete:
+    servers: *workspaceContentServers
     post:
       tags: [assets]
       summary: 批量彻底删除当前用户素材
-      description: 顶层 JSON 数组，一次请求、一个数据库事务。所有 ID 必须属于当前用户，不受任务、画布或历史引用阻塞；共享文件保留，其余通过 Outbox 异步清理，失败重试。任一素材不存在、越权或数据库写入失败时整批不删除。
+      description: 顶层 JSON 数组，整批属于当前空间。个人空间保留现有强制删除语义；团队空间仅所有者可清理已归档、未被使用的素材。有引用不删除整批。
       requestBody:
         required: true
         content:
@@ -4682,6 +4843,7 @@ paths:
         "500":
           $ref: "#/components/responses/Error"
   /assets/{id}:
+    servers: *workspaceContentServers
     parameters:
       - in: path
         name: id
@@ -4690,7 +4852,7 @@ paths:
     delete:
       tags: [assets]
       summary: 彻底删除当前用户素材
-      description: 不依赖素材 archived 状态，也不受画布、任务、项目或历史快照引用阻塞；其他素材共享的物理对象仍保留。
+      description: 个人空间执行强制删除。团队空间需要所有者权限，已归档且没有引用才可清理。
       responses:
         "200":
           $ref: "#/components/responses/Envelope"
@@ -4699,6 +4861,7 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
   /creation-conversations:
+    servers: *workspaceContentServers
     get:
       summary: 分页列出当前账号创作历史及永久删除标记
       parameters:
@@ -4716,6 +4879,7 @@ paths:
         "403":
           description: 预期账号与当前登录账号不符
   "/creation-conversations/{id}":
+    servers: *workspaceContentServers
     get:
       summary: 读取当前账号创作对话及逐条消息修订
       parameters:
@@ -4747,6 +4911,7 @@ paths:
         "404":
           description: 对话不存在或不属于当前账号
   "/creation-conversations/{id}/sync":
+    servers: *workspaceContentServers
     post:
       summary: 按稳定消息 ID 和修订增量保存或永久删除创作历史
       description: 不覆盖整数组；metadata 与每条消息独立检查修订。成功结果 conflicts 给出采用云端版本的 metadata 或消息
@@ -4803,7 +4968,14 @@ paths:
         "500":
           description: 持久化失败，客户端保留本机数据并可重试
 components:
+  requestBodies:
+    TeamTransfer:
+      required: true
+      content: { application/json: { schema: { type: object, required: [amountMicrocredits, idempotencyKey], properties: { amountMicrocredits: { type: integer, format: int64, minimum: 1 }, idempotencyKey: { type: string } } } } }
   parameters:
+    TeamID: { name: teamId, in: path, required: true, schema: { type: string } }
+    TeamRecordID: { name: id, in: path, required: true, schema: { type: string } }
+    TeamMembershipID: { name: membershipId, in: path, required: true, schema: { type: string } }
     MCPResourceID:
       name: id
       in: path
@@ -5377,6 +5549,8 @@ components:
       type: object
       required: [type]
       properties:
+        idempotencyKey: { type: string, description: 团队提交必须提供的单次操作标识 }
+        maxChargeMicrocredits: { type: integer, format: int64, minimum: 0, description: 团队提交时确认的报价上限 }
         projectId: { type: string }
         type: { type: string }
         operation: { type: string }
@@ -6032,7 +6206,7 @@ components:
           maxItems: 16
           items:
             type: string
-          description: 仅管理员可指定技能；普通用户指定技能返回403。其余已安装且 agentMode=auto 的技能由管理员的 Agent 按目录自动发现
+          description: 有效登录用户可指定自己已安装且启用的技能；其余已安装且 agentMode=auto 的技能由当前用户的 Agent 按目录自动发现
         contextScope:
           type: array
           maxItems: 1
@@ -6128,6 +6302,7 @@ components:
                 - failed_precondition
                 - quota_exceeded
                 - storage_capacity_exceeded
+                - agent_history_capacity_exceeded
                 - storage_read_only
                 - rate_limited
                 - unavailable

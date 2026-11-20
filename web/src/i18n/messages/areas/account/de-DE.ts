@@ -83,6 +83,7 @@ export const deDE: DeepStringRecord<typeof zhCN> = {
             filterActive: "Filter aktiv",
             reset: "Zurücksetzen",
             searchAndFilter: "Suchen und filtern",
+            clearSearch: "Suchbegriff löschen",
         },
         pagination: {
             item: "Einträge",
@@ -261,6 +262,7 @@ export const deDE: DeepStringRecord<typeof zhCN> = {
             paymentSource: "Aufladekanal: {{channel}}",
             adminAdjustment: "Admin-Anpassung",
             signupBonus: "Registrierungsbonus",
+            teamTransfer: "Team-Guthabentransfer",
             checkinBonus: "Anmeldebonus",
             actualCharge: "Tatsächliche Kosten: {{amount}} Credits",
             releasedDetail: "Ursprünglich {{reserved}} reserviert; die ungenutzten {{released}} wurden freigegeben.",

@@ -7,6 +7,7 @@ import { sameAgentRequestTarget, type AgentRequestTarget } from "@/lib/agent-pag
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { EyeOff, FileText, ImagePlus, MoveDiagonal2, X } from "lucide-react";
 import { canvasNodeMentionToken } from "@/lib/canvas/canvas-resource-references";
+import { observeCanvasGestureActive } from "@/lib/canvas/canvas-live-viewport";
 import { CANVAS_IMAGE_ASSET_DND_TYPE } from "@/lib/canvas/canvas-asset-dnd";
 import {
     AGENT_ATTACHMENT_MAX,
@@ -134,6 +135,7 @@ import { useAgentReasoningPreference } from "./use-agent-reasoning-preference";
 import "./canvas-cloud-agent.css";
 import { appendAgentError, appendUniqueMessage, applyAgentEvent, positiveNumber, type ApprovalState } from "./canvas-cloud-agent-events";
 import { AgentContextRing, AgentConversation, AgentHeader, AgentHistory, AgentLauncher, ComposerControls } from "./canvas-cloud-agent-panel-parts";
+import { ModelPicker } from "@/components/model-picker";
 import { useGlobalAgentStore, type AgentInsertedNode } from "@/stores/use-global-agent-store";
 
 type AgentPanelView = "chat" | "history" | "settings";
@@ -175,6 +177,7 @@ const EMPTY_IDS: string[] = [];
 const CONVERSATION_AUTOSAVE_DELAY_MS = 600;
 const CONVERSATION_AUTOSAVE_MAX_WAIT_MS = 3000;
 const EMPTY_REFERENCES: CanvasResourceReference[] = [];
+const agentSkillLookupPattern = /@(?!\[)|@\[skill:|(?:^|\s)[/、]/u;
 
 /**
  * 平台唯一的 Agent 面板，挂在用户布局上，所有页面共用同一份对话。
@@ -195,6 +198,11 @@ export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel() {
     const onFocusNode = useGlobalAgentStore((state) => state.canvas?.onFocusNode);
     const insertAgentMarkdown = useGlobalAgentStore((state) => state.canvas?.insertAgentMarkdown);
     const open = useGlobalAgentStore((state) => state.open);
+    const panelElementRef = useRef<HTMLElement>(null);
+    useEffect(() => {
+        const panel = panelElementRef.current;
+        if (open && panel) return observeCanvasGestureActive(panel.ownerDocument, (active) => panel.toggleAttribute("data-canvas-busy", active));
+    }, [open]);
     const onOpen = useGlobalAgentStore((state) => state.openAgent);
     const onCollapse = useGlobalAgentStore((state) => state.closeAgent);
     const setDocked = useGlobalAgentStore((state) => state.setDocked);
@@ -453,6 +461,9 @@ export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel() {
     }, [config, restoredModelResolution]);
     const thinking = useMemo(() => modelCapabilityConfigFor(config, selectedModel).text?.thinking || LEGACY_TEXT_THINKING_CONFIG, [config, selectedModel]);
     const [reasoningMode, setReasoningMode] = useAgentReasoningPreference(userId, selectedModel, thinking);
+    const browsingSkills = canUseSkills && open && (skillsOpen || view === "settings");
+    const choosingSceneSkill = canUseSkills && open && skillsOpen;
+    const needsInstalledSkills = browsingSkills || (canUseSkills && open && (selectedSkillIds.length > 0 || agentSkillLookupPattern.test(prompt)));
     const installedSkills = useMemo(() => (canUseSkills ? skills.filter((skill) => skill.isAdded) : []), [skills, canUseSkills]);
     // 消息和输入框共用的引用表：每次渲染都新建会让全部消息重新解析 Markdown。
     const conversationReferences = useMemo(() => [...references.filter((reference) => canUseSkills || reference.kind !== "skill"), ...buildSkillMentionReferences(installedSkills)], [references, installedSkills, canUseSkills]);
@@ -478,7 +489,7 @@ export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel() {
         presetApplyingRef.current = null;
         setPresetApplyingId("");
         setScenePresets([]);
-        if (!canUseSkills) return;
+        if (!choosingSceneSkill) return;
         listSkillPresets()
             .then((result) => {
                 if (active) setScenePresets(result.presets || []);
@@ -489,13 +500,13 @@ export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel() {
         return () => {
             active = false;
         };
-    }, [userId, canUseSkills]);
+    }, [userId, choosingSceneSkill]);
 
     // 用户自建技能也要能出现在推荐里：官方种子库与剧典走「已装」，自建走 scope=created。
     useEffect(() => {
         let active = true;
         setCreatedSkills([]);
-        if (!canUseSkills) return;
+        if (!choosingSceneSkill) return;
         listSkills({ scope: "created", pageSize: 50 })
             .then((result) => {
                 if (active) setCreatedSkills(result.skills || []);
@@ -506,7 +517,7 @@ export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel() {
         return () => {
             active = false;
         };
-    }, [userId, canUseSkills]);
+    }, [userId, choosingSceneSkill]);
 
     // 场景分桶：把「常用 / 推荐配方 / 场景技能」收进同一个维度，一级只显示分类。
     // 常用度：自建 > 已收藏 > 已装，同级按市场热度降序。
@@ -707,10 +718,8 @@ export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel() {
     }, [skillSearch]);
 
     useEffect(() => {
+        if (!needsInstalledSkills) return;
         let active = true;
-        setSkills([]);
-        setSkillCatalogReady(!canUseSkills);
-        if (!canUseSkills) return;
         const refresh = () => {
             if (!hasSkillLibraryAccess()) return;
             void listAddedSkills()
@@ -734,7 +743,7 @@ export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel() {
             window.removeEventListener("canvas-skills-changed", refresh);
             window.removeEventListener("focus", refresh);
         };
-    }, [open, userId, canUseSkills]);
+    }, [userId, needsInstalledSkills]);
 
     // 本地对话会留着已删除技能的 ID，按当前技能库剔除，避免发送时整轮被拒。
     useEffect(() => {
@@ -746,7 +755,7 @@ export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel() {
     }, [appMessage, selectedSkillIds, skillCatalogReady, skills, canUseSkills]);
 
     useEffect(() => {
-        if (!canUseSkills || (view !== "settings" && !skillsOpen)) return;
+        if (!browsingSkills) return;
         let active = true;
         setSkillsLoading(true);
         void listSkills({
@@ -774,10 +783,10 @@ export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel() {
         return () => {
             active = false;
         };
-    }, [view, skillsOpen, debouncedSkillSearch, skillTag, curationState.curation, platformCategory, canUseSkills, userId]);
+    }, [browsingSkills, skillsOpen, debouncedSkillSearch, skillTag, curationState.curation, platformCategory, userId]);
 
     useEffect(() => {
-        if (!canUseSkills || (view !== "settings" && !skillsOpen)) return;
+        if (!browsingSkills) return;
         let active = true;
         void listSkillLibraryCategories("mine")
             .then((result) => {
@@ -789,7 +798,7 @@ export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel() {
         return () => {
             active = false;
         };
-    }, [skillsOpen, userId, view, canUseSkills]);
+    }, [browsingSkills, userId]);
 
     const loadMoreSkills = async () => {
         if (!hasSkillLibraryAccess()) return;
@@ -1518,6 +1527,12 @@ export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel() {
                 const requestConfig = resolveModelRequestConfig(agentConfig, effectiveModel);
                 const logicalModelId = logicalModelIDForConfig(agentConfig);
                 const focus = outboxItem ? outboxFocus(outboxItem) : liveFocusSnapshot(composerExtras);
+                let mentionedSkillIds: string[] = [];
+                if (hasSkillLibraryAccess() && agentSkillLookupPattern.test(value)) {
+                    const available = skillCatalogReady ? installedSkills : (await listAddedSkills()).skills;
+                    if (!accountIsCurrent() || currentScope.current !== scope) return "skipped";
+                    mentionedSkillIds = resolveSkillMentions(value, available).map((skill) => skill.skillId);
+                }
                 const input = {
                     ...target,
                     prompt: value,
@@ -1525,7 +1540,7 @@ export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel() {
                     profileRevision: profile.revision,
                     model: modelOptionName(effectiveModel) || undefined,
                     ...(logicalModelId ? { logicalModelId } : requestConfig.channelId ? { channelId: requestConfig.channelId, channelModelKey: modelOptionName(effectiveModel) || undefined } : {}),
-                    pinnedSkillIds: hasSkillLibraryAccess() ? [...new Set([...usableSkillIds, ...resolveSkillMentions(value, installedSkills).map((skill) => skill.skillId)])].slice(0, 16) : [],
+                    pinnedSkillIds: hasSkillLibraryAccess() ? [...new Set([...usableSkillIds, ...mentionedSkillIds])].slice(0, 16) : [],
                     focusNodeIds: target.canvasId ? focus.focusNodeIds : [],
                     focusNodeOmittedCount: target.canvasId ? focus.focusNodeOmittedCount : 0,
                     permissionMode: settings.permissionMode,
@@ -2451,7 +2466,7 @@ export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel() {
         return parts.join(" · ");
     };
 
-    const showPendingRetry = Boolean(pendingRetryText) && !retryingPending;
+    const showPendingRetry = !busy && Boolean(pendingRetryText) && !retryingPending;
     const outboxTray =
         outbox.items.length || showPendingRetry ? (
             <AgentOutboxTray
@@ -2460,7 +2475,7 @@ export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel() {
                 subtitle={outboxSubtitle}
                 primaryAction={outboxPrimaryAction}
                 itemMeta={outboxItemMeta}
-                pendingRetry={showPendingRetry ? { text: pendingRetryText, disabled: busy || !historyHydrated || !pendingHydrated, onRetry: () => void submit(pendingRetryText) } : null}
+                pendingRetry={showPendingRetry ? { text: pendingRetryText, disabled: !historyHydrated || !pendingHydrated, onRetry: () => void submit(pendingRetryText) } : null}
                 onPrimary={runOutboxPrimary}
                 onEdit={startOutboxEdit}
                 onRemove={removeOutboxItem}
@@ -2476,6 +2491,7 @@ export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel() {
             <AnimatePresence>
                 {open ? (
                     <motion.aside
+                        ref={panelElementRef}
                         initial={reducedMotion ? { opacity: 0 } : dock.active ? { opacity: 0, x: 24 } : { opacity: 0, y: 20, scale: 0.975 }}
                         animate={{ opacity: 1, x: 0, y: 0, scale: 1 }}
                         exit={reducedMotion ? { opacity: 0 } : dock.active ? { opacity: 0, x: 24 } : { opacity: 0, y: 12, scale: 0.985 }}
@@ -2523,7 +2539,7 @@ export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel() {
                                     aria-label="调整 Agent 面板大小"
                                     title="拖动调整宽高，也可用方向键调整"
                                     data-agent-resize="northwest"
-                                    className="agent-panel-resize-corner absolute left-2 top-2 z-10 hidden size-5 cursor-nw-resize touch-none place-items-center rounded-md opacity-60 transition-opacity hover:opacity-100 focus-visible:outline focus-visible:outline-2 sm:grid"
+                                    className="agent-panel-resize-corner absolute left-1 top-2 z-10 hidden size-5 cursor-nw-resize touch-none place-items-center rounded-md opacity-60 transition-opacity hover:opacity-100 focus-visible:outline focus-visible:outline-2 sm:grid"
                                     onKeyDown={panelLayout.onResizeKeyDown}
                                     style={{ color: theme.node.muted }}
                                 >
@@ -2583,7 +2599,7 @@ export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel() {
                                     <AgentHistory
                                         conversations={conversations}
                                         activeConversationId={activeConversationId}
-                                        theme={theme}
+                                        disabledReason={canSwitchConversation() ? undefined : running || busy ? "本轮结束后可切换对话" : cloudOpeningId ? "正在打开对话…" : "当前对话尚未就绪，暂时无法切换"}
                                         onBack={() => setView("chat")}
                                         onNew={newConversation}
                                         onOpen={(conversation) => void openConversation(conversation)}
@@ -2596,7 +2612,14 @@ export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel() {
                                     />
                                 </motion.div>
                             ) : (
-                                <motion.div key="chat" className="flex min-h-0 flex-1 flex-col" initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={{ duration: reducedMotion ? 0 : 0.18 }}>
+                                <motion.div
+                                    key="chat"
+                                    className={`flex min-h-0 flex-1 flex-col${pendingQuestion ? " overflow-y-auto overscroll-contain" : ""}`}
+                                    initial={{ opacity: 0, x: -12 }}
+                                    animate={{ opacity: 1, x: 0 }}
+                                    exit={{ opacity: 0, x: -12 }}
+                                    transition={{ duration: reducedMotion ? 0 : 0.18 }}
+                                >
                                     <AgentHeader
                                         theme={theme}
                                         hasMessages={messages.length > 0}
@@ -2753,7 +2776,7 @@ export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel() {
                                         primaryDisabled={composerSubmitMode === "queue" && outboxIsFull}
                                         sending={busy}
                                         running={running}
-                                        placeholder={canvasId ? "说说要做什么，@ 引用节点，/ 或 、 引用技能，可粘贴图片" : pageContext ? "说说这个分镜想怎么改，或让小影先读本集镜头" : "说说要做什么，/ 或 、 引用技能；进入画布后可引用节点和图片"}
+                                        placeholder={!canvasId && pageContext ? "想调整哪个镜头？也可以先读本集分镜" : ["说说你的创作想法", canvasId && "@ 引用节点", canUseSkills && "/ 或 、 引用技能"].filter(Boolean).join("，")}
                                         theme={theme}
                                         onPromptChange={(value) => {
                                             if (!outboxEdit && !resolveAgentPromptPrefill(value, prefilledSubmissionRef.current)) prefilledSubmissionRef.current = null;
@@ -2791,14 +2814,33 @@ export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel() {
                                         references={conversationReferences}
                                         slashSkills={installedSkills}
                                         includeAssetLibrary={false}
-                                        submitAccessory={<AgentContextRing view={presentAgentContextUsage(contextUsage)} theme={theme} />}
+                                        submitAccessory={
+                                            <>
+                                                <ModelPicker
+                                                    config={config}
+                                                    value={selectedModel}
+                                                    capability="text"
+                                                    onChange={setModel}
+                                                    variant="creation"
+                                                    fullWidth
+                                                    adaptiveTrigger
+                                                    // 不要加 !w-full / !max-w-full：它们编译成 max-width:100%!important，
+                                                    // 会盖掉图标档对 pill 的收口（图标被裁），也让宽度不可控。
+                                                    className="agent-composer-model-trigger !h-8 !min-w-0 !border-0 !shadow-none"
+                                                    popoverClassName="agent-model-picker-popover"
+                                                    showSelectedPrice={false}
+                                                    showOptionPrices
+                                                    placeholder="选择文本模型"
+                                                />
+                                                <AgentContextRing view={presentAgentContextUsage(contextUsage)} theme={theme} />
+                                            </>
+                                        }
                                         left={
                                             <ComposerControls
                                                 config={config}
                                                 selectedModel={selectedModel}
                                                 permissionMode={permissionMode}
                                                 theme={theme}
-                                                onModelChange={setModel}
                                                 onPermissionChange={setPermissionMode}
                                                 reasoningMode={reasoningMode}
                                                 onReasoningModeChange={setReasoningMode}

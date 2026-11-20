@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 107
+const CurrentSchemaVersion int64 = 111
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -384,6 +384,28 @@ var schemaMigrations = []migration{
 	{version: 105, name: "mcp_tenant_boundaries", checksum: "sha256:mcp-tenant-boundaries-v105", apply: migrateMCPTenantBoundaries},
 	{version: 106, name: "agent_storage_limits", checksum: "sha256:agent-storage-limits-v106", apply: migrateAgentStorageLimits},
 	{version: 107, name: "image_usage_billing", checksum: "sha256:image-usage-billing-v107", apply: migrateImageUsageBilling},
+	{version: 108, name: "team_workspaces", checksum: "sha256:team-workspaces-v108", apply: migrateTeamWorkspaces},
+	{version: 109, name: "company_workgroups", checksum: "sha256:company-workgroups-v109", apply: func(tx *gorm.DB) error {
+		return tx.AutoMigrate(&model.Team{})
+	}},
+	{version: 110, name: "shared_workspace_content", checksum: "sha256:shared-workspace-content-v110", apply: migrateSharedWorkspaceContent},
+	{version: 111, name: "model_protocol_releases", checksum: "sha256:model-protocol-releases-v111", apply: func(tx *gorm.DB) error {
+		for _, column := range []struct {
+			entity any
+			name   string
+		}{{&model.ChannelModel{}, "ProtocolRelease"}, {&model.Task{}, "ProtocolBindingJSON"}, {&model.RouteAttempt{}, "ProtocolBindingJSON"}} {
+			if !tx.Migrator().HasTable(column.entity) || tx.Migrator().HasColumn(column.entity, column.name) {
+				continue
+			}
+			if err := tx.Migrator().AddColumn(column.entity, column.name); err != nil {
+				return err
+			}
+		}
+		if !tx.Migrator().HasTable(&model.ChannelModel{}) || tx.Migrator().HasIndex(&model.ChannelModel{}, "ProtocolRelease") {
+			return nil
+		}
+		return tx.Migrator().CreateIndex(&model.ChannelModel{}, "ProtocolRelease")
+	}},
 }
 
 func migrateAPILogGenerationContent(tx *gorm.DB) error {

@@ -55,6 +55,7 @@ const (
 	DramaJobCastExtract = "cast_extract"
 	DramaJobScript      = "script"
 	DramaJobRender      = "render"
+	DramaJobCompose     = "compose"
 	// DramaJobSegmentPrompt 为一个剧情段撰写完整视频提示词；ShotID 存放 drama_segments.id。
 	DramaJobSegmentPrompt = "segment_prompt"
 	// DramaJobSegmentVideo 为一个剧情段生成整段视频；ShotID 存放 drama_segments.id。
@@ -194,6 +195,10 @@ type DramaShot struct {
 
 // DramaSegment 是视频生成单位：一段一次调用视频模型，台词、音效与镜头切换都由视频模型在一个视频里完成。
 // 段由镜头的 SegmentIndex 决定，重新改编剧本时随镜头一起重建。
+// DramaPromptConflict keeps the original prompt until the user resolves script changes.
+const DramaPromptConflict = "conflict"
+const DramaPromptReview = "review"
+
 type DramaSegment struct {
 	PromptSeconds int    `json:"promptSeconds"`
 	Revision      int64  `json:"revision"`

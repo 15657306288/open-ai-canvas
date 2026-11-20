@@ -92,6 +92,7 @@ type providerAnalyticsContext struct {
 	VideoSeconds          int
 	RequestKind           string
 	ProviderRequestID     string
+	ProtocolReceipt       *protocolHTTPReceipt
 	ConcurrencyLimit      int
 	GenerationContentJSON string
 	// CostRecorder 非空时接管这次请求的日志与成本记账（只有平台承担成本的调用会设置）。

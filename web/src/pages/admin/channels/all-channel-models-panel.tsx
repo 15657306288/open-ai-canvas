@@ -1,4 +1,4 @@
-import { App, Button, Space } from "antd";
+import { App, Button, Grid, Space } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { Pencil, Power, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -13,7 +13,9 @@ import type { ModelChannel } from "@/stores/use-config-store";
 import { AdminBatchBar, AdminDataTable, AdminStatusBadge, AdminTableEmpty, PaginationBar } from "../components/admin-ui";
 import { AdminSearchInput } from "../components/admin-search-input";
 import { ChannelModelCostSummary } from "../components/channel-model-cost-summary";
+import { ChannelModelDetailsCell } from "../components/channel-model-details-cell";
 import { ChannelModelEditor } from "../components/channel-model-editor";
+import { opensModelParameters } from "../components/channel-model-editor-form";
 import { ChannelModelHealthCell, channelModelHealthKey } from "../components/channel-model-health";
 import { ChannelModelRepriceDialog } from "../components/channel-model-reprice-dialog";
 import { ChannelModelBatchEditDialog } from "../components/channel-model-batch-edit-dialog";
@@ -46,6 +48,7 @@ export function AllChannelModelsPanel({
     onOpenChannel: (channelId: string) => void;
 }) {
     const { message, modal } = App.useApp();
+    const screens = Grid.useBreakpoint();
     const [searchParams, setSearchParams] = useSearchParams();
     const keyword = searchParams.get("q") || "";
     const capability = searchParams.get("capability") || "all";
@@ -184,7 +187,7 @@ export function AllChannelModelsPanel({
         {
             title: "模型",
             width: 240,
-            fixed: "left",
+            fixed: screens.md ? "left" : undefined,
             render: (_, item) => (
                 <div className="flex min-w-0 items-center gap-2">
                     <span className="admin-channel-model-icon">
@@ -199,6 +202,7 @@ export function AllChannelModelsPanel({
                 </div>
             ),
         },
+        { title: "描述 / 标签", key: "details", width: 220, render: (_, item) => <ChannelModelDetailsCell description={item.description} tags={item.tags} /> },
         {
             title: "渠道",
             width: 170,
@@ -221,12 +225,12 @@ export function AllChannelModelsPanel({
         },
         {
             title: "操作",
-            width: 150,
+            width: 168,
             fixed: "right",
             render: (_, item) => (
-                <Space size={4}>
+                <Space size={4} wrap>
                     <Button size="small" icon={<Pencil className="size-3.5" />} onClick={() => openEditor(item)}>
-                        编辑
+                        {opensModelParameters(item) ? "编辑参数" : "编辑"}
                     </Button>
                     <Button size="small" danger={item.enabled} icon={<Power className="size-3.5" />} loading={togglingId === item.id} disabled={togglingId !== null && togglingId !== item.id} onClick={() => toggleEnabled(item)}>
                         {item.enabled ? "停用" : "启用"}
@@ -309,7 +313,7 @@ export function AllChannelModelsPanel({
                     columns,
                     dataSource: paged,
                     pagination: false,
-                    scroll: { x: 1220 },
+                    scroll: { x: 1440 },
                 }}
                 empty={
                     loadError ? (

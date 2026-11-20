@@ -458,6 +458,19 @@ func recordProviderRequest(req *http.Request, startedAt time.Time, statusCode in
 		}
 	}
 	metadata.Service.EnrichAPICallLog(&callLog, responseBody)
+	if metadata.ProtocolReceipt != nil && (requestKind == "create" || requestKind == "poll") {
+		if requestKind == "create" {
+			callLog.ProviderRequestID = ""
+		}
+		if requestErr == nil && statusCode >= 200 && statusCode < 300 {
+			if receipt, err := metadata.ProtocolReceipt.decode(responseBody); err == nil {
+				callLog.ProviderStatus = firstNonEmpty(callLog.ProviderStatus, string(receipt.Status))
+				if requestKind == "create" {
+					callLog.ProviderRequestID = receipt.TaskID
+				}
+			}
+		}
+	}
 	callLog.Error = withUserVisibleLogError(requestErr, callLog.Error)
 	// 平台承担成本的调用由计量器自己记账与写日志，记账不依赖日志能否写入。
 	if metadata.CostRecorder != nil {

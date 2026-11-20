@@ -37,6 +37,7 @@ const { App, ConfigProvider } = await import("antd");
 const api = await import("../../src/services/api/drama");
 const resources = await import("../../src/services/api/resources");
 const { SegmentDialog } = await import("../../src/pages/projects/studio/segment-dialog");
+const { FinalView } = await import("../../src/pages/projects/studio/final-view");
 
 const generation = await import("../../src/services/api/generation-task");
 const { createModelChannel, useConfigStore } = await import("../../src/stores/use-config-store");
@@ -181,6 +182,59 @@ afterAll(() => {
 function toolbars() {
     return [...document.querySelectorAll('[aria-label="生成设置"]')];
 }
+
+test("成片页提示缺段与旧版，单击直接提交，仅没有可用段时禁用", async () => {
+    const onCompose = mock(() => {});
+    const show = (segments: DramaSegment[]) =>
+        act(async () => {
+            root.render(
+                <App>
+                    <FinalView projectId="p1" title="短剧" detail={{ ...detail, segments }} aspectRatio="9:16" onOpenSegment={() => {}} onCompose={onCompose} composing={false} />
+                </App>,
+            );
+        });
+    const button = () => [...host.querySelectorAll("button")].find((element) => element.textContent === "合成成品")!;
+    const stale = { ...detail.segments[0], videoStatus: "stale" as const };
+    const missing = { ...detail.segments[1], videoStatus: "running" as const, videoResourceId: undefined };
+    await show([stale, missing]);
+    expect(host.textContent).toContain("跳过 1 段未就绪视频");
+    expect(host.textContent).toContain("1 段沿用旧版视频");
+    expect(button().disabled).toBe(false);
+    await act(async () => button().click());
+    expect(onCompose).toHaveBeenCalledTimes(1);
+    await show([stale]);
+    expect(button().disabled).toBe(false);
+    await show([missing]);
+    expect(button().disabled).toBe(true);
+    expect(host.textContent).toContain("还没有可合成的段视频");
+});
+
+test("冲突保留正文并可人工确认，AI 新稿不会自动替换手写稿", async () => {
+    const saved: string[] = [];
+    const current = { ...segment(0, "minimax-h3-1080p", 9.8, ""), custom: true, videoPrompt: "手写镜头：甲说你好。", promptStatus: "conflict" as const, promptError: "原对白缺失" };
+    const render = (value: DramaSegment) =>
+        root.render(
+            <QueryClientProvider client={client}>
+                <App>
+                    <Host episodeDetail={{ ...detail, segments: [value] }} onSavePrompt={async (_, prompt) => saved.push(prompt)} />
+                </App>
+            </QueryClientProvider>,
+        );
+    await act(async () => render(current));
+    expect(document.body.textContent).toContain("原对白缺失");
+    expect(document.querySelector('[aria-label="完整视频提示词"]')?.textContent).toContain(current.videoPrompt);
+    const confirm = [...document.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "确认使用当前提示词");
+    expect(confirm?.disabled).toBe(false);
+    await act(async () => confirm!.click());
+    expect(saved).toEqual([current.videoPrompt]);
+    await act(async () => render({ ...current, promptStatus: "review", generated: "新的 AI 稿" }));
+    expect(document.body.textContent).toContain("查看 AI 新稿");
+    expect(saved).toHaveLength(1);
+    const adopt = [...document.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.includes("采用 AI 版本"));
+    expect(adopt).toBeDefined();
+    await act(async () => adopt!.click());
+    expect(saved).toEqual([current.videoPrompt, ""]);
+});
 
 function clickNext() {
     const button = document.querySelector('button[aria-label="下一段"]') as HTMLButtonElement | null;

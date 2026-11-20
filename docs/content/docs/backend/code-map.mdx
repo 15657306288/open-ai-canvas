@@ -5,6 +5,14 @@ description: 从产品功能快速定位主要代码入口
 
 # 代码功能地图
 
+## 团队空间
+
+- `web/src/router.tsx` 为个人和团队挂载相同的 `pages/canvas`、`pages/create`、`pages/assets`；`lib/workspace-routes.ts` 选择 API 前缀，`lib/user-scope.ts` 隔离本地缓存。`pages/teams` 只负责空间、成员、邀请和钱包。
+- `backend/internal/handler/team.go` 挂载现有内容、资源、实时同步和任务 handler；`internal/app/team.go` 校验成员，给内容服务传入空间归属键。
+- `internal/app/team_task.go` 为标准任务准备团队报价及支付账户，执行和结算使用同一队列、Worker 和账本。`internal/app/team_wallet.go` 管理划拨和额度。
+- `internal/app/team_assets.go` 编排跨空间发布及成员写入权限。素材、历史版本和媒体复用通用表。旧内容转换及其回滚测试见 `internal/database/migration_workspace_content.go`、`migration_workspace_content_test.go`。
+- 公司与小组共享成员授权入口 `activeTeamMemberships`。`internal/repository/team_credit_overview.go` 生成当前用户的跨空间积分明细，首页和空间弹窗复用 `web/src/components/layout/team-space-directory.tsx`。所有对外团队接口从 `RegisterTeamWorkspaceRoutes` 挂载，统一受 `teamsEnabled` 控制。
+
 ## 图片用量计费
 
 - 规则与计算：`model/image_billing.go`、`imagebilling/pricing.go`；价格校验、换算和报价在 `app/channel_models_pricing.go`、`app/image_billing.go`、`app/finance.go`、`app/logical_model_quote.go`。
@@ -79,7 +87,7 @@ description: 从产品功能快速定位主要代码入口
 
 ## 短剧自动制作
 
-- 项目资产与审核：`web/src/pages/projects/studio/segment-references.tsx`、`segment-project-images.tsx`、`project-asset-audit.tsx` 与 `lib/drama/asset-usage.ts`；提示词彩色名称引用和保存编号在 `lib/drama/asset-references.ts`，发往模型的实际引用顺序校验在 `app/provider_drama_references.go`。
+- 项目资产与审核：`web/src/pages/projects/studio/segment-references.tsx`、`segment-project-images.tsx`、`project-asset-audit.tsx` 与 `lib/drama/asset-usage.ts`。提示词彩色名称引用和保存编号在 `lib/drama/asset-references.ts`。`app/provider_drama_references.go` 校验逻辑编号与素材身份，`internal/protocol/video_references.go` 按插件声明读取实际 JSON 槽位或 multipart 文件，生成出站编号。
 - 当前页助手：`app/cloud_agent_drama_page.go` 提供 `drama_shot_read` / `drama_shot_update`，复用 `drama_actions.go` 的镜头修改计划与保存；`repository/drama_page_edit.go` 将集版本校验与写入放入同一事务。前端页面身份发布在 `pages/projects/detail.tsx`，类型在 `lib/agent-page-context.ts`，预填和队列目标由 `use-global-agent-store.ts` 与 `canvas-cloud-agent-panel.tsx` 管理。
 - 设定与跨季素材：`app/drama_cast_materials.go`（手工草稿、独立风格、预览与生图共用的提示词编排），`app/drama_cast_import.go`（来源权限、同名匹配、角色造型映射与原子导入）；迁移 `database/drama_cast_styles_import.go`。前端 `studio/cast-create-dialog.tsx`、`cast-project-import.tsx`、`cast-image-fields.tsx`；`panels.tsx` 管理角色缩略图切换与独立造型列表，`cast-looks.tsx` 管理新增造型和图片预览。
 - 风格组合：`web/src/lib/drama/style-composition.ts` 分离表现形式与题材词库，生成稳定组合 ID；`drama-styles.ts` 是风格解析入口，`pages/projects/style-picker.tsx` 同时提供创建页选择器与素材编辑紧凑选择器。`drama.css` 的 reduced-motion 规则保留 rc-motion 完成事件，避免分镜弹窗停在进出场状态。
@@ -223,7 +231,7 @@ description: 从产品功能快速定位主要代码入口
 | 产品模型与渠道选择 | `web/src/components/model-picker.tsx`、`pages/admin/components/channel-model-editor.tsx` | `lib/model-picker-groups.ts` 只构建跨渠道展示分组；`lib/user-session.ts` 透传渠道展示名；`components/model-logo.tsx` 按需加载原色图标；后端 `app/channel_models.go` 校验写入，`app/model_catalog.go` 发布目录，schema v24 增加 `channel_label` |
 | 系统渠道规格利润率与批量调价 | `web/src/pages/admin/components/channel-model-manager.tsx`、`channel-model-reprice-dialog.tsx` | 弹窗按模型分组展示多规格、重新计算与逐项编辑；`channel-model-cost-summary.tsx` 展示价格，`channel-model-pricing.ts` 精确四舍五入并组装最终售价；后端 `handler/finance.go` 接收批量请求，`app/channel_model_pricing.go` 校验权限、最终价格及快照版本，`repository/channel_model_pricing.go` 事务保存及版本冲突检测 |
 | 我的素材 | `web/src/pages/assets/` | `stores/use-asset-store.ts`、`services/image-storage.ts` |
-| 技能库 | `web/src/pages/skills/` | `services/api/skills.ts`、`services/skill-runtime.ts`、`components/skills/skill-runtime-picker.tsx` |
+| 技能库 | `web/src/pages/skills/` | `services/api/skills.ts`、`services/skill-runtime.ts`、`components/skills/skill-runtime-picker.tsx`；`lib/skill-access.ts` 区分有效用户使用与管理员管理，后端 `skills/authorization.go` 在业务边界核对账号，`handler/skill_authorization.go` 在管理请求解析前鉴权 |
 | 后台技能管理（`/admin/skills`、`/admin/skills/:skillId/edit`） | `web/src/pages/admin/skills/` | `skills-page.tsx` 列表、上下架与删除；`admin-skill-workbench-page.tsx` 以管理员接口挂载 `SkillWorkbench`；基本信息复用 `skill-editor-drawer.tsx` 的 `admin` 模式；接口 `services/api/admin-skills.ts`；后端 `handler/admin_skill_routes.go`、`app/admin_skills.go`（权限与审计）、`skills/skills_admin.go` |
 | 技能工作台（`/skills/:skillId/edit`） | `web/src/pages/skills/workbench/` | `index.tsx` 导出 `SkillWorkbench`（接口适配器 `SkillWorkbenchApi`，用户端与后台共用）并管工作副本、保存与离开保护；`skill-workbench-explorer.tsx` 文件树与键盘导航；`skill-code-editor.tsx` 单 EditorView + 每标签 EditorState；`skill-quick-open.tsx`；样式 `skill-workbench.css`；纯函数 `lib/skills/skill-workbench-model.ts`（文件树、路径校验、批量操作折叠） |
 | 画布列表 | `web/src/pages/canvas/index.tsx` | `stores/canvas/use-canvas-store.ts` |
