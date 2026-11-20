@@ -224,10 +224,7 @@ func (s *Service) videoLinkResource(ctx context.Context, userID string, parser *
 	send(VideoLinkEvent{Stage: "probing", Platform: meta.Platform, PlatformLabel: meta.PlatformLabel, Progress: 1, Message: "正在用 FFmpeg 校验视频"})
 	probe, err := probeVideoReplicationFile(ctx, file.Path)
 	if err != nil {
-		if errors.Is(err, errMediaProbeUnavailable) {
-			return nil, probe, false, &AppError{Status: http.StatusServiceUnavailable, Code: http.StatusServiceUnavailable, Message: "服务器缺少 ffprobe，暂时无法校验参考视频", Retryable: true}
-		}
-		return nil, probe, false, BadAuthRequest(videoReplicationBrokenVideoMessage + "（" + videoLinkText(err.Error(), 120) + "）")
+		return nil, probe, false, videoReplicationProbeUserError(err)
 	}
 	if probe.DurationMs < videoReplicationMinDurationMs-videoReplicationDurationSlackMs {
 		return nil, probe, false, BadAuthRequest(fmt.Sprintf("视频时长 %.1f 秒，短于 4 秒，不能作为参考视频", float64(probe.DurationMs)/1000))

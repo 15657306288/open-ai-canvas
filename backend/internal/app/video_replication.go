@@ -791,10 +791,7 @@ func (s *Service) AddVideoReplicationAsset(userID, projectID string, input Video
 		err := s.withVideoReplicationResourceFile(userID, resource.ID, videoReplicationMaxVideoBytes, func(_ *model.Resource, path string) error {
 			probe, probeErr := probeVideoReplicationFile(context.Background(), path)
 			if probeErr != nil {
-				if errors.Is(probeErr, errMediaProbeUnavailable) {
-					return &AppError{Status: 503, Code: 503, Message: "服务器缺少 ffprobe，暂时无法校验参考视频", Retryable: true}
-				}
-				return BadAuthRequest(videoReplicationBrokenVideoMessage + "（" + clipText(probeErr.Error(), 120) + "）")
+				return videoReplicationProbeUserError(probeErr)
 			}
 			// 超过后台时长上限的视频也可以导入，生成前用「裁剪视频」截出一段；裁剪后的时长在开始生成时校验。
 			if probe.DurationMs < videoReplicationMinDurationMs-videoReplicationDurationSlackMs {

@@ -38,11 +38,29 @@ const (
 	videoReplicationSceneThreshold = 0.32
 	videoReplicationMinShotMs      = 700
 	videoReplicationMaxShots       = 24
+	// videoReplicationProbeTimeout 高于通用 mediaProbeTimeout：参考视频最大 100MB、常见 4K 60fps，
+	// 服务器同时在做裁剪 / 合成编码时，ffprobe 读完整容器可能超过 20 秒并被强制结束。
+	videoReplicationProbeTimeout = 60 * time.Second
 )
 
 var videoReplicationVideoMimes = map[string]bool{"video/mp4": true, "video/quicktime": true}
 
 const videoReplicationBrokenVideoMessage = "参考视频文件已损坏或不完整，无法读取；请重新导出为 MP4 / MOV 后上传"
+
+// errVideoReplicationProbeInterrupted 表示 ffprobe 超时或被系统结束（Linux 上报 "signal: killed"），
+// 探测没有给出结论，不能据此判定文件损坏。
+var errVideoReplicationProbeInterrupted = errors.New("服务器校验参考视频超时，文件本身不一定有问题，请稍后重试；若反复出现，可先压缩到 1080p 再上传")
+
+// videoReplicationProbeUserError 把上传 / 导入阶段的探测失败翻译成给用户的提示。
+func videoReplicationProbeUserError(err error) error {
+	switch {
+	case errors.Is(err, errMediaProbeUnavailable):
+		return &AppError{Status: 503, Code: 503, Message: "服务器缺少 ffprobe，暂时无法校验参考视频", Retryable: true}
+	case errors.Is(err, errVideoReplicationProbeInterrupted):
+		return &AppError{Status: 503, Code: 503, Message: errVideoReplicationProbeInterrupted.Error(), Retryable: true}
+	}
+	return BadAuthRequest(videoReplicationBrokenVideoMessage + "（" + clipText(err.Error(), 120) + "）")
+}
 
 // videoReplicationVideoFileName 判断文件名是否是 MP4 / MOV，用来区分「格式不支持」和「文件损坏」。
 func videoReplicationVideoFileName(name string) bool {
@@ -65,15 +83,28 @@ func probeVideoReplicationFile(ctx context.Context, path string) (videoReplicati
 	if err != nil {
 		return videoReplicationProbe{}, errMediaProbeUnavailable
 	}
-	ctx, cancel := context.WithTimeout(ctx, mediaProbeTimeout)
+	ctx, cancel := context.WithTimeout(ctx, videoReplicationProbeTimeout)
 	defer cancel()
 	output, err := exec.CommandContext(ctx, bin, "-v", "error",
 		"-show_entries", "stream=codec_type,codec_name,width,height,avg_frame_rate,r_frame_rate:stream_side_data=rotation:format=duration",
 		"-of", "json", path).Output()
 	if err != nil {
-		return videoReplicationProbe{}, fmt.Errorf("视频探测失败：%w", err)
+		return videoReplicationProbe{}, videoReplicationProbeFailure(ctx, err)
 	}
 	return parseVideoReplicationProbe(output)
+}
+
+// videoReplicationProbeFailure 区分「探测被中止」（超时、被信号结束）和「ffprobe 读完后报错」。
+func videoReplicationProbeFailure(ctx context.Context, err error) error {
+	var exitErr *exec.ExitError
+	signaled := errors.As(err, &exitErr) && !exitErr.Exited()
+	if signaled || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return fmt.Errorf("%w（%v）", errVideoReplicationProbeInterrupted, err)
+	}
+	if exitErr != nil && len(bytes.TrimSpace(exitErr.Stderr)) > 0 {
+		return fmt.Errorf("视频探测失败：%s", clipText(strings.TrimSpace(string(exitErr.Stderr)), 100))
+	}
+	return fmt.Errorf("视频探测失败：%w", err)
 }
 
 func parseVideoReplicationProbe(raw []byte) (videoReplicationProbe, error) {
