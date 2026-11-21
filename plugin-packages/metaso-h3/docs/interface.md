@@ -75,7 +75,7 @@ status 取值：queued / running / succeeded / failed / cancelled。
   "apiVersion": "yingce.plugin/v2",
   "id": "metaso-h3",
   "name": "METASO MiniMax H3",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "author": "METASO",
   "description": "秘塔 METASO MiniMax H3 文生视频/图生视频协议插件（异步任务）。",
   "permissions": [
